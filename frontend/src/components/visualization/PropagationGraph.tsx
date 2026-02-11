@@ -171,21 +171,21 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       layout: {
         type: 'force',
         preventOverlap: true,
-        nodeSize: 50,
-        nodeSpacing: 15,
-        nodeStrength: -400,
-        edgeStrength: 0.3,
+        nodeSize: 60,
+        nodeSpacing: 40,
+        nodeStrength: -800,
+        edgeStrength: 0.2,
         linkDistance: (edge: Record<string, unknown>) => {
           const ed = (edge as { data: GraphEdge }).data
-          if (ed?.similarity_category === 'same') return 120
-          if (ed?.similarity_category === 'derivative') return 180
-          return 250
+          if (ed?.similarity_category === 'same') return 160
+          if (ed?.similarity_category === 'derivative') return 240
+          return 320
         },
         alpha: 0.3,
-        alphaDecay: 0.08,
+        alphaDecay: 0.06,
         alphaMin: 0.01,
-        collideStrength: 0.8,
-        maxIteration: 500,
+        collideStrength: 1.0,
+        maxIteration: 800,
         animated: false,
       },
       behaviors: [
@@ -205,13 +205,17 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       if (nodeId) handleNodeClick(nodeId)
     })
 
-    // render() returns a Promise in G6 v5 — catch errors from destroyed graphs
-    const renderPromise = graph.render()
-    if (renderPromise && typeof renderPromise.catch === 'function') {
-      renderPromise.catch(() => {
-        // Graph was destroyed before render completed — safe to ignore
-      })
-    }
+    // Defer render to next frame so React StrictMode cleanup can cancel it
+    const rafId = requestAnimationFrame(() => {
+      if (!destroyedRef.current && graphRef.current) {
+        const renderPromise = graph.render()
+        if (renderPromise && typeof renderPromise.catch === 'function') {
+          renderPromise.catch(() => {
+            // Graph was destroyed before render completed — safe to ignore
+          })
+        }
+      }
+    })
 
     const handleResize = () => {
       if (graphRef.current && containerRef.current && !destroyedRef.current) {
@@ -225,6 +229,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
 
     return () => {
       destroyedRef.current = true
+      cancelAnimationFrame(rafId)
       window.removeEventListener('resize', handleResize)
       if (graphRef.current) {
         try {
@@ -296,7 +301,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
         </button>
         {showLegend && (
           <div className="flex flex-wrap gap-2 rounded-lg bg-gray-900/80 p-2 backdrop-blur-sm">
-            {(['origin', 'spread', 'explosion', 'sustained', 'fadeout', 'isolated'] as LifecycleStage[]).map(
+            {(['origin', 'spread', 'explosion', 'sustained', 'fadeout'] as LifecycleStage[]).map(
               (stage) => (
                 <div key={stage} className="flex items-center gap-1">
                   <span
