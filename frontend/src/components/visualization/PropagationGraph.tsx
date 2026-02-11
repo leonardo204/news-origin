@@ -13,6 +13,7 @@ interface PropagationGraphProps {
 export default function PropagationGraph({ nodes, edges, onNodeClick }: PropagationGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const graphRef = useRef<Graph | null>(null)
+  const destroyedRef = useRef(false)
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -32,13 +33,48 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
     [onNodeClick],
   )
 
+  // ESC to exit fullscreen — must be before any early return
+  useEffect(() => {
+    if (!isFullscreen) return
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsFullscreen(false)
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [isFullscreen])
+
+  const handleZoomIn = useCallback(() => {
+    if (graphRef.current) graphRef.current.zoomTo(1.3)
+  }, [])
+  const handleZoomOut = useCallback(() => {
+    if (graphRef.current) graphRef.current.zoomTo(0.7)
+  }, [])
+  const handleFitView = useCallback(() => {
+    if (graphRef.current) graphRef.current.fitView()
+  }, [])
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev)
+    setTimeout(() => {
+      if (graphRef.current && containerRef.current) {
+        graphRef.current.resize(
+          containerRef.current.offsetWidth,
+          containerRef.current.offsetHeight,
+        )
+        graphRef.current.fitView()
+      }
+    }, 100)
+  }, [])
+
   useEffect(() => {
     if (!containerRef.current || nodes.length === 0) return
 
+    // Clean up previous graph
     if (graphRef.current) {
       graphRef.current.destroy()
       graphRef.current = null
     }
+
+    destroyedRef.current = false
 
     const container = containerRef.current
     const width = container.offsetWidth
@@ -135,14 +171,22 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       layout: {
         type: 'force',
         preventOverlap: true,
-        nodeStrength: -350,
-        edgeStrength: 0.6,
+        nodeSize: 50,
+        nodeSpacing: 15,
+        nodeStrength: -400,
+        edgeStrength: 0.3,
         linkDistance: (edge: Record<string, unknown>) => {
           const ed = (edge as { data: GraphEdge }).data
-          if (ed?.similarity_category === 'same') return 100
-          if (ed?.similarity_category === 'derivative') return 150
-          return 200
+          if (ed?.similarity_category === 'same') return 120
+          if (ed?.similarity_category === 'derivative') return 180
+          return 250
         },
+        alpha: 0.3,
+        alphaDecay: 0.08,
+        alphaMin: 0.01,
+        collideStrength: 0.8,
+        maxIteration: 500,
+        animated: false,
       },
       behaviors: [
         'zoom-canvas',
@@ -151,7 +195,8 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       ],
     })
 
-    graph.render()
+    // Set ref BEFORE render so cleanup can always find it
+    graphRef.current = graph
 
     // Click handler
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,10 +205,16 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       if (nodeId) handleNodeClick(nodeId)
     })
 
-    graphRef.current = graph
+    // render() returns a Promise in G6 v5 — catch errors from destroyed graphs
+    const renderPromise = graph.render()
+    if (renderPromise && typeof renderPromise.catch === 'function') {
+      renderPromise.catch(() => {
+        // Graph was destroyed before render completed — safe to ignore
+      })
+    }
 
     const handleResize = () => {
-      if (graphRef.current && containerRef.current) {
+      if (graphRef.current && containerRef.current && !destroyedRef.current) {
         graphRef.current.resize(
           containerRef.current.offsetWidth,
           Math.max(550, containerRef.current.offsetHeight),
@@ -173,9 +224,14 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
     window.addEventListener('resize', handleResize)
 
     return () => {
+      destroyedRef.current = true
       window.removeEventListener('resize', handleResize)
       if (graphRef.current) {
-        graphRef.current.destroy()
+        try {
+          graphRef.current.destroy()
+        } catch {
+          // Already destroyed — safe to ignore
+        }
         graphRef.current = null
       }
     }
@@ -188,38 +244,6 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       </div>
     )
   }
-
-  // ESC to exit fullscreen
-  useEffect(() => {
-    if (!isFullscreen) return
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsFullscreen(false)
-    }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [isFullscreen])
-
-  const handleZoomIn = useCallback(() => {
-    if (graphRef.current) graphRef.current.zoomTo(1.3)
-  }, [])
-  const handleZoomOut = useCallback(() => {
-    if (graphRef.current) graphRef.current.zoomTo(0.7)
-  }, [])
-  const handleFitView = useCallback(() => {
-    if (graphRef.current) graphRef.current.fitView()
-  }, [])
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev)
-    setTimeout(() => {
-      if (graphRef.current && containerRef.current) {
-        graphRef.current.resize(
-          containerRef.current.offsetWidth,
-          containerRef.current.offsetHeight,
-        )
-        graphRef.current.fitView()
-      }
-    }, 100)
-  }, [])
 
   return (
     <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-4' : ''}`}>
