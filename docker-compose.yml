@@ -136,7 +136,7 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://backend:8000
     depends_on:
       - backend
     mem_limit: 512m
