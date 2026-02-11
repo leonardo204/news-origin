@@ -1,11 +1,15 @@
 """
 # news_search.py - News Search Service
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: Google News RSS + GNews API 기반 뉴스 검색
 # Changes:
 #   - 0.1.0: Google News RSS 검색, GNews API 폴백
+#   - 0.2.0: Google News article ID base64 디코딩으로 실제 URL 추출
 """
 
+import base64
+import logging
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Optional
@@ -16,6 +20,7 @@ import httpx
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def search_news(query: str, limit: int = 10) -> list[dict]:
@@ -69,13 +74,25 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
             # 발행 시간 파싱 (RFC 2822)
             published_at = _parse_rfc2822(pub_date_str)
 
-            if link:
-                results.append({
-                    "url": link,
-                    "title": _clean_title(title, source),
-                    "publisher": source,
-                    "published_at": published_at,
-                })
+            if not link:
+                continue
+
+            # Google News redirect URL → 실제 기사 URL 디코딩
+            actual_url = link
+            if "news.google.com" in link:
+                decoded = _decode_google_news_url(link)
+                if decoded:
+                    actual_url = decoded
+                else:
+                    logger.debug(f"Skipping unresolvable Google News URL: {link[:80]}")
+                    continue  # 실제 URL을 못 찾으면 스킵
+
+            results.append({
+                "url": actual_url,
+                "title": _clean_title(title, source),
+                "publisher": source,
+                "published_at": published_at,
+            })
     except ET.ParseError:
         pass
 
@@ -116,22 +133,29 @@ async def _search_gnews(query: str, limit: int = 10) -> list[dict]:
 
 
 def _parse_rfc2822(date_str: str) -> Optional[datetime]:
-    """RFC 2822 날짜 파싱"""
+    """RFC 2822 날짜 파싱 (tz-naive로 반환)"""
     if not date_str:
         return None
     from email.utils import parsedate_to_datetime
     try:
-        return parsedate_to_datetime(date_str)
+        dt = parsedate_to_datetime(date_str)
+        # Article.published_at is TIMESTAMP WITHOUT TIME ZONE
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
     except (ValueError, TypeError):
         return None
 
 
 def _parse_iso(date_str: Optional[str]) -> Optional[datetime]:
-    """ISO 8601 날짜 파싱"""
+    """ISO 8601 날짜 파싱 (tz-naive로 반환)"""
     if not date_str:
         return None
     try:
-        return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
     except ValueError:
         return None
 
@@ -142,3 +166,35 @@ def _clean_title(title: str, source: str) -> str:
     if source and title.endswith(f" - {source}"):
         return title[: -(len(source) + 3)]
     return title
+
+
+def _decode_google_news_url(gnews_url: str) -> Optional[str]:
+    """
+    Google News article ID에서 실제 기사 URL 추출
+
+    googlenewsdecoder 라이브러리를 사용하여 Google의 암호화된
+    article ID를 디코딩합니다.
+    """
+    try:
+        from googlenewsdecoder import new_decoderv1
+
+        result = new_decoderv1(gnews_url, interval=0.5)
+        if result.get("status") and result.get("decoded_url"):
+            return result["decoded_url"]
+
+        # 일부 URL은 article ID가 복합 형태 — CBMi 부분만 추출하여 재시도
+        if "/articles/" in gnews_url:
+            article_id = gnews_url.split("/articles/")[-1].split("?")[0]
+            # 0SB 또는 9IB 이후 부분 제거 (AMP URL 부분)
+            for sep in ["0SB", "9IB", "0IB", "ISBI"]:
+                if sep in article_id:
+                    short_id = article_id[:article_id.index(sep)]
+                    short_url = f"https://news.google.com/rss/articles/{short_id}?oc=5"
+                    result2 = new_decoderv1(short_url, interval=0.5)
+                    if result2.get("status") and result2.get("decoded_url"):
+                        return result2["decoded_url"]
+
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to decode Google News URL: {e}")
+        return None

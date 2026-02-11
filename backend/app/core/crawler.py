@@ -28,20 +28,30 @@ async def crawl_article(url: str) -> Optional[dict]:
     [BUSINESS LOGIC - DO NOT MODIFY]
     크롤링 간격은 최소 crawl_delay_seconds(기본 2초)를 유지해야 함 (robots.txt 준수)
     """
-    html = await _fetch_html(url)
+    html, final_url = await _fetch_html(url)
     if not html:
         return None
 
+    # Google News URL 해결
+    actual_url = final_url
+    if "news.google.com" in final_url:
+        resolved = _resolve_google_news_url(final_url, html)
+        if resolved and resolved != final_url:
+            # 실제 기사 URL을 다시 크롤링
+            html, actual_url = await _fetch_html(resolved)
+            if not html:
+                return None
+
     # 1차: trafilatura (정확도 최고)
-    result = _extract_with_trafilatura(html, url)
+    result = _extract_with_trafilatura(html, actual_url)
 
     # 2차: newspaper4k (폴백)
     if not result:
-        result = await _extract_with_newspaper(url)
+        result = await _extract_with_newspaper(actual_url)
 
     if result:
-        result["url"] = url
-        result["publisher_domain"] = urlparse(url).netloc
+        result["url"] = actual_url
+        result["publisher_domain"] = urlparse(actual_url).netloc
 
     return result
 
@@ -73,8 +83,8 @@ async def crawl_articles_batch(urls: list[str]) -> list[dict]:
     return results
 
 
-async def _fetch_html(url: str) -> Optional[str]:
-    """HTML 다운로드"""
+async def _fetch_html(url: str) -> tuple[Optional[str], str]:
+    """HTML 다운로드, returns (html, final_url)"""
     async with httpx.AsyncClient(
         headers={"User-Agent": settings.crawl_user_agent},
         timeout=15.0,
@@ -83,9 +93,49 @@ async def _fetch_html(url: str) -> Optional[str]:
         try:
             response = await client.get(url)
             response.raise_for_status()
-            return response.text
+            return response.text, str(response.url)
         except httpx.HTTPError:
-            return None
+            return None, url
+
+
+def _resolve_google_news_url(url: str, html: str) -> str:
+    """
+    Google News redirect URL에서 실제 기사 URL 추출
+
+    방법 1: googlenewsdecoder 라이브러리 (가장 신뢰도 높음)
+    방법 2: HTML 패턴 매칭 (폴백)
+    """
+    import re
+
+    # 방법 1: googlenewsdecoder 라이브러리
+    try:
+        from googlenewsdecoder import new_decoderv1
+
+        result = new_decoderv1(url, interval=0.5)
+        if result.get("status") and result.get("decoded_url"):
+            return result["decoded_url"]
+    except Exception:
+        pass
+
+    # 방법 2: HTML 패턴 매칭 (폴백)
+    match = re.search(r'data-n-au="([^"]+)"', html)
+    if match:
+        return match.group(1)
+
+    match = re.search(r'<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^;]+;\s*url=([^"\']+)', html, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    match = re.search(r'window\.location(?:\.href|\.replace)\s*=\s*["\']([^"\']+)["\']', html)
+    if match:
+        return match.group(1)
+
+    matches = re.findall(r'<a[^>]+href=["\'](https://[^"\']+)["\']', html)
+    for href in matches:
+        if "google.com" not in href and "googleusercontent.com" not in href:
+            return href
+
+    return url
 
 
 def _extract_with_trafilatura(html: str, url: str) -> Optional[dict]:
