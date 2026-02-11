@@ -1,0 +1,42 @@
+# Backend Dependencies - News Origin
+# Version: 0.1.0
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Database
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Vector DB
+qdrant-client>=1.7.0
+
+# Cache / Queue
+redis>=5.0.0
+celery>=5.3.6
+
+# News Crawling
+trafilatura>=1.8.0
+newspaper4k>=0.9.3
+httpx>=0.26.0
+
+# NLP / Embeddings
+sentence-transformers>=2.3.0
+scikit-learn>=1.4.0
+datasketch>=1.6.4
+kiwipiepy>=0.17.0
+
+# Rate Limiting
+slowapi>=0.1.9
+
+# Utilities
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

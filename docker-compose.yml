@@ -1,0 +1,162 @@
+# docker-compose.yml - News Origin Service Orchestration
+# Version: 0.1.0
+# Description: PostgreSQL + Qdrant + Redis + FastAPI + Celery + React + Nginx
+
+services:
+  # ── PostgreSQL (Relational Data) ──
+  postgres:
+    image: postgres:15-alpine
+    container_name: newsorigin-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-newsorigin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newsorigin_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-newsorigin}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-newsorigin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # ── Qdrant (Vector DB) ──
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: newsorigin-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./docker/qdrant/config.yaml:/qdrant/config/production.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    mem_limit: 4g
+    restart: unless-stopped
+
+  # ── Redis (Cache + Celery Broker) ──
+  redis:
+    image: redis:7-alpine
+    container_name: newsorigin-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 1g
+    restart: unless-stopped
+
+  # ── Backend (FastAPI) ──
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: newsorigin-backend
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://newsorigin:newsorigin_dev_password@postgres:5432/newsorigin}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - APP_ENV=${APP_ENV:-development}
+      - APP_DEBUG=${APP_DEBUG:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # ── Celery Worker ──
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: newsorigin-celery
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://newsorigin:newsorigin_dev_password@postgres:5432/newsorigin}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # ── Frontend (React - dev server) ──
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: newsorigin-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # ── Nginx (Reverse Proxy) ──
+  nginx:
+    image: nginx:alpine
+    container_name: newsorigin-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:

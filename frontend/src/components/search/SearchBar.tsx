@@ -1,0 +1,154 @@
+import { useState, useCallback, useEffect, useRef, type FormEvent } from 'react'
+import { Search, Link as LinkIcon, Clock, X, Command } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { useTrackingStore } from '@/stores/useTrackingStore'
+
+const STORAGE_KEY = 'news-origin:recent-searches'
+const MAX_RECENT = 5
+
+function getRecentSearches(): string[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function addRecentSearch(query: string) {
+  const recent = getRecentSearches().filter((q) => q !== query)
+  recent.unshift(query)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)))
+}
+
+function clearRecentSearches() {
+  localStorage.removeItem(STORAGE_KEY)
+}
+
+export default function SearchBar() {
+  const { searchQuery, setSearchQuery, submitSearch, isSearching } = useTrackingStore()
+  const [focused, setFocused] = useState(false)
+  const [recentSearches, setRecentSearches] = useState<string[]>(getRecentSearches)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Ctrl+K / Cmd+K to focus search, Escape to clear
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+      if (e.key === 'Escape' && document.activeElement === inputRef.current) {
+        setSearchQuery('')
+        inputRef.current?.blur()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [setSearchQuery])
+
+  const handleSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault()
+      if (!searchQuery.trim()) return
+      addRecentSearch(searchQuery.trim())
+      setRecentSearches(getRecentSearches())
+      submitSearch()
+    },
+    [searchQuery, submitSearch],
+  )
+
+  const handleRecentClick = useCallback(
+    (query: string) => {
+      setSearchQuery(query)
+      addRecentSearch(query)
+      setRecentSearches(getRecentSearches())
+      // Defer submit to next tick so store updates
+      setTimeout(() => {
+        useTrackingStore.getState().submitSearch()
+      }, 0)
+    },
+    [setSearchQuery],
+  )
+
+  const handleClearRecent = useCallback(() => {
+    clearRecentSearches()
+    setRecentSearches([])
+  }, [])
+
+  const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://')
+
+  return (
+    <div className="w-full max-w-2xl">
+      <form onSubmit={handleSubmit}>
+        <div
+          className={`flex items-center gap-2 rounded-xl border bg-gray-900/50 px-4 py-3 transition-all ${
+            focused
+              ? 'border-lifecycle-origin shadow-lg shadow-lifecycle-origin/10'
+              : 'border-border'
+          }`}
+        >
+          {isUrl ? (
+            <LinkIcon className="h-5 w-5 shrink-0 text-lifecycle-origin" />
+          ) : (
+            <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
+          )}
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 150)}
+            placeholder="뉴스 URL을 붙여넣거나 기사 제목을 입력하세요..."
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            disabled={isSearching}
+            aria-label="뉴스 기사 검색"
+            autoComplete="off"
+          />
+          {!focused && !searchQuery && (
+            <kbd className="hidden items-center gap-0.5 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:flex">
+              <Command className="h-2.5 w-2.5" />K
+            </kbd>
+          )}
+          <Button type="submit" size="sm" disabled={isSearching || !searchQuery.trim()}>
+            {isSearching ? '검색 중...' : '추적'}
+          </Button>
+        </div>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          URL을 입력하면 해당 기사를 기원점으로 추적합니다. 제목을 입력하면 관련 기사를 먼저 검색합니다.
+        </p>
+      </form>
+
+      {/* Recent searches */}
+      {recentSearches.length > 0 && !searchQuery && (
+        <div className="mt-3 rounded-lg border border-border bg-gray-900/30 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              최근 검색
+            </span>
+            <button
+              onClick={handleClearRecent}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+              삭제
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentSearches.map((query) => (
+              <button
+                key={query}
+                onClick={() => handleRecentClick(query)}
+                className="rounded-md bg-secondary/50 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                {query.length > 40 ? query.slice(0, 40) + '...' : query}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

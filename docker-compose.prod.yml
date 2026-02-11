@@ -1,0 +1,130 @@
+# docker-compose.prod.yml - News Origin Production
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: newsorigin-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-newsorigin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-newsorigin}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-newsorigin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 2g
+    restart: always
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: newsorigin-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./docker/qdrant/config.yaml:/qdrant/config/production.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    mem_limit: 4g
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: newsorigin-redis
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 1g
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: newsorigin-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 2g
+    restart: always
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: newsorigin-celery
+    command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=4
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 2g
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: newsorigin-frontend
+    mem_limit: 512m
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: newsorigin-nginx
+    ports:
+      - "${PORT:-80}:80"
+    volumes:
+      - ./docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    mem_limit: 256m
+    restart: always
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:

@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 142 71% 45%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .lifecycle-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .lifecycle-origin {
+    @apply bg-green-500/15 text-green-400 ring-1 ring-green-500/30;
+  }
+  .lifecycle-spread {
+    @apply bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30;
+  }
+  .lifecycle-explosion {
+    @apply bg-red-500/15 text-red-400 ring-1 ring-red-500/30;
+  }
+  .lifecycle-sustained {
+    @apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30;
+  }
+  .lifecycle-fadeout {
+    @apply bg-gray-500/15 text-gray-400 ring-1 ring-gray-500/30;
+  }
+  .lifecycle-resurge {
+    @apply bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/30;
+  }
+  .lifecycle-isolated {
+    @apply bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/30;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
