@@ -17,7 +17,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
   }
 
   // Group items by lifecycle stage for scatter series
-  const stages = ['origin', 'spread', 'explosion', 'sustained', 'fadeout', 'resurge', 'isolated'] as LifecycleStage[]
+  const stages = ['origin', 'spread', 'explosion', 'sustained', 'fadeout', 'resurge'] as LifecycleStage[]
   const series = stages
     .map((stage) => {
       const stageItems = items.filter((item) => item.lifecycle_stage === stage)
@@ -86,7 +86,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
       left: 50,
       right: 30,
       top: 50,
-      bottom: 40,
+      bottom: 65,
     },
     xAxis: {
       type: 'time',
@@ -98,7 +98,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
       type: 'value',
       name: '유사도',
       nameTextStyle: { color: '#9ca3af', fontSize: 11 },
-      min: 0,
+      min: (value: { min: number }) => Math.max(0, Math.floor((value.min - 0.05) * 10) / 10),
       max: 1,
       axisLine: { lineStyle: { color: '#374151' } },
       axisLabel: {
@@ -108,6 +108,25 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
       },
       splitLine: { lineStyle: { color: '#1f2937' } },
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none',
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 20,
+        bottom: 8,
+        borderColor: '#374151',
+        backgroundColor: '#111827',
+        fillerColor: 'rgba(59, 130, 246, 0.15)',
+        handleStyle: { color: '#3b82f6' },
+        textStyle: { color: '#9ca3af', fontSize: 10 },
+        filterMode: 'none',
+      },
+    ],
     series,
   }
 
