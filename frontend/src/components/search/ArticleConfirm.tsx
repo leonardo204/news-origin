@@ -96,7 +96,7 @@ function CandidateList({
   disabled,
 }: {
   candidates: TrackCandidate[]
-  onSelect: (url: string) => Promise<void>
+  onSelect: (candidate: { url: string; title?: string; publisher?: string; published_at?: string }) => Promise<void>
   disabled: boolean
 }) {
   return (
@@ -110,7 +110,12 @@ function CandidateList({
           className={`transition-colors ${disabled ? 'opacity-50' : 'cursor-pointer hover:border-lifecycle-origin/50'}`}
           onClick={() => {
             if (!disabled) {
-              onSelect(candidate.url)
+              onSelect({
+                url: candidate.url,
+                title: candidate.title,
+                publisher: candidate.publisher ?? undefined,
+                published_at: candidate.published_at ? String(candidate.published_at) : undefined,
+              })
             }
           }}
         >

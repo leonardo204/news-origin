@@ -29,6 +29,9 @@ export type LifecycleStage =
 // Track request/response
 export interface TrackInput {
   text: string
+  title?: string
+  publisher?: string
+  published_at?: string
 }
 
 export interface TrackCandidate {

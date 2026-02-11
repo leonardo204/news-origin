@@ -16,6 +16,9 @@ from app.schemas.article import ArticleResponse
 class TrackInput(BaseModel):
     """기사 추적 요청"""
     text: str = Field(..., min_length=2, max_length=2000)
+    title: str | None = None       # RSS에서 가져온 제목 (폴백용)
+    publisher: str | None = None   # RSS에서 가져온 언론사 (폴백용)
+    published_at: str | None = None  # RSS에서 가져온 발행일 (폴백용, 문자열로 수신)
 
 
 class TrackCandidate(BaseModel):

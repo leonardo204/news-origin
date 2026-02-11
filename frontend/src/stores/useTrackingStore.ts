@@ -35,7 +35,7 @@ interface TrackingState {
   // Actions
   setSearchQuery: (query: string) => void
   submitSearch: () => Promise<void>
-  selectCandidate: (url: string) => Promise<void>
+  selectCandidate: (candidate: { url: string; title?: string; publisher?: string; published_at?: string }) => Promise<void>
   confirmArticle: (articleId: string) => Promise<void>
   pollStatus: () => Promise<void>
   loadTimeline: (trackingId: string) => Promise<void>
@@ -74,10 +74,15 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
     }
   },
 
-  selectCandidate: async (url) => {
+  selectCandidate: async (candidate) => {
     set({ isSearching: true, searchError: null })
     try {
-      const result = await api.trackArticle({ text: url })
+      const result = await api.trackArticle({
+        text: candidate.url,
+        title: candidate.title,
+        publisher: candidate.publisher,
+        published_at: candidate.published_at,
+      })
       if (result.article) {
         set({ searchResult: result, isSearching: false })
         // Auto-confirm: start tracking immediately

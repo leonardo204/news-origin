@@ -1,11 +1,13 @@
 """
 # articles.py - Article API Routes
-# Version: 0.2.0
+# Version: 0.2.1
 # Description: 기사 추적 요청, 확인, 상세 조회 API
 """
+from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,6 +33,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 URL_PATTERN = re.compile(r"^https?://")
+
+
+def _is_poor_metadata(value: str | None) -> bool:
+    """메타데이터가 유효하지 않은지 확인"""
+    if not value:
+        return True
+    lower = str(value).lower().strip()
+    return lower in ("", "google news", "news.google.com") or "google.com" in lower
+
+
+def _parse_date_str(date_str: str | None) -> datetime | None:
+    """날짜 문자열을 datetime으로 변환 (tz-naive로 통일)"""
+    if not date_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        # Strip timezone — Article.published_at is TIMESTAMP WITHOUT TIME ZONE
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
+    except (ValueError, AttributeError):
+        pass
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return None
 
 
 @router.post(
@@ -70,7 +98,18 @@ async def track_article(
         if not article_data:
             raise HTTPException(status_code=404, detail="기사를 크롤링할 수 없습니다.")
 
+        # Google News 등 메타데이터 추출 실패 시 RSS 메타데이터로 폴백
+        if _is_poor_metadata(article_data.get("title", "")) and body.title:
+            article_data["title"] = body.title
+        if _is_poor_metadata(article_data.get("publisher", "")) and body.publisher:
+            article_data["publisher"] = body.publisher
+            article_data["publisher_domain"] = body.publisher
+        if not article_data.get("published_at") and body.published_at:
+            article_data["published_at"] = _parse_date_str(body.published_at)
+
         article = await _upsert_article(db, article_data)
+        # Refresh to load server-default values (created_at)
+        await db.refresh(article)
 
         log = SearchLog(query=input_text, input_type="url", result_count=1)
         db.add(log)
