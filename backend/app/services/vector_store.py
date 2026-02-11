@@ -116,9 +116,9 @@ def search_similar(
             )
         query_filter = models.Filter(must=must_conditions)
 
-    results = client.search(
+    response = client.query_points(
         collection_name=settings.qdrant_collection,
-        query_vector=embedding,
+        query=embedding,
         limit=limit,
         score_threshold=score_threshold,
         query_filter=query_filter,
@@ -130,5 +130,5 @@ def search_similar(
             "score": hit.score,
             "payload": hit.payload,
         }
-        for hit in results
+        for hit in response.points
     ]
