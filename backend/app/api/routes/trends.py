@@ -156,9 +156,13 @@ async def get_stats_overview(
     # Query database
     tracking_count = await db.execute(select(func.count(TrackingRequest.id)))
     article_count = await db.execute(select(func.count(Article.id)))
+
+    # Only count trackings that started within last 15 minutes as active
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
     active_count = await db.execute(
         select(func.count(TrackingRequest.id)).where(
-            TrackingRequest.status == "processing"
+            TrackingRequest.status == "processing",
+            TrackingRequest.created_at >= stale_cutoff,
         )
     )
 

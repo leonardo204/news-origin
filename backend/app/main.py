@@ -76,6 +76,22 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Could not auto-create DB tables: {e}")
 
+    # Clean up stuck "processing" trackings from previous crashes
+    try:
+        from datetime import datetime, timedelta, timezone
+        from app.models.timeline import TrackingRequest as TR
+
+        async with engine.begin() as conn:
+            stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+            await conn.execute(
+                sa.update(TR.__table__)
+                .where(TR.status == "processing", TR.created_at < stale_cutoff)
+                .values(status="error", error_message="서버 재시작으로 중단되었습니다.")
+            )
+        logger.info("Cleaned up stale processing trackings")
+    except Exception as e:
+        logger.warning(f"Could not clean up stale trackings: {e}")
+
     # Qdrant 컬렉션 초기화
     try:
         from app.services.vector_store import ensure_collection
