@@ -21,6 +21,11 @@ function addRecentSearch(query: string) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)))
 }
 
+function removeRecentSearch(query: string) {
+  const recent = getRecentSearches().filter((q) => q !== query)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent))
+}
+
 function clearRecentSearches() {
   localStorage.removeItem(STORAGE_KEY)
 }
@@ -70,6 +75,11 @@ export default function SearchBar() {
     },
     [setSearchQuery],
   )
+
+  const handleRemoveRecent = useCallback((query: string) => {
+    removeRecentSearch(query)
+    setRecentSearches(getRecentSearches())
+  }, [])
 
   const handleClearRecent = useCallback(() => {
     clearRecentSearches()
@@ -138,13 +148,24 @@ export default function SearchBar() {
           </div>
           <div className="flex flex-wrap gap-2">
             {recentSearches.map((query) => (
-              <button
+              <span
                 key={query}
-                onClick={() => handleRecentClick(query)}
-                className="rounded-md bg-secondary/50 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="group flex items-center gap-1 rounded-md bg-secondary/50 py-1 pl-2.5 pr-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
-                {query.length > 40 ? query.slice(0, 40) + '...' : query}
-              </button>
+                <button onClick={() => handleRecentClick(query)} className="truncate">
+                  {query.length > 40 ? query.slice(0, 40) + '...' : query}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRemoveRecent(query)
+                  }}
+                  className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
+                  aria-label={`'${query}' 삭제`}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
             ))}
           </div>
         </div>
