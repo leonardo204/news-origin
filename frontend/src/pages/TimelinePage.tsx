@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import ViewToggle from '@/components/visualization/ViewToggle'
 import LifecyclePanel from '@/components/visualization/LifecyclePanel'
-import IsolatedArticles from '@/components/visualization/IsolatedArticles'
 import ArticleDetailPanel from '@/components/visualization/ArticleDetailPanel'
 import ArticleList from '@/components/visualization/ArticleList'
 import { useTrackingStore } from '@/stores/useTrackingStore'
@@ -191,7 +190,7 @@ export default function TimelinePage() {
     )
   }
 
-  const { origin_article, graph, lifecycle, explosions, isolated_articles } = timeline
+  const { origin_article, graph, lifecycle, explosions } = timeline
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
@@ -325,9 +324,8 @@ export default function TimelinePage() {
           </Card>
 
           {/* Sidebar - shown inline on mobile */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:hidden">
+          <div className="lg:hidden">
             <LifecyclePanel lifecycle={lifecycle} />
-            <IsolatedArticles articles={isolated_articles} />
           </div>
 
           {/* Article list */}
@@ -337,7 +335,6 @@ export default function TimelinePage() {
         {/* Sidebar - desktop only */}
         <div className="hidden space-y-4 lg:block">
           <LifecyclePanel lifecycle={lifecycle} />
-          <IsolatedArticles articles={isolated_articles} />
         </div>
       </div>
     </div>

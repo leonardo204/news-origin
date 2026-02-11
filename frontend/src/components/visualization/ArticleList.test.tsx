@@ -31,15 +31,6 @@ const mockItems: TimelineItem[] = [
     lifecycle_stage: 'explosion',
     url: null,
   },
-  {
-    article_id: '4',
-    title: '고립 기사 제목',
-    publisher: '매일경제',
-    published_at: '2024-01-15T16:00:00Z',
-    similarity_score: 0.45,
-    lifecycle_stage: 'isolated',
-    url: 'https://example.com/4',
-  },
 ]
 
 describe('ArticleList', () => {
@@ -50,7 +41,7 @@ describe('ArticleList', () => {
 
   it('renders article count', () => {
     render(<ArticleList items={mockItems} />)
-    expect(screen.getByText('4건')).toBeInTheDocument()
+    expect(screen.getByText('3건')).toBeInTheDocument()
   })
 
   it('renders all article titles', () => {
@@ -58,7 +49,6 @@ describe('ArticleList', () => {
     expect(screen.getByText('기원 기사 제목')).toBeInTheDocument()
     expect(screen.getByText('확산 기사 제목')).toBeInTheDocument()
     expect(screen.getByText('폭발 기사 제목')).toBeInTheDocument()
-    expect(screen.getByText('고립 기사 제목')).toBeInTheDocument()
   })
 
   it('renders publisher names', () => {
@@ -79,7 +69,6 @@ describe('ArticleList', () => {
     expect(screen.getByText('기원')).toBeInTheDocument()
     expect(screen.getByText('확산')).toBeInTheDocument()
     expect(screen.getByText('폭발')).toBeInTheDocument()
-    expect(screen.getByText('고립')).toBeInTheDocument()
   })
 
   it('shows filter panel when filter button is clicked', () => {
@@ -97,7 +86,7 @@ describe('ArticleList', () => {
     fireEvent.click(stageButtons[0])
 
     // Should show filtered count
-    expect(screen.getByText(/1건 \/ 전체 4건/)).toBeInTheDocument()
+    expect(screen.getByText(/1건 \/ 전체 3건/)).toBeInTheDocument()
   })
 
   it('resets filter when reset button is clicked', () => {
@@ -109,7 +98,7 @@ describe('ArticleList', () => {
     // Click reset
     fireEvent.click(screen.getByText('초기화'))
     // Should show full count again
-    expect(screen.getByText('4건')).toBeInTheDocument()
+    expect(screen.getByText('3건')).toBeInTheDocument()
   })
 
   it('shows empty state when filter matches nothing', () => {
@@ -141,7 +130,7 @@ describe('ArticleList', () => {
     expect(scores[0].textContent).toBe('100.0%')
     expect(scores[1].textContent).toBe('85.0%')
     expect(scores[2].textContent).toBe('72.0%')
-    expect(scores[3].textContent).toBe('45.0%')
+    expect(scores[2].textContent).toBe('72.0%')
   })
 
   it('toggles sort direction on re-click', () => {
@@ -151,8 +140,8 @@ describe('ArticleList', () => {
     fireEvent.click(screen.getByText('유사도'))
 
     const scores = screen.getAllByText(/%$/)
-    expect(scores[0].textContent).toBe('45.0%')
-    expect(scores[3].textContent).toBe('100.0%')
+    expect(scores[0].textContent).toBe('72.0%')
+    expect(scores[2].textContent).toBe('100.0%')
   })
 
   it('renders links for articles with URLs', () => {

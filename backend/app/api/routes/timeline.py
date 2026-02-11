@@ -130,14 +130,17 @@ async def get_timeline(
     if not origin_article:
         origin_article = ArticleResponse.model_validate(entries[0][1])
 
-    # Graph, Timeline, Isolated 구성
+    # Graph, Timeline 구성
     nodes = []
     edges = []
     timeline_items = []
-    isolated_articles = []
     stage_counts: Counter = Counter()
 
     for entry, article in entries:
+        # Skip isolated articles (similarity < 50%)
+        if entry.lifecycle_stage == "isolated":
+            continue
+
         # Node
         nodes.append(GraphNode(
             id=str(article.id),
@@ -172,13 +175,9 @@ async def get_timeline(
             url=article.url,
         ))
 
-        # Stage count
-        if entry.lifecycle_stage:
+        # Stage count (skip isolated)
+        if entry.lifecycle_stage and entry.lifecycle_stage != "isolated":
             stage_counts[entry.lifecycle_stage] += 1
-
-        # Isolated
-        if entry.lifecycle_stage == "isolated":
-            isolated_articles.append(ArticleResponse.model_validate(article))
 
     # Density
     density = _calculate_density(entries)
@@ -197,7 +196,6 @@ async def get_timeline(
         density=density,
         explosions=explosions,
         lifecycle=lifecycle,
-        isolated_articles=isolated_articles,
     )
 
     # Cache the result

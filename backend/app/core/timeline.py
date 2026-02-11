@@ -62,6 +62,10 @@ def build_timeline(
     for article in sorted_articles:
         category = article.get("category", "isolated")
 
+        # 유사도 50% 미만 (isolated) 기사는 타임라인에서 제외
+        if category == "isolated":
+            continue
+
         # Lifecycle 단계 판정
         stage = _determine_lifecycle_stage(
             article.get("published_at"),

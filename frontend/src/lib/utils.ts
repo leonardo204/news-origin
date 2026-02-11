@@ -13,7 +13,6 @@ export const LIFECYCLE_COLORS: Record<LifecycleStage, string> = {
   sustained: '#f59e0b',
   fadeout: '#6b7280',
   resurge: '#a855f7',
-  isolated: '#14b8a6',
 }
 
 export const LIFECYCLE_LABELS: Record<LifecycleStage, string> = {
@@ -23,14 +22,12 @@ export const LIFECYCLE_LABELS: Record<LifecycleStage, string> = {
   sustained: '지속',
   fadeout: '소멸',
   resurge: '재부상',
-  isolated: '고립',
 }
 
 export const SIMILARITY_LABELS: Record<SimilarityCategory, string> = {
   same: '동일 기사',
   derivative: '파생 기사',
   related: '관련 기사',
-  isolated: '고립 기사',
 }
 
 export function formatDate(dateStr: string | null): string {

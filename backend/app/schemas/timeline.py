@@ -132,4 +132,3 @@ class TimelineResponse(BaseModel):
     density: list[DensityPoint] = []
     explosions: list[ExplosionPoint] = []
     lifecycle: LifecycleSummary = LifecycleSummary()
-    isolated_articles: list[ArticleResponse] = []

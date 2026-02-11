@@ -58,9 +58,6 @@
   .lifecycle-resurge {
     @apply bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/30;
   }
-  .lifecycle-isolated {
-    @apply bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/30;
-  }
 }
 
 /* Custom scrollbar */

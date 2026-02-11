@@ -10,7 +10,7 @@ type SortField = 'title' | 'publisher' | 'lifecycle_stage' | 'similarity_score' 
 type SortDir = 'asc' | 'desc'
 
 const ALL_STAGES: LifecycleStage[] = [
-  'origin', 'spread', 'explosion', 'sustained', 'fadeout', 'resurge', 'isolated',
+  'origin', 'spread', 'explosion', 'sustained', 'fadeout', 'resurge',
 ]
 
 interface ArticleListProps {

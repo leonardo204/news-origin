@@ -14,7 +14,7 @@ export interface Article {
 }
 
 // Similarity categories
-export type SimilarityCategory = 'same' | 'derivative' | 'related' | 'isolated'
+export type SimilarityCategory = 'same' | 'derivative' | 'related'
 
 // Lifecycle stages
 export type LifecycleStage =
@@ -24,7 +24,6 @@ export type LifecycleStage =
   | 'sustained'
   | 'fadeout'
   | 'resurge'
-  | 'isolated'
 
 // Track request/response
 export interface TrackInput {
@@ -130,7 +129,6 @@ export interface TimelineResponse {
   density: DensityPoint[]
   explosions: ExplosionPoint[]
   lifecycle: LifecycleSummary
-  isolated_articles: Article[]
 }
 
 // Trends

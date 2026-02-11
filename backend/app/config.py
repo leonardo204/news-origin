@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # Similarity thresholds
     similarity_same_threshold: float = 0.90
     similarity_derivative_threshold: float = 0.75
-    similarity_related_threshold: float = 0.60
+    similarity_related_threshold: float = 0.50
 
     @property
     def cors_origin_list(self) -> list[str]:
