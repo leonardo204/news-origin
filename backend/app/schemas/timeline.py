@@ -89,7 +89,7 @@ class GraphData(BaseModel):
 # ── Timeline View Data (ECharts) ──
 
 class TimelineItem(BaseModel):
-    """ECharts 타임라인 시리즈 아이템"""
+    """타임라인 아이템"""
     article_id: str
     title: str
     publisher: str | None = None
@@ -97,6 +97,7 @@ class TimelineItem(BaseModel):
     similarity_score: float = 0.0
     lifecycle_stage: str | None = None
     url: str | None = None
+    is_origin: bool = False
 
 
 class DensityPoint(BaseModel):

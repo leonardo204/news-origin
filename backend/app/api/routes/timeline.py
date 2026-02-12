@@ -173,6 +173,7 @@ async def get_timeline(
             similarity_score=entry.similarity_score,
             lifecycle_stage=entry.lifecycle_stage,
             url=article.url,
+            is_origin=entry.is_origin,
         ))
 
         # Stage count (skip isolated)

@@ -20,6 +20,13 @@ export default function HomePage() {
   useEffect(() => {
     loadTrends()
     loadStats()
+
+    // Clear stale completed tracking state so we don't auto-redirect
+    // back to the timeline page the user just left
+    const state = useTrackingStore.getState()
+    if (state.trackingStatus?.status === 'completed' && !state.isPolling) {
+      useTrackingStore.setState({ trackingId: null, trackingStatus: null, timeline: null })
+    }
   }, [loadTrends, loadStats])
 
   // Navigate to timeline when tracking is complete

@@ -12,6 +12,7 @@ const mockItems: TimelineItem[] = [
     similarity_score: 1.0,
     lifecycle_stage: 'origin',
     url: 'https://example.com/1',
+    is_origin: true,
   },
   {
     article_id: '2',
@@ -21,6 +22,7 @@ const mockItems: TimelineItem[] = [
     similarity_score: 0.85,
     lifecycle_stage: 'spread',
     url: 'https://example.com/2',
+    is_origin: false,
   },
   {
     article_id: '3',
@@ -30,6 +32,7 @@ const mockItems: TimelineItem[] = [
     similarity_score: 0.72,
     lifecycle_stage: 'explosion',
     url: null,
+    is_origin: false,
   },
 ]
 
@@ -111,6 +114,7 @@ describe('ArticleList', () => {
         similarity_score: 1.0,
         lifecycle_stage: 'origin',
         url: null,
+        is_origin: true,
       },
     ]
     render(<ArticleList items={items} />)

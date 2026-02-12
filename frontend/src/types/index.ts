@@ -94,6 +94,7 @@ export interface TimelineItem {
   similarity_score: number
   lifecycle_stage: LifecycleStage
   url: string | null
+  is_origin: boolean
 }
 
 export interface DensityPoint {

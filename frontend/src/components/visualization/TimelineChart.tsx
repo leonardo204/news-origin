@@ -1,4 +1,6 @@
-import ReactECharts from 'echarts-for-react'
+import { useMemo } from 'react'
+import { ExternalLink, Zap } from 'lucide-react'
+import { Badge } from '@/components/ui/Badge'
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDate } from '@/lib/utils'
 import type { TimelineItem, ExplosionPoint, LifecycleStage } from '@/types'
 
@@ -8,6 +10,23 @@ interface TimelineChartProps {
 }
 
 export default function TimelineChart({ items, explosions }: TimelineChartProps) {
+  // Sort items by published_at ascending
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime()),
+    [items],
+  )
+
+  // Build explosion time ranges for quick lookup
+  const explosionRanges = useMemo(
+    () =>
+      explosions.map((e) => ({
+        start: new Date(e.start_time).getTime(),
+        end: new Date(e.end_time).getTime(),
+        count: e.peak_count,
+      })),
+    [explosions],
+  )
+
   if (items.length === 0) {
     return (
       <div className="flex h-96 items-center justify-center text-muted-foreground">
@@ -16,127 +35,116 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
     )
   }
 
-  // Group items by lifecycle stage for scatter series
-  const stages = ['origin', 'spread', 'explosion', 'sustained', 'fadeout', 'resurge'] as LifecycleStage[]
-  const series = stages
-    .map((stage) => {
-      const stageItems = items.filter((item) => item.lifecycle_stage === stage)
-      if (stageItems.length === 0) return null
-      return {
-        name: LIFECYCLE_LABELS[stage],
-        type: 'scatter' as const,
-        data: stageItems.map((item) => [
-          item.published_at,
-          item.similarity_score,
-          item.title,
-          item.publisher,
-        ]),
-        symbolSize: stage === 'origin' ? 18 : 12,
-        itemStyle: {
-          color: LIFECYCLE_COLORS[stage],
-        },
-      }
-    })
-    .filter(Boolean)
-
-  // Add explosion zone markers
-  const markAreas = explosions.map((exp) => [
-    {
-      xAxis: exp.start_time,
-      itemStyle: {
-        color: 'rgba(239, 68, 68, 0.08)',
-        borderColor: 'rgba(239, 68, 68, 0.3)',
-        borderWidth: 1,
-        borderType: 'dashed' as const,
-      },
-    },
-    { xAxis: exp.end_time },
-  ])
-
-  if (series.length > 0 && markAreas.length > 0) {
-    (series[0] as Record<string, unknown>).markArea = { data: markAreas }
+  // Check if an item falls within an explosion zone
+  function isInExplosion(publishedAt: string) {
+    const t = new Date(publishedAt).getTime()
+    return explosionRanges.some((r) => t >= r.start && t <= r.end)
   }
 
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'item',
-      backgroundColor: '#1f2937',
-      borderColor: '#374151',
-      textStyle: { color: '#e5e7eb', fontSize: 12 },
-      formatter: (params: { value: [string, number, string, string] }) => {
-        const [time, score, title, publisher] = params.value
-        return `
-          <div style="max-width:300px">
-            <div style="font-weight:600;margin-bottom:4px">${title}</div>
-            <div style="color:#9ca3af;font-size:11px">${publisher || '알 수 없음'}</div>
-            <div style="color:#9ca3af;font-size:11px;margin-top:4px">
-              ${formatDate(time)} · 유사도 ${(score * 100).toFixed(1)}%
-            </div>
-          </div>`
-      },
-    },
-    legend: {
-      top: 8,
-      textStyle: { color: '#9ca3af', fontSize: 11 },
-      itemWidth: 10,
-      itemHeight: 10,
-    },
-    grid: {
-      left: 50,
-      right: 30,
-      top: 50,
-      bottom: 65,
-    },
-    xAxis: {
-      type: 'time',
-      axisLine: { lineStyle: { color: '#374151' } },
-      axisLabel: { color: '#9ca3af', fontSize: 10 },
-      splitLine: { show: false },
-    },
-    yAxis: {
-      type: 'value',
-      name: '유사도',
-      nameTextStyle: { color: '#9ca3af', fontSize: 11 },
-      min: (value: { min: number }) => Math.max(0, Math.floor((value.min - 0.05) * 10) / 10),
-      max: 1,
-      axisLine: { lineStyle: { color: '#374151' } },
-      axisLabel: {
-        color: '#9ca3af',
-        fontSize: 10,
-        formatter: (v: number) => `${(v * 100).toFixed(0)}%`,
-      },
-      splitLine: { lineStyle: { color: '#1f2937' } },
-    },
-    dataZoom: [
-      {
-        type: 'inside',
-        xAxisIndex: 0,
-        filterMode: 'none',
-      },
-      {
-        type: 'slider',
-        xAxisIndex: 0,
-        height: 20,
-        bottom: 8,
-        borderColor: '#374151',
-        backgroundColor: '#111827',
-        fillerColor: 'rgba(59, 130, 246, 0.15)',
-        handleStyle: { color: '#3b82f6' },
-        textStyle: { color: '#9ca3af', fontSize: 10 },
-        filterMode: 'none',
-      },
-    ],
-    series,
-  }
+  // Group consecutive explosion items to show a single marker
+  let lastExplosionShown = -1
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height: 500 }}
-      theme="dark"
-      notMerge
-      opts={{ renderer: 'canvas' }}
-    />
+    <div className="max-h-[600px] overflow-y-auto px-2 py-4">
+      <div className="relative ml-4 border-l-2 border-border pl-6">
+        {sorted.map((item) => {
+          const inExplosion = isInExplosion(item.published_at)
+          const stage = item.lifecycle_stage as LifecycleStage
+          const color = LIFECYCLE_COLORS[stage] || '#6b7280'
+
+          // Show explosion marker before the first item in each explosion zone
+          let showExplosionMarker = false
+          if (inExplosion) {
+            const rangeIdx = explosionRanges.findIndex((r) => {
+              const t = new Date(item.published_at).getTime()
+              return t >= r.start && t <= r.end
+            })
+            if (rangeIdx !== -1 && rangeIdx !== lastExplosionShown) {
+              showExplosionMarker = true
+              lastExplosionShown = rangeIdx
+            }
+          }
+
+          return (
+            <div key={item.article_id}>
+              {/* Explosion zone marker */}
+              {showExplosionMarker && (
+                <div className="relative -ml-[31px] mb-3 flex items-center gap-2">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 ring-2 ring-red-500/40">
+                    <Zap className="h-3 w-3 text-red-400" />
+                  </div>
+                  <span className="rounded-md bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">
+                    폭발 구간
+                  </span>
+                </div>
+              )}
+
+              {/* Timeline item */}
+              <div
+                className={`group relative mb-4 ${
+                  inExplosion ? 'rounded-lg bg-red-500/[0.04] px-3 py-2 -mx-3' : ''
+                }`}
+              >
+                {/* Dot on the timeline line */}
+                <div
+                  className="absolute -left-[31px] top-2 h-3 w-3 rounded-full border-2"
+                  style={{
+                    borderColor: color,
+                    backgroundColor: item.is_origin ? color : 'transparent',
+                  }}
+                />
+
+                {/* Time label */}
+                <div className="mb-1 text-xs text-muted-foreground">
+                  {formatDate(item.published_at)}
+                </div>
+
+                {/* Card */}
+                <div
+                  className="rounded-lg border border-border/60 bg-card/50 p-3 transition-colors hover:bg-card"
+                  style={{ borderLeftColor: color, borderLeftWidth: 3 }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 space-y-1">
+                      <h4 className="text-sm font-medium leading-tight">{item.title}</h4>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {item.publisher && (
+                          <span className="text-xs text-muted-foreground">{item.publisher}</span>
+                        )}
+                        <Badge stage={stage}>{LIFECYCLE_LABELS[stage]}</Badge>
+                        {!item.is_origin && (
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            유사도 {(item.similarity_score * 100).toFixed(1)}%
+                          </span>
+                        )}
+                        {item.is_origin && (
+                          <Badge stage="origin">기원</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {item.url && (
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        {/* End marker */}
+        <div className="relative -ml-[29px] flex items-center gap-2 pt-1">
+          <div className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground">타임라인 끝</span>
+        </div>
+      </div>
+    </div>
   )
 }

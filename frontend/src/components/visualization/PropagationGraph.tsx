@@ -98,66 +98,73 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       width,
       height,
       autoFit: 'view',
-      padding: [50, 50, 50, 50],
+      padding: [40, 40, 40, 40],
       data: graphData,
       node: {
-        type: 'circle',
+        type: 'rect',
         style: {
           size: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            if (nd.is_origin) return 44
-            const base = 20
-            const bonus = nd.similarity_score * 18
-            return base + bonus
+            return nd.is_origin ? [160, 48] : [140, 40]
           },
+          radius: 8,
           fill: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
+            const color = LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
+            return color + '20' // 12% opacity fill
           },
-          fillOpacity: 0.85,
           stroke: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            if (nd.is_origin) return '#ffffff'
             return LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
           },
           lineWidth: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin ? 3 : 1
+            return nd.is_origin ? 2.5 : 1.5
           },
           shadowColor: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            if (nd.is_origin) return 'rgba(34, 197, 94, 0.4)'
-            if (nd.lifecycle_stage === 'explosion') return 'rgba(239, 68, 68, 0.3)'
+            if (nd.is_origin) return 'rgba(34, 197, 94, 0.3)'
+            if (nd.lifecycle_stage === 'explosion') return 'rgba(239, 68, 68, 0.2)'
             return 'transparent'
           },
           shadowBlur: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin || nd.lifecycle_stage === 'explosion' ? 12 : 0
+            return nd.is_origin || nd.lifecycle_stage === 'explosion' ? 10 : 0
           },
           labelText: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            if (nd.is_origin) return `[기원] ${nd.publisher || ''}`
-            return nd.publisher || truncate(nd.title, 12)
+            const publisher = nd.publisher || '알 수 없음'
+            if (nd.is_origin) return `[기원] ${publisher}`
+            return `${publisher}\n${truncate(nd.title, 16)}`
           },
-          labelFill: '#d1d5db',
-          labelFontSize: 10,
-          labelPlacement: 'bottom',
-          labelOffsetY: 6,
+          labelFill: '#e5e7eb',
+          labelFontSize: (d: Record<string, unknown>) => {
+            const nd = d.data as GraphNode
+            return nd.is_origin ? 11 : 10
+          },
+          labelFontWeight: (d: Record<string, unknown>) => {
+            const nd = d.data as GraphNode
+            return nd.is_origin ? 'bold' : 'normal'
+          },
+          labelLineHeight: 14,
+          labelPlacement: 'center',
           cursor: 'pointer',
         },
       },
       edge: {
-        type: 'line',
+        type: 'cubic-vertical',
         style: {
           stroke: (d: Record<string, unknown>) => {
             const ed = d.data as GraphEdge
             if (ed.similarity_category === 'same') return '#22c55e'
             if (ed.similarity_category === 'derivative') return '#3b82f6'
-            return '#374151'
+            return '#4b5563'
           },
           lineWidth: (d: Record<string, unknown>) => {
             const ed = d.data as GraphEdge
-            return ed.similarity_category === 'same' ? 2 : 1
+            if (ed.similarity_category === 'same') return 2.5
+            if (ed.similarity_category === 'derivative') return 1.5
+            return 1
           },
           lineDash: (d: Record<string, unknown>) => {
             const ed = d.data as GraphEdge
@@ -165,33 +172,18 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
           },
           endArrow: true,
           endArrowSize: 6,
-          opacity: 0.6,
+          opacity: 0.7,
         },
       },
       layout: {
-        type: 'force',
-        preventOverlap: true,
-        nodeSize: 60,
-        nodeSpacing: 40,
-        nodeStrength: -800,
-        edgeStrength: 0.2,
-        linkDistance: (edge: Record<string, unknown>) => {
-          const ed = (edge as { data: GraphEdge }).data
-          if (ed?.similarity_category === 'same') return 160
-          if (ed?.similarity_category === 'derivative') return 240
-          return 320
-        },
-        alpha: 0.3,
-        alphaDecay: 0.06,
-        alphaMin: 0.01,
-        collideStrength: 1.0,
-        maxIteration: 800,
-        animated: false,
+        type: 'dagre',
+        rankdir: 'TB',
+        nodesep: 30,
+        ranksep: 60,
       },
       behaviors: [
         'zoom-canvas',
         'drag-canvas',
-        { type: 'drag-element', enable: true },
       ],
     })
 

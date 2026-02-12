@@ -14,10 +14,12 @@ import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatDate } from '@/lib/utils'
 import type { GraphNode, TimelineItem } from '@/types'
 
-// Lazy load heavy visualization components (~740KB gzipped combined)
+// Lazy load heavy visualization components
 const PropagationGraph = lazy(() => import('@/components/visualization/PropagationGraph'))
-const TimelineChart = lazy(() => import('@/components/visualization/TimelineChart'))
 const DensityChart = lazy(() => import('@/components/visualization/DensityChart'))
+
+// TimelineChart is a lightweight React component — no lazy load needed
+import TimelineChart from '@/components/visualization/TimelineChart'
 
 function ChartFallback() {
   return (
@@ -299,6 +301,9 @@ export default function TimelinePage() {
         <div className="space-y-6">
           <Card>
             <CardContent className="relative overflow-hidden p-2 sm:p-4">
+              {viewMode === 'timeline' && (
+                <TimelineChart items={timeline.timeline} explosions={explosions} />
+              )}
               <Suspense fallback={<ChartFallback />}>
                 {viewMode === 'graph' && (
                   <>
@@ -312,9 +317,6 @@ export default function TimelinePage() {
                       onClose={() => setSelectedNode(null)}
                     />
                   </>
-                )}
-                {viewMode === 'timeline' && (
-                  <TimelineChart items={timeline.timeline} explosions={explosions} />
                 )}
                 {viewMode === 'density' && (
                   <DensityChart density={timeline.density} explosions={explosions} />
