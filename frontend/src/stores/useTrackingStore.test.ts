@@ -39,7 +39,7 @@ describe('useTrackingStore', () => {
     expect(state.searchError).toBeNull()
     expect(state.trackingId).toBeNull()
     expect(state.timeline).toBeNull()
-    expect(state.viewMode).toBe('graph')
+    expect(state.viewMode).toBe('timeline')
   })
 
   it('setSearchQuery updates query', () => {
@@ -98,7 +98,7 @@ describe('useTrackingStore', () => {
     expect(state.searchQuery).toBe('')
     expect(state.isSearching).toBe(false)
     expect(state.trackingId).toBeNull()
-    expect(state.viewMode).toBe('graph')
+    expect(state.viewMode).toBe('timeline')
   })
 
   it('reset clears poll timer', () => {

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download, Network, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -84,6 +84,7 @@ export default function TimelinePage() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [copied, setCopied] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showGraph, setShowGraph] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
 
   usePageTitle(timeline?.origin_article?.title)
@@ -99,6 +100,28 @@ export default function TimelinePage() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showExport])
+
+  // ESC to close graph overlay
+  useEffect(() => {
+    if (!showGraph) return
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowGraph(false)
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [showGraph])
+
+  // Lock body scroll when graph overlay is open
+  useEffect(() => {
+    if (showGraph) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [showGraph])
 
   const handleShare = useCallback(async () => {
     const url = window.location.href
@@ -233,6 +256,16 @@ export default function TimelinePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Propagation tree button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowGraph(true)}
+            className="gap-1.5"
+          >
+            <Network className="h-3.5 w-3.5" />
+            전파 트리
+          </Button>
           {/* Export dropdown */}
           <div className="relative" ref={exportRef}>
             <Button
@@ -305,19 +338,6 @@ export default function TimelinePage() {
                 <TimelineChart items={timeline.timeline} explosions={explosions} />
               )}
               <Suspense fallback={<ChartFallback />}>
-                {viewMode === 'graph' && (
-                  <>
-                    <PropagationGraph
-                      nodes={graph.nodes}
-                      edges={graph.edges}
-                      onNodeClick={(node) => setSelectedNode(node)}
-                    />
-                    <ArticleDetailPanel
-                      node={selectedNode}
-                      onClose={() => setSelectedNode(null)}
-                    />
-                  </>
-                )}
                 {viewMode === 'density' && (
                   <DensityChart density={timeline.density} explosions={explosions} />
                 )}
@@ -339,6 +359,50 @@ export default function TimelinePage() {
           <LifecyclePanel lifecycle={lifecycle} />
         </div>
       </div>
+
+      {/* Fullscreen graph overlay */}
+      {showGraph && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          {/* Overlay header */}
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Network className="h-5 w-5 text-lifecycle-origin" />
+              <h2 className="text-sm font-semibold">전파 트리</h2>
+              <span className="text-xs text-muted-foreground">
+                {graph.nodes.length}개 노드 · {graph.edges.length}개 연결
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowGraph(false)
+                setSelectedNode(null)
+              }}
+              className="gap-1.5"
+            >
+              <X className="h-3.5 w-3.5" />
+              닫기
+              <kbd className="ml-1 rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground">ESC</kbd>
+            </Button>
+          </div>
+          {/* Graph content */}
+          <div className="relative flex-1">
+            <Suspense fallback={<ChartFallback />}>
+              <PropagationGraph
+                nodes={graph.nodes}
+                edges={graph.edges}
+                onNodeClick={(node) => setSelectedNode(node)}
+                className="h-full"
+              />
+              <ArticleDetailPanel
+                node={selectedNode}
+                onClose={() => setSelectedNode(null)}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

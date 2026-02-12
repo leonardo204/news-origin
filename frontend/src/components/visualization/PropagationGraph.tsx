@@ -8,9 +8,10 @@ interface PropagationGraphProps {
   nodes: GraphNode[]
   edges: GraphEdge[]
   onNodeClick?: (node: GraphNode) => void
+  className?: string
 }
 
-export default function PropagationGraph({ nodes, edges, onNodeClick }: PropagationGraphProps) {
+export default function PropagationGraph({ nodes, edges, onNodeClick, className }: PropagationGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const graphRef = useRef<Graph | null>(null)
   const destroyedRef = useRef(false)
@@ -247,7 +248,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
       <div
         ref={containerRef}
         className={`w-full rounded-lg border border-border bg-gray-900/30 ${
-          isFullscreen ? 'h-full' : 'h-[400px] sm:h-[600px]'
+          isFullscreen ? 'h-full' : className || 'h-[400px] sm:h-[600px]'
         }`}
       />
 

@@ -54,7 +54,7 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
   pollFailCount: 0,
   timeline: null,
   isLoadingTimeline: false,
-  viewMode: 'graph',
+  viewMode: 'timeline',
   _pollTimer: null,
   _abortController: null,
 
@@ -192,7 +192,7 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
       pollFailCount: 0,
       timeline: null,
       isLoadingTimeline: false,
-      viewMode: 'graph',
+      viewMode: 'timeline',
       _pollTimer: null,
       _abortController: null,
     })

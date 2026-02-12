@@ -1,10 +1,9 @@
-import { Network, Clock, BarChart3 } from 'lucide-react'
+import { Clock, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import type { ViewMode } from '@/types'
 
-const views: { mode: ViewMode; label: string; icon: typeof Network }[] = [
-  { mode: 'graph', label: '전파 트리', icon: Network },
+const views: { mode: ViewMode; label: string; icon: typeof Clock }[] = [
   { mode: 'timeline', label: '타임라인', icon: Clock },
   { mode: 'density', label: '밀도 분석', icon: BarChart3 },
 ]
