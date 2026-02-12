@@ -9,7 +9,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -229,7 +229,7 @@ async def _run_cleanup():
     from app.config import get_settings
 
     settings = get_settings()
-    cutoff = datetime.utcnow() - timedelta(days=settings.article_retention_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.article_retention_days)
 
     worker_engine, session_factory = _create_worker_engine()
     try:
@@ -536,15 +536,20 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
 
             tracking.status = "completed"
             tracking.progress = 100
-            tracking.completed_at = datetime.utcnow()
+            tracking.completed_at = datetime.now(timezone.utc)
 
-            # Invalidate trend caches
-            from app.services.cache import cache_delete
+            # Invalidate trend caches + notify frontend
+            from app.services.cache import cache_delete, publish_event
             await cache_delete("trends:hot:24h")
             await cache_delete("trends:hot:7d")
             await cache_delete("trends:hot:30d")
             await cache_delete("trends:popular")
             await cache_delete("trends:stats")
+            await publish_event("stats_updated", {
+                "type": "tracking_complete",
+                "tracking_id": tracking_id,
+                "articles": len(similar_articles),
+            })
 
             await db.commit()
             logger.info(f"Pipeline completed: tracking_id={tracking_id}, articles={len(similar_articles)}")

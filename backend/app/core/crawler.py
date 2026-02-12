@@ -7,7 +7,7 @@
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
@@ -191,24 +191,35 @@ async def _extract_with_newspaper(url: str) -> Optional[dict]:
             "content": article.text,
             "author": ", ".join(article.authors) if article.authors else None,
             "publisher": urlparse(url).netloc.replace("www.", ""),
-            "published_at": article.publish_date,
+            "published_at": _ensure_utc(article.publish_date),
             "summary": article.text[:200] + "..." if article.text else None,
         }
     except Exception:
         return None
 
 
+def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """datetime이 있으면 UTC-aware로 변환"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
-    """날짜 문자열 파싱 (다양한 포맷 대응)"""
+    """날짜 문자열 파싱 (다양한 포맷 대응, UTC-aware 반환)"""
     if not date_str:
         return None
     try:
         # ISO format
-        return datetime.fromisoformat(date_str)
+        dt = datetime.fromisoformat(date_str)
+        return _ensure_utc(dt)
     except ValueError:
         pass
     try:
         # YYYY-MM-DD
-        return datetime.strptime(date_str, "%Y-%m-%d")
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
     except ValueError:
         return None

@@ -224,6 +224,7 @@ export default function TimelinePage() {
         <div className="flex-1">
           <Link
             to="/"
+            onClick={() => useTrackingStore.getState().reset()}
             className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3 w-3" />

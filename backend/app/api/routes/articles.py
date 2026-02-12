@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -44,19 +44,19 @@ def _is_poor_metadata(value: str | None) -> bool:
 
 
 def _parse_date_str(date_str: str | None) -> datetime | None:
-    """날짜 문자열을 datetime으로 변환 (tz-naive로 통일)"""
+    """날짜 문자열을 datetime으로 변환 (UTC-aware로 통일)"""
     if not date_str:
         return None
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        # Strip timezone — Article.published_at is TIMESTAMP WITHOUT TIME ZONE
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except (ValueError, AttributeError):
         pass
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
     except (ValueError, AttributeError):
         return None
 

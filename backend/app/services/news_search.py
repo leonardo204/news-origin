@@ -11,7 +11,7 @@ import base64
 import logging
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -133,28 +133,27 @@ async def _search_gnews(query: str, limit: int = 10) -> list[dict]:
 
 
 def parse_rfc2822(date_str: str) -> Optional[datetime]:
-    """RFC 2822 날짜 파싱 (tz-naive로 반환)"""
+    """RFC 2822 날짜 파싱 (UTC-aware로 반환)"""
     if not date_str:
         return None
     from email.utils import parsedate_to_datetime
     try:
         dt = parsedate_to_datetime(date_str)
-        # Article.published_at is TIMESTAMP WITHOUT TIME ZONE
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except (ValueError, TypeError):
         return None
 
 
 def _parse_iso(date_str: Optional[str]) -> Optional[datetime]:
-    """ISO 8601 날짜 파싱 (tz-naive로 반환)"""
+    """ISO 8601 날짜 파싱 (UTC-aware로 반환)"""
     if not date_str:
         return None
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        if dt.tzinfo is not None:
-            dt = dt.replace(tzinfo=None)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except ValueError:
         return None

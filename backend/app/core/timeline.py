@@ -8,7 +8,7 @@
 """
 
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.config import get_settings
 from app.core.detector import detect_explosion_points
@@ -54,7 +54,7 @@ def build_timeline(
     # 유사 기사들을 시간순 정렬
     sorted_articles = sorted(
         remaining,
-        key=lambda a: a.get("published_at") or datetime.max,
+        key=lambda a: a.get("published_at") or datetime.max.replace(tzinfo=timezone.utc),
     )
 
     # 폭발 시점 감지

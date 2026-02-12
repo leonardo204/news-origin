@@ -43,13 +43,6 @@ export default function HomePage() {
       // SSE 연결 실패 시 조용히 무시 (브라우저가 자동 재연결)
     }
 
-    // Clear stale completed tracking state so we don't auto-redirect
-    // back to the timeline page the user just left
-    const state = useTrackingStore.getState()
-    if (state.trackingStatus?.status === 'completed' && !state.isPolling) {
-      useTrackingStore.setState({ trackingId: null, trackingStatus: null, timeline: null })
-    }
-
     return () => es.close()
   }, [loadTrends, loadStats])
 
@@ -233,7 +226,7 @@ function CategoryDistribution({
             카테고리별 수집 현황
           </h3>
           <span className="text-[11px] tabular-nums text-muted-foreground/60">
-            총 {total.toLocaleString()}건
+            자동수집 {total.toLocaleString()}건
           </span>
         </div>
         <div className="space-y-3">
