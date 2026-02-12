@@ -1,14 +1,16 @@
 """
 # celery_app.py - Celery Application Configuration
-# Version: 0.1.0
-# Description: Celery 비동기 태스크 큐 설정
+# Version: 0.2.0
+# Description: Celery 비동기 태스크 큐 설정 + Beat 스케줄
 # Changes:
 #   - 0.1.0: Redis broker, 기본 설정
+#   - 0.2.0: Beat 스케줄 등록 (백그라운드 뉴스 크롤링)
 """
 
 from celery import Celery
 
 from app.config import get_settings
+from app.workers.beat_schedule import beat_schedule
 
 settings = get_settings()
 
@@ -30,4 +32,6 @@ celery_app.conf.update(
     task_soft_time_limit=540,  # 9분 소프트 제한
     worker_max_tasks_per_child=100,
     worker_prefetch_multiplier=1,
+    beat_schedule=beat_schedule,
+    beat_schedule_filename="/tmp/celerybeat-schedule",
 )

@@ -1,9 +1,10 @@
 """
 # timeline.py - Timeline Construction Logic
-# Version: 0.1.0
-# Description: 유사 기사들로부터 타임라인 구성, 전파 방향 추론
+# Version: 0.2.0
+# Description: 유사 기사들로부터 타임라인 구성, 진짜 기원점 탐지, 전파 방향 추론
 # Changes:
 #   - 0.1.0: 시간순 정렬, 전파 추론, lifecycle 단계 판정
+#   - 0.2.0: 진짜 기원점 탐지 (가장 이른 same/derivative 기사)
 """
 
 from __future__ import annotations
@@ -16,29 +17,33 @@ settings = get_settings()
 
 
 def build_timeline(
-    origin_article: dict,
+    input_article: dict,
     similar_articles: list[dict],
-) -> list[dict]:
+) -> tuple[list[dict], str]:
     """
-    타임라인 구성
+    타임라인 구성 + 진짜 기원점 탐지
 
-    [BUSINESS LOGIC - DO NOT MODIFY]
-    1. 시간순 정렬 (published_at 기준)
-    2. 전파 방향 추론: 시간이 빠른 유사 기사가 부모
-    3. Lifecycle 단계 자동 판정
+    1. 입력 기사 + same/derivative 유사 기사 중 가장 이른 기사를 기원으로 결정
+    2. 시간순 정렬 (published_at 기준)
+    3. 전파 방향 추론: 시간이 빠른 유사 기사가 부모
+    4. Lifecycle 단계 자동 판정
 
     Args:
-        origin_article: 원본 기사 {id, title, published_at, ...}
+        input_article: 사용자 입력 기사 {id, title, published_at, ...}
         similar_articles: 유사 기사 목록 [{id, score, category, published_at, ...}]
 
     Returns:
-        타임라인 엔트리 목록 [{article_id, similarity_score, category, lifecycle_stage, parent_id, is_origin}]
+        (타임라인 엔트리 목록, 진짜 기원 article_id)
     """
+    # 진짜 기원 탐지
+    true_origin, remaining = _find_true_origin(input_article, similar_articles)
+    true_origin_id = true_origin["id"]
+
     entries = []
 
-    # 원본 기사 엔트리
+    # 기원 기사 엔트리
     entries.append({
-        "article_id": origin_article["id"],
+        "article_id": true_origin_id,
         "similarity_score": 1.0,
         "similarity_category": "same",
         "lifecycle_stage": "origin",
@@ -48,12 +53,12 @@ def build_timeline(
 
     # 유사 기사들을 시간순 정렬
     sorted_articles = sorted(
-        similar_articles,
+        remaining,
         key=lambda a: a.get("published_at") or datetime.max,
     )
 
     # 폭발 시점 감지
-    all_times = [origin_article.get("published_at")]
+    all_times = [true_origin.get("published_at")]
     all_times.extend(a.get("published_at") for a in sorted_articles)
     valid_times = [t for t in all_times if t]
     explosion_ranges = detect_explosion_points(valid_times, len(sorted_articles) + 1)
@@ -69,15 +74,15 @@ def build_timeline(
         # Lifecycle 단계 판정
         stage = _determine_lifecycle_stage(
             article.get("published_at"),
-            origin_article.get("published_at"),
+            true_origin.get("published_at"),
             explosion_ranges,
             category,
             len(entries),
         )
 
-        # 전파 부모 추론: 시간이 가장 가까운 이전 기사 중 유사도 높은 것
+        # 전파 부모 추론
         parent_id = _infer_parent(
-            article, entries, origin_article["id"], category
+            article, entries, true_origin_id, category
         )
 
         entries.append({
@@ -89,7 +94,68 @@ def build_timeline(
             "is_origin": False,
         })
 
-    return entries
+    return entries, true_origin_id
+
+
+def _find_true_origin(
+    input_article: dict,
+    similar_articles: list[dict],
+) -> tuple[dict, list[dict]]:
+    """
+    진짜 기원점 탐지
+
+    입력 기사 + same/derivative 유사 기사 중 published_at이 가장 이른 기사를 기원으로 선택.
+    기원이 입력 기사가 아닌 경우, 입력 기사를 나머지 목록에 추가.
+
+    Returns:
+        (진짜 기원 dict, 나머지 기사 목록)
+    """
+    input_id = input_article["id"]
+    input_time = input_article.get("published_at")
+
+    # 기원 후보: 입력 기사 + same/derivative 유사 기사 (published_at 필수)
+    candidates = []
+    if input_time:
+        candidates.append({"time": input_time, "id": input_id, "score": 1.0})
+
+    for a in similar_articles:
+        cat = a.get("category", "isolated")
+        if cat in ("same", "derivative") and a.get("published_at"):
+            candidates.append({
+                "time": a["published_at"],
+                "id": a["id"],
+                "score": a.get("score", 0.0),
+            })
+
+    if not candidates:
+        # 시간 정보 없음 → 입력 기사가 기원 (fallback)
+        return input_article, list(similar_articles)
+
+    # 시간순 정렬, 동일 시간이면 유사도 높은 것 우선
+    candidates.sort(key=lambda c: (c["time"], -c["score"]))
+    true_origin_id = candidates[0]["id"]
+
+    if true_origin_id == input_id:
+        # 입력 기사가 가장 이름 → 기존 동작
+        return input_article, list(similar_articles)
+
+    # 진짜 기원은 유사 기사 중 하나
+    true_origin_article = None
+    remaining = []
+    for a in similar_articles:
+        if a["id"] == true_origin_id and true_origin_article is None:
+            true_origin_article = a
+        else:
+            remaining.append(a)
+
+    # 입력 기사를 나머지 목록에 추가 (score는 기원과의 대칭 유사도)
+    remaining.append({
+        **input_article,
+        "score": true_origin_article.get("score", 1.0),
+        "category": "same",
+    })
+
+    return true_origin_article, remaining
 
 
 def _determine_lifecycle_stage(

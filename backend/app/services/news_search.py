@@ -72,7 +72,7 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
             source = item.findtext("source", "")
 
             # 발행 시간 파싱 (RFC 2822)
-            published_at = _parse_rfc2822(pub_date_str)
+            published_at = parse_rfc2822(pub_date_str)
 
             if not link:
                 continue
@@ -80,7 +80,7 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
             # Google News redirect URL → 실제 기사 URL 디코딩
             actual_url = link
             if "news.google.com" in link:
-                decoded = _decode_google_news_url(link)
+                decoded = decode_google_news_url(link)
                 if decoded:
                     actual_url = decoded
                 else:
@@ -89,7 +89,7 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
 
             results.append({
                 "url": actual_url,
-                "title": _clean_title(title, source),
+                "title": clean_title(title, source),
                 "publisher": source,
                 "published_at": published_at,
             })
@@ -132,7 +132,7 @@ async def _search_gnews(query: str, limit: int = 10) -> list[dict]:
     ]
 
 
-def _parse_rfc2822(date_str: str) -> Optional[datetime]:
+def parse_rfc2822(date_str: str) -> Optional[datetime]:
     """RFC 2822 날짜 파싱 (tz-naive로 반환)"""
     if not date_str:
         return None
@@ -160,7 +160,7 @@ def _parse_iso(date_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _clean_title(title: str, source: str) -> str:
+def clean_title(title: str, source: str) -> str:
     """Google News RSS 제목에서 소스명 제거"""
     # "기사 제목 - 언론사명" 패턴에서 언론사명 제거
     if source and title.endswith(f" - {source}"):
@@ -168,7 +168,7 @@ def _clean_title(title: str, source: str) -> str:
     return title
 
 
-def _decode_google_news_url(gnews_url: str) -> Optional[str]:
+def decode_google_news_url(gnews_url: str) -> Optional[str]:
     """
     Google News article ID에서 실제 기사 URL 추출
 

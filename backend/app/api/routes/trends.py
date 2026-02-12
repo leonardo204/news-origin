@@ -4,12 +4,15 @@
 # Description: Hot Trends, 인기 검색어, 서비스 통계 (프론트엔드 타입 일치)
 """
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 import sqlalchemy as sa
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +22,7 @@ from app.models.article import Article
 from app.models.timeline import TrackingRequest
 from app.models.search_log import SearchLog
 from app.schemas.search import TrendItem, PopularSearch, StatsOverview
-from app.services.cache import cache_get, cache_set, cache_delete
+from app.services.cache import cache_get, cache_set, cache_delete, get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -166,10 +169,37 @@ async def get_stats_overview(
         )
     )
 
+    # 임베딩 완료 기사 수
+    embedded_count = await db.execute(
+        select(func.count(Article.id)).where(Article.qdrant_point_id.isnot(None))
+    )
+
+    # 최근 24시간 수집 기사 수
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+    recent_count = await db.execute(
+        select(func.count(Article.id)).where(Article.created_at >= since_24h)
+    )
+
+    # 마지막 수집 시각
+    last_crawl = await db.execute(select(func.max(Article.created_at)))
+
+    # 카테고리별 기사 수
+    category_col = Article.metadata_["feed_category"].astext
+    category_result = await db.execute(
+        select(category_col, func.count(Article.id))
+        .where(category_col.isnot(None))
+        .group_by(category_col)
+    )
+    category_counts = {row[0]: row[1] for row in category_result.all()}
+
     stats = StatsOverview(
         total_trackings=tracking_count.scalar() or 0,
         total_articles=article_count.scalar() or 0,
         active_trackings=active_count.scalar() or 0,
+        embedded_articles=embedded_count.scalar() or 0,
+        recent_articles_24h=recent_count.scalar() or 0,
+        last_crawl_at=last_crawl.scalar(),
+        category_counts=category_counts,
     )
 
     # Cache the result
@@ -180,3 +210,41 @@ async def get_stats_overview(
         logger.warning(f"Cache set failed: {e}")
 
     return stats
+
+
+@router.get(
+    "/events",
+    summary="통계 업데이트 SSE 스트림",
+    description="크롤링 완료 시 실시간 알림을 받는 Server-Sent Events 스트림입니다.",
+)
+async def stats_events():
+    """SSE 스트림: 크롤링 완료 이벤트를 실시간으로 전달"""
+    async def event_stream():
+        try:
+            r = await get_redis()
+            pubsub = r.pubsub()
+            await pubsub.subscribe("stats_updated")
+            try:
+                while True:
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=30.0,
+                    )
+                    if message and message["type"] == "message":
+                        yield f"data: {message['data']}\n\n"
+                    else:
+                        yield ": keepalive\n\n"
+            finally:
+                await pubsub.unsubscribe("stats_updated")
+                await pubsub.aclose()
+        except Exception as e:
+            logger.warning(f"SSE stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

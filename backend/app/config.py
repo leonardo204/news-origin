@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     similarity_derivative_threshold: float = 0.75
     similarity_related_threshold: float = 0.50
 
+    # Background Crawling
+    background_crawl_enabled: bool = True
+    article_retention_days: int = 90
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

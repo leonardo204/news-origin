@@ -149,6 +149,10 @@ export interface StatsOverview {
   total_trackings: number
   total_articles: number
   active_trackings: number
+  embedded_articles: number
+  recent_articles_24h: number
+  last_crawl_at: string | null
+  category_counts: Record<string, number>
 }
 
 // View mode for visualization

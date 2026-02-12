@@ -124,6 +124,29 @@ services:
     mem_limit: 2g
     restart: unless-stopped
 
+  # ── Celery Beat (Periodic Tasks Scheduler) ──
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: newsorigin-celery-beat
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://newsorigin:newsorigin_dev_password@postgres:5432/newsorigin}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    restart: unless-stopped
+
   # ── Frontend (React - dev server) ──
   frontend:
     build:

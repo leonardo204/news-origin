@@ -67,6 +67,19 @@ async def cache_set(key: str, value: Any, ttl: int = 3600) -> None:
         _redis_available = False
 
 
+async def publish_event(channel: str, data: Any) -> None:
+    """Redis Pub/Sub 이벤트 발행"""
+    global _redis_available
+    if not _redis_available:
+        return
+    try:
+        r = await get_redis()
+        await r.publish(channel, json.dumps(data, default=str))
+    except Exception as e:
+        logger.warning(f"Publish failed for {channel}: {e}")
+        _redis_available = False
+
+
 async def cache_delete(key: str) -> None:
     """캐시 삭제 (Redis 실패 시 무시)"""
     global _redis_available

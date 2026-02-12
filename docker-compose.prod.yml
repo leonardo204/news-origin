@@ -103,6 +103,26 @@ services:
     mem_limit: 2g
     restart: always
 
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: newsorigin-celery-beat
+    command: celery -A app.workers.celery_app beat --loglevel=warning
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
+      - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    restart: always
+
   frontend:
     build:
       context: ./frontend

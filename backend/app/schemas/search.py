@@ -30,3 +30,7 @@ class StatsOverview(BaseModel):
     total_trackings: int = 0
     total_articles: int = 0
     active_trackings: int = 0
+    embedded_articles: int = 0
+    recent_articles_24h: int = 0
+    last_crawl_at: datetime | None = None
+    category_counts: dict[str, int] = {}

@@ -91,7 +91,7 @@ describe('useTrendStore', () => {
   })
 
   it('loadStats sets stats on success', async () => {
-    const mockStats = { total_trackings: 10, total_articles: 50, active_trackings: 2 }
+    const mockStats = { total_trackings: 10, total_articles: 50, active_trackings: 2, embedded_articles: 45, recent_articles_24h: 12, last_crawl_at: null, category_counts: {} }
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
 
     await useTrendStore.getState().loadStats()
@@ -100,7 +100,7 @@ describe('useTrendStore', () => {
   })
 
   it('loadStats clears stats on failure silently', async () => {
-    useTrendStore.setState({ stats: { total_trackings: 10, total_articles: 50, active_trackings: 2 } })
+    useTrendStore.setState({ stats: { total_trackings: 10, total_articles: 50, active_trackings: 2, embedded_articles: 45, recent_articles_24h: 12, last_crawl_at: null, category_counts: {} } })
     vi.mocked(api.getStats).mockRejectedValue(new Error('서버 오류'))
 
     await useTrendStore.getState().loadStats()
