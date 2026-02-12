@@ -51,7 +51,11 @@ async def crawl_article(url: str) -> Optional[dict]:
 
     if result:
         result["url"] = actual_url
-        result["publisher_domain"] = urlparse(actual_url).netloc
+        domain = urlparse(actual_url).netloc.replace("www.", "")
+        result["publisher_domain"] = domain
+        # publisher가 없으면 도메인을 fallback으로 사용
+        if not result.get("publisher"):
+            result["publisher"] = domain
 
     return result
 

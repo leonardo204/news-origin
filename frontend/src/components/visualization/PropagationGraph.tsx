@@ -133,7 +133,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick }: Propagat
           },
           labelText: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            const publisher = nd.publisher || '알 수 없음'
+            const publisher = nd.publisher || (nd.url ? new URL(nd.url).hostname.replace('www.', '') : '알 수 없음')
             if (nd.is_origin) return `[기원] ${publisher}`
             return `${publisher}\n${truncate(nd.title, 16)}`
           },
