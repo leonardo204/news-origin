@@ -135,7 +135,7 @@ services:
     image: nginx:alpine
     container_name: newsorigin-nginx
     ports:
-      - "${PORT:-80}:80"
+      - "${PORT:-10880}:80"
     volumes:
       - ./docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:

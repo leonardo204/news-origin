@@ -27,20 +27,20 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = True
     app_secret_key: str = "change-me-in-production"
-    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    cors_origins: str = "http://localhost:10080,http://localhost:15173"
 
     # Database
-    database_url: str = "postgresql+asyncpg://newsorigin:newsorigin_dev_password@localhost:5432/newsorigin"
+    database_url: str = "postgresql+asyncpg://newsorigin:newsorigin_dev_password@localhost:15432/newsorigin"
 
     # Qdrant
     qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_grpc_port: int = 6334
+    qdrant_port: int = 16333
+    qdrant_grpc_port: int = 16334
     qdrant_collection: str = "article_embeddings"
 
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
-    celery_broker_url: str = "redis://localhost:6379/1"
+    redis_url: str = "redis://localhost:16379/0"
+    celery_broker_url: str = "redis://localhost:16379/1"
 
     # Embedding
     embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"
