@@ -41,7 +41,7 @@ def _create_worker_engine():
 # ── Background Crawling Tasks ──
 
 
-@celery_app.task(bind=True, soft_time_limit=540, time_limit=600)
+@celery_app.task(bind=True, soft_time_limit=1500, time_limit=1800)
 def fetch_trending_news(self):
     """
     백그라운드 트렌딩 뉴스 크롤링 태스크

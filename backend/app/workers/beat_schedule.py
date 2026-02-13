@@ -30,11 +30,9 @@ beat_schedule = {
     "fetch-trending-news-every-30min": {
         "task": "app.workers.tasks.fetch_trending_news",
         "schedule": crontab(minute="*/30"),
-        "options": {"queue": "default"},
     },
     "cleanup-old-articles-daily": {
         "task": "app.workers.tasks.cleanup_old_articles",
         "schedule": crontab(hour=3, minute=0),  # 매일 03:00 KST
-        "options": {"queue": "default"},
     },
 }
