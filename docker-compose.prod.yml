@@ -5,7 +5,7 @@ services:
     container_name: newsorigin-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-newsorigin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newsorigin}
       POSTGRES_DB: ${POSTGRES_DB:-newsorigin}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -53,13 +53,14 @@ services:
       dockerfile: Dockerfile.prod
     container_name: newsorigin-backend
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - APP_ENV=production
       - APP_DEBUG=false
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
@@ -86,11 +87,12 @@ services:
     container_name: newsorigin-celery
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
     depends_on:
@@ -110,11 +112,12 @@ services:
     container_name: newsorigin-celery-beat
     command: celery -A app.workers.celery_app beat --loglevel=info
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-paraphrase-multilingual-mpnet-base-v2}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
     depends_on:
