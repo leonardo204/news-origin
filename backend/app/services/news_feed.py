@@ -52,13 +52,14 @@ async def fetch_category_feed(feed_url: str, limit: int = 20) -> list[dict]:
                 continue
 
             # Google News redirect URL -> actual article URL
+            # 디코딩 실패해도 Google News URL을 그대로 유지 (크롤러가 해결)
             actual_url = link
             if "news.google.com" in link:
                 decoded = decode_google_news_url(link)
                 if decoded:
                     actual_url = decoded
                 else:
-                    continue
+                    logger.debug(f"Google News URL decode failed, keeping original: {link[:80]}")
 
             results.append({
                 "url": actual_url,

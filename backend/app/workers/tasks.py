@@ -53,13 +53,15 @@ def fetch_trending_news(self):
     settings = get_settings()
 
     if not settings.background_crawl_enabled:
-        logger.info("Background crawling is disabled")
+        logger.warning("Background crawling is disabled")
         return {"status": "disabled"}
 
+    logger.warning("fetch_trending_news started")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         result = loop.run_until_complete(_run_fetch_trending())
+        logger.warning(f"fetch_trending_news completed: {result}")
         return result
     except SoftTimeLimitExceeded:
         logger.error("fetch_trending_news timed out")
@@ -93,12 +95,13 @@ async def _run_fetch_trending():
             max_total=MAX_ARTICLES_PER_RUN,
         )
         if not feed_articles:
-            logger.info("No articles from feeds")
+            logger.warning("No articles from feeds — check RSS feed URLs and Google News URL decoder")
             return {"status": "ok", "fetched": 0, "crawled": 0, "embedded": 0}
 
         feed_urls = [a["url"] for a in feed_articles]
 
         # 2. DB에서 이미 존재하는 URL 확인
+        # Google News URL과 실제 URL이 다를 수 있으므로, 피드 URL + 최근 기사 URL 모두 체크
         async with session_factory() as db:
             result = await db.execute(
                 select(Article.url, Article.qdrant_point_id).where(
@@ -108,7 +111,7 @@ async def _run_fetch_trending():
             existing = {row.url: row.qdrant_point_id for row in result.all()}
 
         urls_to_crawl = [u for u in feed_urls if u not in existing]
-        logger.info(
+        logger.warning(
             f"Feed articles: {len(feed_urls)}, "
             f"already in DB: {len(existing)}, "
             f"to crawl: {len(urls_to_crawl)}"
@@ -119,29 +122,34 @@ async def _run_fetch_trending():
 
         # 3. 미크롤링 기사 배치 크롤링
         crawled = await crawl_articles_batch(urls_to_crawl[:CRAWL_BATCH_SIZE])
-        logger.info(f"Crawled {len(crawled)} articles")
+        logger.warning(f"Crawled {len(crawled)} / {len(urls_to_crawl)} articles")
 
         if not crawled:
+            logger.warning("No articles successfully crawled")
             return {"status": "ok", "fetched": len(feed_urls), "crawled": 0, "embedded": 0}
 
         # 4. DB 저장 + 임베딩 생성
         articles_to_embed = []
+        new_articles_count = 0
         async with session_factory() as db:
-            # feed_category 매핑 (feed_articles에서 URL → category)
+            # feed_category 매핑 (피드 URL → category, 크롤러가 URL을 변환하므로 양쪽 매핑)
             url_category_map = {
                 a["url"]: a.get("feed_category")
                 for a in feed_articles if "feed_category" in a
             }
 
             for article_data in crawled:
-                # DB upsert
+                # 크롤러가 URL을 변환한 경우 원본 URL로 카테고리 매핑
+                original_url = article_data.pop("_original_url", article_data["url"])
+                actual_url = article_data["url"]
+                # DB upsert (실제 URL 기준)
                 result = await db.execute(
-                    select(Article).where(Article.url == article_data["url"])
+                    select(Article).where(Article.url == actual_url)
                 )
                 article = result.scalar_one_or_none()
                 if not article:
-                    # feed_category를 metadata에 저장
-                    cat = url_category_map.get(article_data["url"])
+                    # feed_category: 원본 URL → 실제 URL 순서로 매핑
+                    cat = url_category_map.get(original_url) or url_category_map.get(actual_url)
                     if cat:
                         meta = article_data.get("metadata_", {}) or {}
                         meta["feed_category"] = cat
@@ -149,10 +157,13 @@ async def _run_fetch_trending():
                     article = Article(**article_data)
                     db.add(article)
                     await db.flush()
+                    new_articles_count += 1
 
                 # 임베딩이 없는 기사만 수집
                 if not article.qdrant_point_id:
                     articles_to_embed.append(article)
+
+            logger.warning(f"New articles saved: {new_articles_count}, duplicates skipped: {len(crawled) - new_articles_count}")
 
             await db.commit()
 

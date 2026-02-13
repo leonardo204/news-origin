@@ -84,7 +84,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-celery
-    command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=4
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
@@ -108,7 +108,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-celery-beat
-    command: celery -A app.workers.celery_app beat --loglevel=warning
+    command: celery -A app.workers.celery_app beat --loglevel=info
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant

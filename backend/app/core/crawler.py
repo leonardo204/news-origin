@@ -51,6 +51,7 @@ async def crawl_article(url: str) -> Optional[dict]:
 
     if result:
         result["url"] = actual_url
+        result["_original_url"] = url  # 크롤링 요청 시 원본 URL 보존
         domain = urlparse(actual_url).netloc.replace("www.", "")
         result["publisher_domain"] = domain
         # publisher가 없으면 도메인을 fallback으로 사용
@@ -68,6 +69,9 @@ async def crawl_articles_batch(urls: list[str]) -> list[dict]:
     동시 크롤링 수를 crawl_max_concurrent로 제한
     각 요청 간 crawl_delay_seconds 지연 적용
     """
+    import logging
+    _logger = logging.getLogger(__name__)
+
     semaphore = asyncio.Semaphore(settings.crawl_max_concurrent)
     results = []
 
@@ -80,9 +84,18 @@ async def crawl_articles_batch(urls: list[str]) -> list[dict]:
     tasks = [_crawl_with_limit(u) for u in urls]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for r in raw_results:
+    failed = 0
+    for i, r in enumerate(raw_results):
         if isinstance(r, dict):
             results.append(r)
+        elif isinstance(r, Exception):
+            _logger.warning(f"Crawl failed [{urls[i][:80]}]: {r}")
+            failed += 1
+        else:
+            failed += 1
+
+    if failed:
+        _logger.warning(f"Batch crawl: {len(results)} success, {failed} failed out of {len(urls)}")
 
     return results
 
