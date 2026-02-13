@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, BarChart3, Clock, Database, Zap } from 'lucide-react'
+import { Newspaper, TrendingUp, BarChart3, Clock } from 'lucide-react'
 import SearchBar from '@/components/search/SearchBar'
 import ArticleConfirm from '@/components/search/ArticleConfirm'
 import TrackingProgress from '@/components/search/TrackingProgress'
@@ -11,32 +11,21 @@ import { useTrendStore } from '@/stores/useTrendStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatRelativeTime, truncate } from '@/lib/utils'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  headlines: '헤드라인',
-  politics: '정치',
-  economy: '경제',
-  society: '사회',
-  tech: 'IT/과학',
-  entertainment: '연예/문화',
-}
-
 export default function HomePage() {
   usePageTitle()
   const navigate = useNavigate()
   const { trackingId, trackingStatus, isPolling, isSearching, searchResult } = useTrackingStore()
-  const { trends, stats, isLoading, loadTrends, loadStats } = useTrendStore()
+  const { trends, isLoading, loadTrends } = useTrendStore()
 
   // Whether the user is in any step of the search/tracking flow
   const isInSearchFlow = isSearching || !!searchResult || !!trackingStatus
 
   useEffect(() => {
     loadTrends()
-    loadStats()
 
     // SSE: 크롤링 완료 시 실시간 갱신
     const es = new EventSource('/api/trends/events')
     es.onmessage = () => {
-      loadStats()
       loadTrends()
     }
     es.onerror = () => {
@@ -44,7 +33,7 @@ export default function HomePage() {
     }
 
     return () => es.close()
-  }, [loadTrends, loadStats])
+  }, [loadTrends])
 
   // Navigate to timeline when tracking is complete
   useEffect(() => {
@@ -55,52 +44,6 @@ export default function HomePage() {
 
   return (
     <div className="relative mx-auto max-w-7xl px-4 py-8">
-      {/* Sidebar: Stats + Category — pinned to top-right on desktop */}
-      <div className={`transition-all duration-500 ${isInSearchFlow ? 'pointer-events-none lg:opacity-0' : 'lg:opacity-100'} mt-8 space-y-3 lg:absolute lg:right-0 lg:top-12 lg:z-10 lg:mt-0 lg:w-52`}>
-        {stats ? (
-          <>
-            <Card>
-              <CardContent className="px-4 py-3">
-                <div className="space-y-2.5">
-                  <StatRow icon={<BarChart3 className="h-3.5 w-3.5 text-lifecycle-spread" />} label="총 추적" value={stats.total_trackings} />
-                  <StatRow icon={<Newspaper className="h-3.5 w-3.5 text-lifecycle-origin" />} label="수집된 기사" value={stats.total_articles} />
-                  <StatRow icon={<TrendingUp className="h-3.5 w-3.5 text-lifecycle-explosion" />} label="진행 중" value={stats.active_trackings} />
-                  <div className="border-t border-border" />
-                  <StatRow icon={<Database className="h-3.5 w-3.5 text-lifecycle-sustained" />} label="임베딩 완료" value={stats.embedded_articles} />
-                  <StatRow icon={<Zap className="h-3.5 w-3.5 text-lifecycle-resurge" />} label="최근 24h 수집" value={stats.recent_articles_24h} />
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-[13px] text-muted-foreground">마지막 크롤링</span>
-                    </div>
-                    <span className="text-[13px] font-medium tabular-nums">
-                      {stats.last_crawl_at ? formatRelativeTime(stats.last_crawl_at) : '-'}
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            {Object.keys(stats.category_counts).length > 0 && (
-              <CategoryDistribution counts={stats.category_counts} />
-            )}
-          </>
-        ) : isLoading ? (
-          <Card>
-            <CardContent className="space-y-3 px-4 py-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-3.5 w-3.5 rounded" />
-                    <Skeleton className="h-3 w-16" />
-                  </div>
-                  <Skeleton className="h-3 w-10" />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
-
       {/* Hero section */}
       <div className={`flex flex-col items-center gap-6 transition-all duration-500 ${isInSearchFlow ? 'py-6' : 'py-12'}`}>
         <div className="flex items-center gap-3">
@@ -180,89 +123,3 @@ export default function HomePage() {
   )
 }
 
-function StatRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: number
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className="text-[13px] text-muted-foreground">{label}</span>
-      </div>
-      <span className="text-[13px] font-medium tabular-nums">{value.toLocaleString()}</span>
-    </div>
-  )
-}
-
-const CATEGORY_COLORS: Record<string, string> = {
-  headlines: 'bg-emerald-400',
-  politics: 'bg-blue-400',
-  economy: 'bg-amber-400',
-  society: 'bg-rose-400',
-  tech: 'bg-violet-400',
-  entertainment: 'bg-cyan-400',
-}
-
-function CategoryDistribution({
-  counts,
-}: {
-  counts: Record<string, number>
-}) {
-  const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a)
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
-  const maxCount = Math.max(...Object.values(counts))
-
-  return (
-    <Card>
-      <CardContent className="px-5 py-4">
-        <div className="mb-4 flex items-baseline justify-between">
-          <h3 className="text-[13px] font-medium text-muted-foreground">
-            카테고리별 수집 현황
-          </h3>
-          <span className="text-[11px] tabular-nums text-muted-foreground/60">
-            자동수집 {total.toLocaleString()}건
-          </span>
-        </div>
-        <div className="space-y-3">
-          {sorted.map(([category, count]) => {
-            const pct = total > 0 ? Math.round((count / total) * 100) : 0
-            return (
-              <div key={category} className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_COLORS[category] || 'bg-muted-foreground'}`}
-                    />
-                    <span className="text-[13px] text-foreground/80">
-                      {CATEGORY_LABELS[category] || category}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-[13px] font-medium tabular-nums">
-                      {count.toLocaleString()}
-                    </span>
-                    <span className="w-8 text-right text-[11px] tabular-nums text-muted-foreground/50">
-                      {pct}%
-                    </span>
-                  </div>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-sm bg-muted/40">
-                  <div
-                    className={`h-full rounded-sm ${CATEGORY_COLORS[category] || 'bg-primary'}`}
-                    style={{ width: `${(count / maxCount) * 100}%`, opacity: 0.65 }}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
