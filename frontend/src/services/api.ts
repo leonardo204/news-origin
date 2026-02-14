@@ -43,10 +43,11 @@ api.interceptors.response.use(
     const configAny = config as any
     const retryCount: number = configAny.__retryCount || 0
 
-    // Retry on 502/503/504 or network error (not timeout)
+    // Retry on 502/503/504 or network error (not timeout), GET only (POST는 중복 생성 방지)
     const isRetryable =
-      (error.response && RETRY_STATUS_CODES.has(error.response.status)) ||
-      (!error.response && error.code !== 'ECONNABORTED' && error.code !== 'ERR_CANCELED')
+      config.method?.toUpperCase() !== 'POST' &&
+      ((error.response && RETRY_STATUS_CODES.has(error.response.status)) ||
+      (!error.response && error.code !== 'ECONNABORTED' && error.code !== 'ERR_CANCELED'))
 
     if (isRetryable && retryCount < MAX_RETRIES) {
       configAny.__retryCount = retryCount + 1

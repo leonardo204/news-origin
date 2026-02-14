@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_celery_app_cache = None
+
+
+def _get_celery_app():
+    """Celery app을 지연 로딩 (첫 호출 시 1회만 import, 이후 캐시)"""
+    global _celery_app_cache
+    if _celery_app_cache is None:
+        from app.workers.celery_app import celery_app
+        _celery_app_cache = celery_app
+    return _celery_app_cache
+
 URL_PATTERN = re.compile(r"^https?://")
 
 
@@ -184,8 +195,10 @@ async def confirm_article(
 
     logger.info(f"Starting propagation analysis: tracking_id={tracking.id}")
 
-    from app.workers.tasks import analyze_article_propagation
-    analyze_article_propagation.delay(str(tracking.id), str(article.id))
+    _get_celery_app().send_task(
+        "app.workers.tasks.analyze_article_propagation",
+        args=[str(tracking.id), str(article.id)],
+    )
 
     return ConfirmResponse(
         tracking_id=tracking.id,
