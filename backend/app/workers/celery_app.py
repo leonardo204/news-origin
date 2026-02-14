@@ -30,6 +30,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=600,  # 10분 제한
     task_soft_time_limit=540,  # 9분 소프트 제한
+    task_default_queue="celery",  # 명시적 기본 큐 (default 큐 혼동 방지)
     worker_max_tasks_per_child=100,
     worker_prefetch_multiplier=1,
     beat_schedule=beat_schedule,
