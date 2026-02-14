@@ -85,6 +85,33 @@ def upsert_embedding(
     return point_id
 
 
+def retrieve_vectors(point_ids: list[str]) -> dict[str, list[float]]:
+    """
+    Qdrant에서 포인트 ID 목록으로 벡터 일괄 조회
+
+    Returns: {point_id: vector, ...}
+    """
+    if not point_ids:
+        return {}
+
+    client = get_qdrant_client()
+    result = {}
+
+    # Qdrant retrieve는 배치 크기 제한이 있으므로 100개씩 분할
+    batch_size = 100
+    for i in range(0, len(point_ids), batch_size):
+        batch = point_ids[i:i + batch_size]
+        points = client.retrieve(
+            collection_name=settings.qdrant_collection,
+            ids=batch,
+            with_vectors=True,
+        )
+        for point in points:
+            result[str(point.id)] = point.vector
+
+    return result
+
+
 def search_similar(
     embedding: list[float],
     limit: int = 50,

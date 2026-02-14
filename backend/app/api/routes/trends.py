@@ -21,7 +21,10 @@ from app.api.deps import get_session
 from app.models.article import Article
 from app.models.timeline import TrackingRequest
 from app.models.search_log import SearchLog
-from app.schemas.search import TrendItem, PopularSearch, StatsOverview
+from app.schemas.search import (
+    TrendItem, PopularSearch, StatsOverview,
+    ArticleTrendsResponse, RecentArticleItem,
+)
 from app.services.cache import cache_get, cache_set, cache_delete, get_redis
 
 logger = logging.getLogger(__name__)
@@ -210,6 +213,100 @@ async def get_stats_overview(
         logger.warning(f"Cache set failed: {e}")
 
     return stats
+
+
+@router.get(
+    "/article-trends",
+    response_model=ArticleTrendsResponse,
+    summary="기사 기반 트렌드 클러스터",
+    description="수집된 기사를 벡터 유사도로 클러스터링하여 트렌딩 토픽을 반환합니다.",
+)
+async def get_article_trends(
+    period: Literal["24h", "7d", "30d"] = Query("24h", description="기간: 24h, 7d, 30d"),
+    min_cluster_size: int = Query(2, ge=1, le=10),
+    db: AsyncSession = Depends(get_session),
+):
+    """기사 기반 트렌딩 토픽 조회"""
+    cache_key = f"trends:article-clusters:{period}:{min_cluster_size}"
+
+    try:
+        cached = await cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception as e:
+        logger.warning(f"Cache get failed: {e}")
+
+    from app.core.trend_clustering import build_article_clusters
+    result = await build_article_clusters(db, period, min_cluster_size)
+
+    try:
+        await cache_set(cache_key, result.model_dump(), ttl=300)
+    except Exception as e:
+        logger.warning(f"Cache set failed: {e}")
+
+    return result
+
+
+@router.get(
+    "/recent-articles",
+    response_model=list[RecentArticleItem],
+    summary="최근 수집 기사 피드",
+    description="최근 수집된 기사 목록을 반환합니다. 카테고리 필터 가능.",
+)
+async def get_recent_articles(
+    limit: int = Query(30, ge=1, le=100),
+    category: str | None = Query(None, description="카테고리 필터"),
+    db: AsyncSession = Depends(get_session),
+):
+    """최근 수집 기사 피드"""
+    cache_key = f"trends:recent-articles:{limit}:{category or 'all'}"
+
+    try:
+        cached = await cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception as e:
+        logger.warning(f"Cache get failed: {e}")
+
+    category_col = Article.metadata_["feed_category"].astext
+    query = (
+        select(
+            Article.id,
+            Article.url,
+            Article.title,
+            Article.publisher,
+            Article.published_at,
+            Article.created_at,
+            category_col.label("feed_category"),
+        )
+        .order_by(Article.created_at.desc())
+        .limit(limit)
+    )
+
+    if category:
+        query = query.where(category_col == category)
+
+    result = await db.execute(query)
+    articles = [
+        RecentArticleItem(
+            id=str(row.id),
+            title=row.title,
+            publisher=row.publisher,
+            published_at=row.published_at,
+            created_at=row.created_at,
+            url=row.url,
+            category=row.feed_category,
+        )
+        for row in result.all()
+    ]
+
+    try:
+        articles_dict = [item.model_dump() for item in articles]
+        await cache_set(cache_key, articles_dict, ttl=120)
+    except Exception as e:
+        logger.warning(f"Cache set failed: {e}")
+
+    return articles
 
 
 @router.get(

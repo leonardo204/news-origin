@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, BarChart3, Clock } from 'lucide-react'
+import { Newspaper, TrendingUp, Clock, Flame, Users } from 'lucide-react'
 import SearchBar from '@/components/search/SearchBar'
 import ArticleConfirm from '@/components/search/ArticleConfirm'
 import TrackingProgress from '@/components/search/TrackingProgress'
@@ -10,30 +10,33 @@ import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatRelativeTime, truncate } from '@/lib/utils'
+import type { TopicCluster } from '@/types'
 
 export default function HomePage() {
   usePageTitle()
   const navigate = useNavigate()
   const { trackingId, trackingStatus, isPolling, isSearching, searchResult } = useTrackingStore()
-  const { trends, isLoading, loadTrends } = useTrendStore()
+  const { articleTrends, isLoading, loadArticleTrends } = useTrendStore()
 
   // Whether the user is in any step of the search/tracking flow
   const isInSearchFlow = isSearching || !!searchResult || !!trackingStatus
 
+  const clusters = articleTrends?.clusters ?? []
+
   useEffect(() => {
-    loadTrends()
+    loadArticleTrends()
 
     // SSE: 크롤링 완료 시 실시간 갱신
     const es = new EventSource('/api/trends/events')
     es.onmessage = () => {
-      loadTrends()
+      loadArticleTrends()
     }
     es.onerror = () => {
       // SSE 연결 실패 시 조용히 무시 (브라우저가 자동 재연결)
     }
 
     return () => es.close()
-  }, [loadTrends])
+  }, [loadArticleTrends])
 
   // Navigate to timeline when tracking is complete
   useEffect(() => {
@@ -66,7 +69,7 @@ export default function HomePage() {
       {/* Trends — hidden during search flow */}
       <div className={`transition-all duration-500 ${isInSearchFlow ? 'pointer-events-none h-0 overflow-hidden opacity-0' : 'opacity-100'}`}>
         <div className="mx-auto max-w-2xl">
-          {isLoading && trends.length === 0 ? (
+          {isLoading && clusters.length === 0 ? (
             <div>
               <Skeleton className="mb-4 h-6 w-36" />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -83,31 +86,35 @@ export default function HomePage() {
                 ))}
               </div>
             </div>
-          ) : trends.length > 0 ? (
+          ) : clusters.length > 0 ? (
             <div>
               <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
                 <TrendingUp className="h-5 w-5 text-lifecycle-explosion" />
                 실시간 트렌드
               </h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {trends.slice(0, 6).map((trend) => (
+                {clusters.slice(0, 6).map((cluster: TopicCluster) => (
                   <Card
-                    key={trend.latest_tracking_id}
+                    key={cluster.cluster_id}
                     className="cursor-pointer transition-colors hover:border-lifecycle-origin/50"
-                    onClick={() => navigate(`/timeline/${trend.latest_tracking_id}`)}
+                    onClick={() => navigate('/trends')}
                   >
                     <CardContent className="p-4">
                       <h3 className="mb-2 text-sm font-medium leading-tight">
-                        {truncate(trend.title, 60)}
+                        {truncate(cluster.title, 60)}
                       </h3>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
-                          <BarChart3 className="h-3 w-3" />
-                          {trend.tracking_count}회 추적
+                          <Flame className="h-3 w-3" />
+                          {cluster.article_count}건
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          {cluster.publishers.length}개 언론사
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {formatRelativeTime(trend.last_tracked_at)}
+                          {formatRelativeTime(cluster.last_seen)}
                         </span>
                       </div>
                     </CardContent>
@@ -122,4 +129,3 @@ export default function HomePage() {
     </div>
   )
 }
-

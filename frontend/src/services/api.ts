@@ -11,6 +11,8 @@ import type {
   PopularSearch,
   StatsOverview,
   TrackCandidate,
+  ArticleTrendsResponse,
+  RecentArticleItem,
 } from '@/types'
 
 const api = axios.create({
@@ -131,5 +133,25 @@ export async function getPopularSearches(): Promise<PopularSearch[]> {
 
 export async function getStats(): Promise<StatsOverview> {
   const { data } = await api.get<StatsOverview>('/trends/stats')
+  return data
+}
+
+// Article-based Trends
+export async function getArticleTrends(
+  period: '24h' | '7d' | '30d' = '24h',
+): Promise<ArticleTrendsResponse> {
+  const { data } = await api.get<ArticleTrendsResponse>('/trends/article-trends', {
+    params: { period },
+  })
+  return data
+}
+
+export async function getRecentArticles(
+  limit: number = 30,
+  category?: string,
+): Promise<RecentArticleItem[]> {
+  const { data } = await api.get<RecentArticleItem[]>('/trends/recent-articles', {
+    params: { limit, ...(category ? { category } : {}) },
+  })
   return data
 }

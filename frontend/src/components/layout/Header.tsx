@@ -43,6 +43,11 @@ export default function Header() {
     return () => es.close()
   }, [loadStats])
 
+  // Refresh stats when panel opens
+  useEffect(() => {
+    if (panelOpen) loadStats()
+  }, [panelOpen, loadStats])
+
   // Close panel on outside click
   useEffect(() => {
     if (!panelOpen) return

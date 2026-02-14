@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useTrendStore } from './useTrendStore'
 
 vi.mock('@/services/api', () => ({
-  getHotTrends: vi.fn(),
-  getPopularSearches: vi.fn(),
+  getArticleTrends: vi.fn(),
+  getRecentArticles: vi.fn(),
   getStats: vi.fn(),
 }))
 
@@ -12,8 +12,9 @@ import * as api from '@/services/api'
 describe('useTrendStore', () => {
   beforeEach(() => {
     useTrendStore.setState({
-      trends: [],
-      popularSearches: [],
+      articleTrends: null,
+      recentArticles: [],
+      expandedClusterId: null,
       stats: null,
       isLoading: false,
       error: null,
@@ -24,68 +25,61 @@ describe('useTrendStore', () => {
 
   it('starts with default state', () => {
     const state = useTrendStore.getState()
-    expect(state.trends).toEqual([])
-    expect(state.popularSearches).toEqual([])
+    expect(state.articleTrends).toBeNull()
+    expect(state.recentArticles).toEqual([])
     expect(state.stats).toBeNull()
     expect(state.isLoading).toBe(false)
     expect(state.error).toBeNull()
     expect(state.period).toBe('24h')
   })
 
-  it('setPeriod updates period and triggers loadTrends', async () => {
-    vi.mocked(api.getHotTrends).mockResolvedValue([])
-    vi.mocked(api.getPopularSearches).mockResolvedValue([])
+  it('setPeriod updates period and triggers loadArticleTrends', async () => {
+    const mockResponse = { clusters: [], total_articles: 0, total_clusters: 0, period: '7d', generated_at: '', category_distribution: {}, publisher_distribution: {}, hourly_counts: [] }
+    vi.mocked(api.getArticleTrends).mockResolvedValue(mockResponse)
 
     useTrendStore.getState().setPeriod('7d')
 
     expect(useTrendStore.getState().period).toBe('7d')
-    // loadTrends was called
-    expect(api.getHotTrends).toHaveBeenCalledWith('7d')
+    expect(api.getArticleTrends).toHaveBeenCalledWith('7d')
   })
 
-  it('loadTrends fetches trends and popular searches', async () => {
-    const mockTrends = [{ title: '테스트', tracking_count: 5, latest_tracking_id: 'abc-123', last_tracked_at: '2024-01-15T10:00:00Z' }]
-    const mockSearches = [{ query: '검색어', count: 3 }]
+  it('loadArticleTrends fetches article trends', async () => {
+    const mockResponse = { clusters: [], total_articles: 10, total_clusters: 2, period: '24h', generated_at: '2024-01-15T10:00:00Z', category_distribution: {}, publisher_distribution: {}, hourly_counts: [] }
+    vi.mocked(api.getArticleTrends).mockResolvedValue(mockResponse)
 
-    vi.mocked(api.getHotTrends).mockResolvedValue(mockTrends)
-    vi.mocked(api.getPopularSearches).mockResolvedValue(mockSearches)
-
-    await useTrendStore.getState().loadTrends()
+    await useTrendStore.getState().loadArticleTrends()
 
     const state = useTrendStore.getState()
-    expect(state.trends).toEqual(mockTrends)
-    expect(state.popularSearches).toEqual(mockSearches)
+    expect(state.articleTrends).toEqual(mockResponse)
     expect(state.isLoading).toBe(false)
     expect(state.error).toBeNull()
   })
 
-  it('loadTrends sets loading state', async () => {
-    vi.mocked(api.getHotTrends).mockResolvedValue([])
-    vi.mocked(api.getPopularSearches).mockResolvedValue([])
+  it('loadArticleTrends sets loading state', async () => {
+    const mockResponse = { clusters: [], total_articles: 0, total_clusters: 0, period: '24h', generated_at: '', category_distribution: {}, publisher_distribution: {}, hourly_counts: [] }
+    vi.mocked(api.getArticleTrends).mockResolvedValue(mockResponse)
 
-    const promise = useTrendStore.getState().loadTrends()
+    const promise = useTrendStore.getState().loadArticleTrends()
     expect(useTrendStore.getState().isLoading).toBe(true)
 
     await promise
     expect(useTrendStore.getState().isLoading).toBe(false)
   })
 
-  it('loadTrends handles error', async () => {
-    vi.mocked(api.getHotTrends).mockRejectedValue(new Error('네트워크 오류'))
-    vi.mocked(api.getPopularSearches).mockResolvedValue([])
+  it('loadArticleTrends handles error', async () => {
+    vi.mocked(api.getArticleTrends).mockRejectedValue(new Error('네트워크 오류'))
 
-    await useTrendStore.getState().loadTrends()
+    await useTrendStore.getState().loadArticleTrends()
 
     const state = useTrendStore.getState()
     expect(state.isLoading).toBe(false)
     expect(state.error).toBe('네트워크 오류')
   })
 
-  it('loadTrends uses generic message for non-Error', async () => {
-    vi.mocked(api.getHotTrends).mockRejectedValue('unknown')
-    vi.mocked(api.getPopularSearches).mockResolvedValue([])
+  it('loadArticleTrends uses generic message for non-Error', async () => {
+    vi.mocked(api.getArticleTrends).mockRejectedValue('unknown')
 
-    await useTrendStore.getState().loadTrends()
+    await useTrendStore.getState().loadArticleTrends()
 
     expect(useTrendStore.getState().error).toBe('트렌드를 불러올 수 없습니다.')
   })
@@ -108,5 +102,13 @@ describe('useTrendStore', () => {
     expect(useTrendStore.getState().stats).toBeNull()
     // error should NOT be set (non-critical)
     expect(useTrendStore.getState().error).toBeNull()
+  })
+
+  it('toggleCluster expands and collapses cluster', () => {
+    useTrendStore.getState().toggleCluster('abc-123')
+    expect(useTrendStore.getState().expandedClusterId).toBe('abc-123')
+
+    useTrendStore.getState().toggleCluster('abc-123')
+    expect(useTrendStore.getState().expandedClusterId).toBeNull()
   })
 })

@@ -157,3 +157,50 @@ export interface StatsOverview {
 
 // View mode for visualization
 export type ViewMode = 'graph' | 'timeline' | 'density'
+
+// Article-based Trends
+export interface ClusterArticle {
+  id: string
+  title: string
+  publisher: string | null
+  published_at: string | null
+  created_at: string
+  url: string
+  category: string | null
+  similarity_score: number
+}
+
+export interface TopicCluster {
+  cluster_id: string
+  title: string
+  article_count: number
+  publishers: string[]
+  categories: string[]
+  first_seen: string
+  last_seen: string
+  avg_similarity: number
+  representative_article: ClusterArticle
+  articles: ClusterArticle[]
+  growth_rate: number
+}
+
+export interface ArticleTrendsResponse {
+  clusters: TopicCluster[]
+  total_articles: number
+  total_clusters: number
+  period: string
+  generated_at: string
+  category_distribution: Record<string, number>
+  publisher_distribution: Record<string, number>
+  hourly_counts: Array<{ hour: string; count: number }>
+}
+
+export interface RecentArticleItem {
+  id: string
+  title: string
+  publisher: string | null
+  published_at: string | null
+  created_at: string
+  url: string
+  category: string | null
+}

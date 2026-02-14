@@ -34,3 +34,53 @@ class StatsOverview(BaseModel):
     recent_articles_24h: int = 0
     last_crawl_at: datetime | None = None
     category_counts: dict[str, int] = {}
+
+
+class ClusterArticle(BaseModel):
+    """클러스터 내 개별 기사"""
+    id: str
+    title: str
+    publisher: str | None = None
+    published_at: datetime | None = None
+    created_at: datetime
+    url: str
+    category: str | None = None
+    similarity_score: float = 1.0
+
+
+class TopicCluster(BaseModel):
+    """트렌딩 토픽 클러스터"""
+    cluster_id: str
+    title: str
+    article_count: int
+    publishers: list[str]
+    categories: list[str]
+    first_seen: datetime
+    last_seen: datetime
+    avg_similarity: float
+    representative_article: ClusterArticle
+    articles: list[ClusterArticle]
+    growth_rate: float = 0.0
+
+
+class ArticleTrendsResponse(BaseModel):
+    """기사 기반 트렌드 응답"""
+    clusters: list[TopicCluster]
+    total_articles: int
+    total_clusters: int
+    period: str
+    generated_at: datetime
+    category_distribution: dict[str, int] = {}
+    publisher_distribution: dict[str, int] = {}
+    hourly_counts: list[dict] = []
+
+
+class RecentArticleItem(BaseModel):
+    """최근 수집 기사"""
+    id: str
+    title: str
+    publisher: str | None = None
+    published_at: datetime | None = None
+    created_at: datetime
+    url: str
+    category: str | None = None

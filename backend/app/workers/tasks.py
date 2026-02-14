@@ -194,6 +194,10 @@ async def _run_fetch_trending():
         await cache_delete("trends:hot:7d")
         await cache_delete("trends:hot:30d")
         await cache_delete("trends:popular")
+        await cache_delete("trends:article-clusters:24h:2")
+        await cache_delete("trends:article-clusters:7d:2")
+        await cache_delete("trends:article-clusters:30d:2")
+        await cache_delete("trends:recent-articles:30:all")
         await publish_event("stats_updated", {
             "type": "crawl_complete",
             "crawled": len(crawled),
@@ -556,6 +560,10 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             await cache_delete("trends:hot:30d")
             await cache_delete("trends:popular")
             await cache_delete("trends:stats")
+            await cache_delete("trends:article-clusters:24h:2")
+            await cache_delete("trends:article-clusters:7d:2")
+            await cache_delete("trends:article-clusters:30d:2")
+            await cache_delete("trends:recent-articles:30:all")
             await publish_event("stats_updated", {
                 "type": "tracking_complete",
                 "tracking_id": tracking_id,
