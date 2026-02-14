@@ -60,6 +60,7 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
         except httpx.HTTPError:
             return []
 
+    # RSS 파싱 — Google News URL은 그대로 반환 (디코딩은 사용자 클릭 시 crawl_article에서 처리)
     results = []
     try:
         root = ET.fromstring(response.text)
@@ -71,27 +72,14 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
             pub_date_str = item.findtext("pubDate", "")
             source = item.findtext("source", "")
 
-            # 발행 시간 파싱 (RFC 2822)
-            published_at = parse_rfc2822(pub_date_str)
-
             if not link:
                 continue
 
-            # Google News redirect URL → 실제 기사 URL 디코딩
-            actual_url = link
-            if "news.google.com" in link:
-                decoded = decode_google_news_url(link)
-                if decoded:
-                    actual_url = decoded
-                else:
-                    logger.debug(f"Skipping unresolvable Google News URL: {link[:80]}")
-                    continue  # 실제 URL을 못 찾으면 스킵
-
             results.append({
-                "url": actual_url,
+                "url": link,
                 "title": clean_title(title, source),
                 "publisher": source,
-                "published_at": published_at,
+                "published_at": parse_rfc2822(pub_date_str),
             })
     except ET.ParseError:
         pass
@@ -177,7 +165,7 @@ def decode_google_news_url(gnews_url: str) -> Optional[str]:
     try:
         from googlenewsdecoder import new_decoderv1
 
-        result = new_decoderv1(gnews_url, interval=0.5)
+        result = new_decoderv1(gnews_url, interval=0.1)
         if result.get("status") and result.get("decoded_url"):
             return result["decoded_url"]
 
@@ -189,7 +177,7 @@ def decode_google_news_url(gnews_url: str) -> Optional[str]:
                 if sep in article_id:
                     short_id = article_id[:article_id.index(sep)]
                     short_url = f"https://news.google.com/rss/articles/{short_id}?oc=5"
-                    result2 = new_decoderv1(short_url, interval=0.5)
+                    result2 = new_decoderv1(short_url, interval=0.1)
                     if result2.get("status") and result2.get("decoded_url"):
                         return result2["decoded_url"]
 

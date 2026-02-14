@@ -221,15 +221,19 @@ async def _upsert_article(db: AsyncSession, article_data: dict) -> Article:
     if not url:
         raise HTTPException(status_code=400, detail="기사 URL이 없습니다.")
 
+    # Article 모델에 존재하는 컬럼만 필터링 (크롤러가 _original_url 등 추가 필드를 포함할 수 있음)
+    valid_columns = {c.key for c in Article.__table__.columns}
+    filtered_data = {k: v for k, v in article_data.items() if k in valid_columns}
+
     result = await db.execute(select(Article).where(Article.url == url))
     article = result.scalar_one_or_none()
 
     if article:
-        for key, value in article_data.items():
+        for key, value in filtered_data.items():
             if value is not None and hasattr(article, key):
                 setattr(article, key, value)
     else:
-        article = Article(**article_data)
+        article = Article(**filtered_data)
         db.add(article)
 
     await db.flush()

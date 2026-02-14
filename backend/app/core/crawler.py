@@ -28,19 +28,29 @@ async def crawl_article(url: str) -> Optional[dict]:
     [BUSINESS LOGIC - DO NOT MODIFY]
     크롤링 간격은 최소 crawl_delay_seconds(기본 2초)를 유지해야 함 (robots.txt 준수)
     """
-    html, final_url = await _fetch_html(url)
-    if not html:
-        return None
-
-    # Google News URL 해결
-    actual_url = final_url
-    if "news.google.com" in final_url:
-        resolved = _resolve_google_news_url(final_url, html)
-        if resolved and resolved != final_url:
-            # 실제 기사 URL을 다시 크롤링
+    # Google News URL은 HTML 페치 전에 먼저 디코딩 시도
+    if "news.google.com" in url:
+        resolved = _resolve_google_news_url_without_html(url)
+        if resolved and resolved != url:
             html, actual_url = await _fetch_html(resolved)
             if not html:
                 return None
+        else:
+            # 디코더 실패 시 HTML 페치 후 폴백
+            html, final_url = await _fetch_html(url)
+            if not html:
+                return None
+            actual_url = final_url
+            resolved = _resolve_google_news_url(final_url, html)
+            if resolved and resolved != final_url:
+                html, actual_url = await _fetch_html(resolved)
+                if not html:
+                    return None
+    else:
+        html, final_url = await _fetch_html(url)
+        if not html:
+            return None
+        actual_url = final_url
 
     # 1차: trafilatura (정확도 최고)
     result = _extract_with_trafilatura(html, actual_url)
@@ -113,6 +123,23 @@ async def _fetch_html(url: str) -> tuple[Optional[str], str]:
             return response.text, str(response.url)
         except httpx.HTTPError:
             return None, url
+
+
+def _resolve_google_news_url_without_html(url: str) -> str | None:
+    """
+    Google News URL에서 실제 기사 URL 추출 (HTML 없이, 디코더만 사용)
+
+    검색 결과에서 사용자가 클릭한 Google News URL을 해결할 때 사용
+    """
+    try:
+        from googlenewsdecoder import new_decoderv1
+
+        result = new_decoderv1(url, interval=0.5)
+        if result.get("status") and result.get("decoded_url"):
+            return result["decoded_url"]
+    except Exception:
+        pass
+    return None
 
 
 def _resolve_google_news_url(url: str, html: str) -> str:
