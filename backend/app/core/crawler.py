@@ -59,6 +59,12 @@ async def crawl_article(url: str) -> Optional[dict]:
     if not result:
         result = await _extract_with_newspaper(actual_url)
 
+    # 3차: HTML title 태그에서 최소 정보 추출 (graceful degradation)
+    if not result and html:
+        title = _extract_html_title(html)
+        if title:
+            result = {"title": title, "content": None, "summary": None}
+
     if result:
         result["url"] = actual_url
         result["_original_url"] = url  # 크롤링 요청 시 원본 URL 보존
@@ -67,6 +73,13 @@ async def crawl_article(url: str) -> Optional[dict]:
         # publisher가 없으면 도메인을 fallback으로 사용
         if not result.get("publisher"):
             result["publisher"] = domain
+
+        # HTML 메타 태그에서 카테고리 추출
+        if html:
+            from app.services.category import extract_category_from_html
+            source_category = extract_category_from_html(html)
+            if source_category:
+                result["source_category"] = source_category
 
     return result
 
@@ -114,7 +127,7 @@ async def _fetch_html(url: str) -> tuple[Optional[str], str]:
     """HTML 다운로드, returns (html, final_url)"""
     async with httpx.AsyncClient(
         headers={"User-Agent": settings.crawl_user_agent},
-        timeout=15.0,
+        timeout=float(settings.crawl_timeout),
         follow_redirects=True,
     ) as client:
         try:
@@ -180,6 +193,17 @@ def _resolve_google_news_url(url: str, html: str) -> str:
             return href
 
     return url
+
+
+def _extract_html_title(html: str) -> Optional[str]:
+    """HTML <title> 태그에서 제목 추출 (최후의 폴백)"""
+    import re
+    match = re.search(r"<title[^>]*>([^<]+)</title>", html, re.IGNORECASE)
+    if match:
+        title = match.group(1).strip()
+        if title and len(title) > 3:
+            return title
+    return None
 
 
 def _extract_with_trafilatura(html: str, url: str) -> Optional[dict]:

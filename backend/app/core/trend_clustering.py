@@ -51,7 +51,7 @@ async def build_article_clusters(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     # 1. DB에서 임베딩 완료 기사 조회
-    category_col = Article.metadata_["feed_category"].astext
+    category_col = Article.metadata_["category"].astext
     result = await db.execute(
         select(
             Article.id,
@@ -169,7 +169,9 @@ async def build_article_clusters(
         scores = [m["score"] for m in members]
 
         publishers = list({a["publisher"] for a in articles_data if a["publisher"]})
-        categories = list({a["category"] for a in articles_data if a["category"]})
+        # 카테고리를 빈도순으로 정렬 (가장 많은 카테고리가 primary)
+        cat_counts = Counter(a["category"] for a in articles_data if a["category"])
+        categories = [cat for cat, _ in cat_counts.most_common()]
 
         timestamps = [
             a["published_at"] or a["created_at"]
@@ -222,15 +224,56 @@ async def build_article_clusters(
             growth_rate=growth_rate,
         ))
 
-    # 5. article_count DESC 정렬, 상위 N개
+    # 5. 카테고리별 최소 1개 보장 + article_count DESC 정렬
     topic_clusters.sort(key=lambda c: c.article_count, reverse=True)
-    topic_clusters = topic_clusters[:MAX_CLUSTERS]
+
+    # 각 카테고리에서 최소 1개 대표 클러스터 선택
+    category_top: dict[str, TopicCluster] = {}
+    remaining: list[TopicCluster] = []
+    for tc in topic_clusters:
+        primary_cat = tc.categories[0] if tc.categories else None
+        if primary_cat and primary_cat not in category_top:
+            category_top[primary_cat] = tc
+        else:
+            remaining.append(tc)
+
+    # 카테고리 대표 + 나머지를 article_count 순으로 채움
+    selected = list(category_top.values())
+    slots_left = MAX_CLUSTERS - len(selected)
+    selected.extend(remaining[:slots_left])
+    selected.sort(key=lambda c: c.article_count, reverse=True)
+    topic_clusters = selected
 
     # 6. 전체 분포 계산
     all_articles = list(valid_articles.values())
     category_dist = dict(Counter(
         a["category"] for a in all_articles if a["category"]
     ))
+
+    # 6.5 카테고리에 기사가 있지만 클러스터가 없는 경우, 대표 기사로 싱글톤 클러스터 생성
+    represented_cats = {tc.categories[0] for tc in topic_clusters if tc.categories}
+    for cat, count in category_dist.items():
+        if cat in represented_cats or count == 0:
+            continue
+        # 해당 카테고리의 최신 기사로 싱글톤 클러스터 생성
+        cat_articles = [a for a in sorted_articles if a["category"] == cat]
+        if not cat_articles:
+            continue
+        rep = cat_articles[0]
+        ts = rep["published_at"] or rep["created_at"]
+        cluster_article = ClusterArticle(
+            id=rep["id"], title=rep["title"], publisher=rep["publisher"],
+            published_at=rep["published_at"], created_at=rep["created_at"],
+            url=rep["url"], category=rep["category"], similarity_score=1.0,
+        )
+        topic_clusters.append(TopicCluster(
+            cluster_id=str(uuid.uuid4()), title=rep["title"],
+            article_count=1,
+            publishers=[rep["publisher"]] if rep["publisher"] else [],
+            categories=[cat], first_seen=ts, last_seen=ts,
+            avg_similarity=1.0, representative_article=cluster_article,
+            articles=[cluster_article], growth_rate=0,
+        ))
     publisher_dist = dict(Counter(
         a["publisher"] for a in all_articles if a["publisher"]
     ).most_common(20))

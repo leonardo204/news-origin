@@ -1,10 +1,12 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.3.0
+# Version: 0.5.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
 #   - 0.3.0: fetch_trending_news, cleanup_old_articles, 파이프라인 최적화
+#   - 0.4.0: origin content null이면 파이프라인 시작 시 백그라운드 크롤링
+#   - 0.5.0: 3단 카테고리 분류 + 기존 기사 카테고리 마이그레이션
 """
 
 import asyncio
@@ -56,6 +58,8 @@ def fetch_trending_news(self):
         logger.warning("Background crawling is disabled")
         return {"status": "disabled"}
 
+    from app.services.cache import set_crawl_status
+
     logger.warning("fetch_trending_news started")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -65,9 +69,11 @@ def fetch_trending_news(self):
         return result
     except SoftTimeLimitExceeded:
         logger.error("fetch_trending_news timed out")
+        loop.run_until_complete(set_crawl_status("idle"))
         return {"status": "timeout"}
     except Exception as e:
         logger.error(f"fetch_trending_news failed: {e}", exc_info=True)
+        loop.run_until_complete(set_crawl_status("idle"))
         return {"status": "error", "error": str(e)[:200]}
     finally:
         loop.close()
@@ -86,9 +92,12 @@ async def _run_fetch_trending():
         FEED_LIMIT_PER_CATEGORY,
     )
 
+    from app.services.cache import set_crawl_status
+
     worker_engine, session_factory = _create_worker_engine()
     try:
         # 1. 카테고리 피드 수집
+        await set_crawl_status("fetching", "RSS 피드 수집중")
         feed_articles = await fetch_all_category_feeds(
             CATEGORY_FEEDS,
             limit_per_category=FEED_LIMIT_PER_CATEGORY,
@@ -96,6 +105,7 @@ async def _run_fetch_trending():
         )
         if not feed_articles:
             logger.warning("No articles from feeds — check RSS feed URLs and Google News URL decoder")
+            await set_crawl_status("idle")
             return {"status": "ok", "fetched": 0, "crawled": 0, "embedded": 0}
 
         feed_urls = [a["url"] for a in feed_articles]
@@ -118,14 +128,17 @@ async def _run_fetch_trending():
         )
 
         if not urls_to_crawl:
+            await set_crawl_status("idle")
             return {"status": "ok", "fetched": len(feed_urls), "crawled": 0, "embedded": 0}
 
         # 3. 미크롤링 기사 배치 크롤링
+        await set_crawl_status("crawling", f"{len(urls_to_crawl[:CRAWL_BATCH_SIZE])}건 크롤링중")
         crawled = await crawl_articles_batch(urls_to_crawl[:CRAWL_BATCH_SIZE])
         logger.warning(f"Crawled {len(crawled)} / {len(urls_to_crawl)} articles")
 
         if not crawled:
             logger.warning("No articles successfully crawled")
+            await set_crawl_status("idle")
             return {"status": "ok", "fetched": len(feed_urls), "crawled": 0, "embedded": 0}
 
         # 4. DB 저장 + 임베딩 생성
@@ -138,10 +151,13 @@ async def _run_fetch_trending():
                 for a in feed_articles if "feed_category" in a
             }
 
+            from app.services.category import resolve_category
+
             for article_data in crawled:
                 # 크롤러가 URL을 변환한 경우 원본 URL로 카테고리 매핑
                 original_url = article_data.pop("_original_url", article_data["url"])
                 actual_url = article_data["url"]
+                source_category = article_data.pop("source_category", None)
                 # DB upsert (실제 URL 기준)
                 result = await db.execute(
                     select(Article).where(Article.url == actual_url)
@@ -149,11 +165,21 @@ async def _run_fetch_trending():
                 article = result.scalar_one_or_none()
                 if not article:
                     # feed_category: 원본 URL → 실제 URL 순서로 매핑
-                    cat = url_category_map.get(original_url) or url_category_map.get(actual_url)
-                    if cat:
-                        meta = article_data.get("metadata_", {}) or {}
-                        meta["feed_category"] = cat
-                        article_data["metadata_"] = meta
+                    feed_cat = url_category_map.get(original_url) or url_category_map.get(actual_url)
+                    meta = article_data.get("metadata_", {}) or {}
+                    if feed_cat:
+                        meta["feed_category"] = feed_cat
+                    # 3단 카테고리 해결: source(HTML) → feed(RSS) → keyword(제목)
+                    resolved = resolve_category(
+                        source_category=source_category,
+                        feed_category=feed_cat,
+                        title=article_data.get("title"),
+                    )
+                    if resolved:
+                        meta["category"] = resolved
+                    if source_category:
+                        meta["source_category"] = source_category
+                    article_data["metadata_"] = meta
                     article = Article(**article_data)
                     db.add(article)
                     await db.flush()
@@ -169,6 +195,7 @@ async def _run_fetch_trending():
 
             # 5. 배치 임베딩 생성 + Qdrant 저장
             if articles_to_embed:
+                await set_crawl_status("embedding", f"{len(articles_to_embed)}건 임베딩 생성중")
                 texts = [
                     get_article_text(a.title, a.content)
                     for a in articles_to_embed
@@ -187,7 +214,8 @@ async def _run_fetch_trending():
                 await db.commit()
                 logger.info(f"Embedded {len(articles_to_embed)} articles")
 
-        # 6. 캐시 무효화 + SSE 이벤트 발행
+        # 6. 상태 초기화 + 캐시 무효화 + SSE 이벤트 발행
+        await set_crawl_status("idle")
         from app.services.cache import cache_delete, publish_event
         await cache_delete("trends:stats")
         await cache_delete("trends:hot:24h")
@@ -390,6 +418,22 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             )
             origin = result.scalar_one()
 
+            # 1-1. content가 없으면 백그라운드 크롤링으로 보완
+            if not origin.content:
+                logger.info(f"Origin article has no content, crawling: {origin.url[:80]}")
+                try:
+                    crawled_data = await crawl_article(origin.url)
+                    if crawled_data and crawled_data.get("content"):
+                        origin.content = crawled_data["content"]
+                        if not origin.summary and crawled_data.get("summary"):
+                            origin.summary = crawled_data["summary"]
+                        if not origin.author and crawled_data.get("author"):
+                            origin.author = crawled_data["author"]
+                        await db.commit()
+                        logger.info("Origin article content filled via background crawl")
+                except Exception as e:
+                    logger.warning(f"Background crawl for origin failed (continuing): {e}")
+
             # 2. 원본 기사 임베딩 생성
             point_id, origin_embedding = analyze_article(
                 article_id=str(origin.id),
@@ -451,13 +495,16 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                     articles_needing_embed.append(article)
 
             # 새로 크롤링된 기사 처리
+            valid_columns = {c.key for c in Article.__table__.columns}
             for article_data in crawled:
+                # 크롤러 내부 필드 제거 (_original_url, source_category 등)
+                filtered = {k: v for k, v in article_data.items() if k in valid_columns}
                 result = await db.execute(
-                    select(Article).where(Article.url == article_data["url"])
+                    select(Article).where(Article.url == filtered["url"])
                 )
                 article = result.scalar_one_or_none()
                 if not article:
-                    article = Article(**article_data)
+                    article = Article(**filtered)
                     db.add(article)
                     await db.flush()
 
@@ -592,6 +639,83 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             except Exception as inner_e:
                 logger.error(f"Failed to update error status: {inner_e}")
         raise
+
+    finally:
+        await worker_engine.dispose()
+
+
+# ── Category Migration Task ──
+
+
+@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
+def migrate_article_categories(self):
+    """
+    기존 기사 카테고리 마이그레이션 (1회성)
+
+    metadata["category"]가 없는 기사에 대해:
+    1순위: feed_category (headlines 제외)
+    2순위: 제목 키워드 매칭
+    3순위: feed_category (headlines 포함)
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(_run_category_migration())
+        logger.warning(f"Category migration completed: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Category migration failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+    finally:
+        loop.close()
+
+
+async def _run_category_migration():
+    """기존 기사 카테고리 일괄 분류"""
+    from sqlalchemy import select
+    from app.models.article import Article
+    from app.services.category import resolve_category
+
+    worker_engine, session_factory = _create_worker_engine()
+    try:
+        async with session_factory() as db:
+            # category가 없는 기사 전체 조회
+            result = await db.execute(select(Article).limit(5000))
+            articles = [
+                a for a in result.scalars().all()
+                if not (a.metadata_ or {}).get("category")
+            ]
+
+            if not articles:
+                return {"status": "ok", "migrated": 0, "message": "No articles to migrate"}
+
+            migrated = 0
+            for article in articles:
+                meta = dict(article.metadata_ or {})
+                feed_cat = meta.get("feed_category")
+                resolved = resolve_category(
+                    source_category=None,
+                    feed_category=feed_cat,
+                    title=article.title,
+                )
+
+                if resolved:
+                    meta["category"] = resolved
+                    article.metadata_ = meta
+                    migrated += 1
+
+            await db.commit()
+            logger.info(f"Migrated {migrated} / {len(articles)} articles")
+
+            # 캐시 무효화
+            from app.services.cache import cache_delete
+            await cache_delete("trends:stats")
+            await cache_delete("trends:article-clusters:24h:2")
+            await cache_delete("trends:article-clusters:7d:2")
+            await cache_delete("trends:article-clusters:30d:2")
+            await cache_delete("trends:recent-articles:30:all")
+
+            return {"status": "ok", "migrated": migrated, "total": len(articles)}
 
     finally:
         await worker_engine.dispose()

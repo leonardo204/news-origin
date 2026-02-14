@@ -52,7 +52,7 @@ async def _search_google_news_rss(query: str, limit: int = 10) -> list[dict]:
 
     async with httpx.AsyncClient(
         headers={"User-Agent": settings.crawl_user_agent},
-        timeout=15.0,
+        timeout=float(settings.news_search_timeout),
     ) as client:
         try:
             response = await client.get(url)
@@ -101,7 +101,7 @@ async def _search_gnews(query: str, limit: int = 10) -> list[dict]:
         "apikey": settings.gnews_api_key,
     }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=float(settings.news_search_timeout)) as client:
         try:
             response = await client.get(url, params=params)
             response.raise_for_status()

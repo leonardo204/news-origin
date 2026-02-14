@@ -1,13 +1,17 @@
 """
 # articles.py - Article API Routes
-# Version: 0.2.1
+# Version: 0.3.0
 # Description: 기사 추적 요청, 확인, 상세 조회 API
+# Changes:
+#   - 0.3.0: 메타데이터 기반 빠른 기사 생성 + 검색 결과 Redis 캐싱
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,6 +31,7 @@ from app.schemas.timeline import (
     ConfirmInput,
     ConfirmResponse,
 )
+from app.services.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +103,29 @@ async def track_article(
     is_url = bool(URL_PATTERN.match(input_text))
 
     if is_url:
+        # URL + 메타데이터가 함께 온 경우 (candidate 선택) → 크롤링 스킵, 즉시 생성
+        if body.title and not _is_poor_metadata(body.title):
+            logger.info(f"Fast article creation (metadata): {input_text[:100]}")
+            domain = urlparse(input_text).netloc.replace("www.", "")
+            article_data = {
+                "url": input_text,
+                "title": body.title,
+                "publisher": body.publisher if body.publisher and not _is_poor_metadata(body.publisher) else domain,
+                "publisher_domain": domain,
+                "published_at": _parse_date_str(body.published_at),
+            }
+            article = await _upsert_article(db, article_data)
+            await db.refresh(article)
+
+            log = SearchLog(query=input_text, input_type="url", result_count=1)
+            db.add(log)
+
+            return TrackResponse(
+                input_type="url",
+                article=ArticleResponse.model_validate(article),
+            )
+
+        # URL만 온 경우 (직접 URL 입력) → 크롤링 필요
         from app.core.crawler import crawl_article
 
         logger.info(f"Crawling article from URL: {input_text[:100]}")
@@ -130,6 +158,20 @@ async def track_article(
             article=ArticleResponse.model_validate(article),
         )
     else:
+        # 키워드 검색 - Redis 캐시 확인 (TTL 5분)
+        cache_key = f"search:{hashlib.md5(input_text.encode()).hexdigest()}"
+        cached = await cache_get(cache_key)
+        if cached:
+            logger.info(f"Search cache hit: {input_text[:80]}")
+            log = SearchLog(
+                query=input_text, input_type="title", result_count=len(cached)
+            )
+            db.add(log)
+            candidates = [
+                TrackCandidate(**c) for c in cached
+            ]
+            return TrackResponse(input_type="title", candidates=candidates)
+
         from app.services.news_search import search_news
 
         logger.info(f"Searching news for: {input_text[:100]}")
@@ -153,6 +195,14 @@ async def track_article(
             )
             for r in results[:10]
         ]
+
+        # 검색 결과 캐싱 (TTL 5분)
+        if candidates:
+            await cache_set(
+                cache_key,
+                [c.model_dump(mode="json") for c in candidates],
+                ttl=300,
+            )
 
         return TrackResponse(input_type="title", candidates=candidates)
 

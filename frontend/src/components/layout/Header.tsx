@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, BarChart3, Clock, Database, Zap } from 'lucide-react'
+import { Newspaper, TrendingUp, BarChart3, Clock, Database, Zap, Loader2, Radio } from 'lucide-react'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
@@ -32,16 +32,30 @@ export default function Header() {
   const panelRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
-  const { stats, isLoading, loadStats } = useTrendStore()
+  const { stats, crawlStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus } = useTrendStore()
 
-  // Load stats on mount + SSE
+  // Load stats + crawl status on mount + SSE
   useEffect(() => {
     loadStats()
+    loadCrawlStatus()
     const es = new EventSource('/api/trends/events')
-    es.onmessage = () => loadStats()
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'crawl_status') {
+          updateCrawlStatus({ phase: data.phase, started_at: data.started_at, detail: data.detail })
+          if (data.phase === 'idle') loadStats()
+        }
+        if (data.type === 'crawl_complete' || data.type === 'tracking_complete') {
+          loadStats()
+        }
+      } catch {
+        loadStats()
+      }
+    }
     es.onerror = () => {}
     return () => es.close()
-  }, [loadStats])
+  }, [loadStats, loadCrawlStatus, updateCrawlStatus])
 
   // Refresh stats when panel opens
   useEffect(() => {
@@ -127,7 +141,11 @@ export default function Header() {
             aria-label="수집 현황"
             aria-expanded={panelOpen}
           >
-            <BarChart3 className="h-4 w-4" aria-hidden="true" />
+            {crawlStatus.phase !== 'idle' ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <BarChart3 className="h-4 w-4" aria-hidden="true" />
+            )}
             <span className="hidden sm:inline">현황</span>
           </button>
 
@@ -147,6 +165,8 @@ export default function Header() {
                   <Card className="border-0 bg-transparent shadow-none">
                     <CardContent className="px-3 py-2">
                       <div className="space-y-2">
+                        <CrawlStatusRow phase={crawlStatus.phase} detail={crawlStatus.detail} />
+                        <div className="border-t border-border/50" />
                         <StatRow icon={<BarChart3 className="h-3.5 w-3.5 text-lifecycle-spread" />} label="총 추적" value={stats.total_trackings} />
                         <StatRow icon={<Newspaper className="h-3.5 w-3.5 text-lifecycle-origin" />} label="수집된 기사" value={stats.total_articles} />
                         <StatRow icon={<TrendingUp className="h-3.5 w-3.5 text-lifecycle-explosion" />} label="진행 중" value={stats.active_trackings} />
@@ -189,6 +209,29 @@ export default function Header() {
         </div>
       </div>
     </header>
+  )
+}
+
+const CRAWL_PHASE_LABELS: Record<string, { label: string; dotClass: string }> = {
+  idle: { label: '대기중', dotClass: 'bg-emerald-400' },
+  fetching: { label: 'RSS 수집중', dotClass: 'bg-yellow-400 animate-pulse' },
+  crawling: { label: '크롤링중', dotClass: 'bg-orange-400 animate-pulse' },
+  embedding: { label: '임베딩 생성중', dotClass: 'bg-violet-400 animate-pulse' },
+}
+
+function CrawlStatusRow({ phase, detail }: { phase: string; detail: string | null }) {
+  const config = CRAWL_PHASE_LABELS[phase] || CRAWL_PHASE_LABELS.idle
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <Radio className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[13px] text-muted-foreground">크롤링</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className={`h-2 w-2 rounded-full ${config.dotClass}`} />
+        <span className="text-[13px] font-medium">{detail || config.label}</span>
+      </div>
+    </div>
   )
 }
 

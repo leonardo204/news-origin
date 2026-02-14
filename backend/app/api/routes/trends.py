@@ -187,7 +187,7 @@ async def get_stats_overview(
     last_crawl = await db.execute(select(func.max(Article.created_at)))
 
     # 카테고리별 기사 수
-    category_col = Article.metadata_["feed_category"].astext
+    category_col = Article.metadata_["category"].astext
     category_result = await db.execute(
         select(category_col, func.count(Article.id))
         .where(category_col.isnot(None))
@@ -223,7 +223,7 @@ async def get_stats_overview(
 )
 async def get_article_trends(
     period: Literal["24h", "7d", "30d"] = Query("24h", description="기간: 24h, 7d, 30d"),
-    min_cluster_size: int = Query(2, ge=1, le=10),
+    min_cluster_size: int = Query(1, ge=1, le=10),
     db: AsyncSession = Depends(get_session),
 ):
     """기사 기반 트렌딩 토픽 조회"""
@@ -268,7 +268,7 @@ async def get_recent_articles(
     except Exception as e:
         logger.warning(f"Cache get failed: {e}")
 
-    category_col = Article.metadata_["feed_category"].astext
+    category_col = Article.metadata_["category"].astext
     query = (
         select(
             Article.id,
@@ -307,6 +307,17 @@ async def get_recent_articles(
         logger.warning(f"Cache set failed: {e}")
 
     return articles
+
+
+@router.get(
+    "/crawl-status",
+    summary="크롤링 상태 조회",
+    description="현재 크롤링 파이프라인 상태를 조회합니다 (idle/fetching/crawling/embedding).",
+)
+async def get_crawl_status_endpoint():
+    """현재 크롤링 파이프라인 상태"""
+    from app.services.cache import get_crawl_status
+    return await get_crawl_status()
 
 
 @router.get(

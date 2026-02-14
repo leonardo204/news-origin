@@ -26,7 +26,7 @@ async def fetch_category_feed(feed_url: str, limit: int = 20) -> list[dict]:
     """
     async with httpx.AsyncClient(
         headers={"User-Agent": settings.crawl_user_agent},
-        timeout=15.0,
+        timeout=float(settings.news_search_timeout),
     ) as client:
         try:
             response = await client.get(feed_url)

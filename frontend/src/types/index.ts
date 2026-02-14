@@ -204,3 +204,10 @@ export interface RecentArticleItem {
   url: string
   category: string | null
 }
+
+// Crawl pipeline status
+export interface CrawlStatus {
+  phase: 'idle' | 'fetching' | 'crawling' | 'embedding'
+  started_at: string | null
+  detail: string | null
+}

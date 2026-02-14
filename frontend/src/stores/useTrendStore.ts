@@ -3,6 +3,7 @@ import type {
   ArticleTrendsResponse,
   RecentArticleItem,
   StatsOverview,
+  CrawlStatus,
 } from '@/types'
 import * as api from '@/services/api'
 
@@ -15,16 +16,23 @@ interface TrendState {
   // Header 호환 (기존 유지)
   stats: StatsOverview | null
 
+  // Crawl status
+  crawlStatus: CrawlStatus
+
   // UI state
   isLoading: boolean
   error: string | null
   period: '24h' | '7d' | '30d'
+  trendView: 'overall' | 'category'
 
   setPeriod: (period: '24h' | '7d' | '30d') => void
+  setTrendView: (view: 'overall' | 'category') => void
   toggleCluster: (clusterId: string) => void
+  updateCrawlStatus: (status: CrawlStatus) => void
   loadArticleTrends: () => Promise<void>
   loadRecentArticles: () => Promise<void>
   loadStats: () => Promise<void>
+  loadCrawlStatus: () => Promise<void>
 }
 
 export const useTrendStore = create<TrendState>((set, get) => ({
@@ -32,19 +40,29 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   recentArticles: [],
   expandedClusterId: null,
   stats: null,
+  crawlStatus: { phase: 'idle', started_at: null, detail: null },
   isLoading: false,
   error: null,
   period: '24h',
+  trendView: 'overall',
 
   setPeriod: (period) => {
     set({ period })
     get().loadArticleTrends()
   },
 
+  setTrendView: (view) => {
+    set({ trendView: view })
+  },
+
   toggleCluster: (clusterId) => {
     set((state) => ({
       expandedClusterId: state.expandedClusterId === clusterId ? null : clusterId,
     }))
+  },
+
+  updateCrawlStatus: (status) => {
+    set({ crawlStatus: status })
   },
 
   loadArticleTrends: async () => {
@@ -73,6 +91,15 @@ export const useTrendStore = create<TrendState>((set, get) => ({
       set({ stats })
     } catch {
       set({ stats: null })
+    }
+  },
+
+  loadCrawlStatus: async () => {
+    try {
+      const crawlStatus = await api.getCrawlStatus()
+      set({ crawlStatus })
+    } catch {
+      // non-critical — keep previous status
     }
   },
 }))

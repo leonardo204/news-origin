@@ -13,6 +13,7 @@ import type {
   TrackCandidate,
   ArticleTrendsResponse,
   RecentArticleItem,
+  CrawlStatus,
 } from '@/types'
 
 const api = axios.create({
@@ -154,5 +155,11 @@ export async function getRecentArticles(
   const { data } = await api.get<RecentArticleItem[]>('/trends/recent-articles', {
     params: { limit, ...(category ? { category } : {}) },
   })
+  return data
+}
+
+// Crawl Status
+export async function getCrawlStatus(): Promise<CrawlStatus> {
+  const { data } = await api.get<CrawlStatus>('/trends/crawl-status')
   return data
 }

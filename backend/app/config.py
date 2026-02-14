@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     crawl_delay_seconds: float = 2.0
     crawl_max_concurrent: int = 5
     crawl_user_agent: str = "NewsOrigin/0.1 (Research Bot)"
+    crawl_timeout: int = 8
+    news_search_timeout: int = 8
 
     # Similarity thresholds
     similarity_same_threshold: float = 0.90

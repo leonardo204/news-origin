@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type FormEvent } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, type FormEvent } from 'react'
 import { Search, Link as LinkIcon, Clock, X, Command } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useTrackingStore } from '@/stores/useTrackingStore'
@@ -86,6 +86,15 @@ export default function SearchBar() {
     setRecentSearches([])
   }, [])
 
+  // Animated dots: 검색중. → 검색중.. → 검색중...
+  const [dotCount, setDotCount] = useState(1)
+  useEffect(() => {
+    if (!isSearching) { setDotCount(1); return }
+    const id = setInterval(() => setDotCount((c) => (c % 3) + 1), 500)
+    return () => clearInterval(id)
+  }, [isSearching])
+  const searchingText = useMemo(() => `검색중${'.'.repeat(dotCount)}`, [dotCount])
+
   const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://')
 
   return (
@@ -122,7 +131,7 @@ export default function SearchBar() {
             </kbd>
           )}
           <Button type="submit" size="sm" disabled={isSearching || !searchQuery.trim()}>
-            {isSearching ? '검색 중...' : '추적'}
+            {isSearching ? searchingText : '추적'}
           </Button>
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground">

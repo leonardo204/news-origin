@@ -12,6 +12,7 @@ interface TrackingState {
   // Search
   searchQuery: string
   isSearching: boolean
+  selectedCandidateUrl: string | null
   searchResult: TrackResponse | null
   searchError: string | null
 
@@ -46,6 +47,7 @@ interface TrackingState {
 export const useTrackingStore = create<TrackingState>((set, get) => ({
   searchQuery: '',
   isSearching: false,
+  selectedCandidateUrl: null,
   searchResult: null,
   searchError: null,
   trackingId: null,
@@ -75,7 +77,7 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
   },
 
   selectCandidate: async (candidate) => {
-    set({ isSearching: true, searchError: null })
+    set({ isSearching: true, selectedCandidateUrl: candidate.url, searchError: null })
     try {
       const result = await api.trackArticle({
         text: candidate.url,
@@ -84,15 +86,15 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
         published_at: candidate.published_at,
       })
       if (result.article) {
-        set({ searchResult: result, isSearching: false })
+        set({ searchResult: result, isSearching: false, selectedCandidateUrl: null })
         // Auto-confirm: start tracking immediately
         get().confirmArticle(result.article.id)
       } else {
-        set({ searchError: '기사를 가져올 수 없습니다.', isSearching: false })
+        set({ searchError: '기사를 가져올 수 없습니다.', isSearching: false, selectedCandidateUrl: null })
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '기사를 가져오는 중 오류가 발생했습니다.'
-      set({ searchError: message, isSearching: false })
+      set({ searchError: message, isSearching: false, selectedCandidateUrl: null })
     }
   },
 
@@ -184,6 +186,7 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
     set({
       searchQuery: '',
       isSearching: false,
+      selectedCandidateUrl: null,
       searchResult: null,
       searchError: null,
       trackingId: null,
