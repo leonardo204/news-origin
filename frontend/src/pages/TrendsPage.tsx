@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp,
@@ -11,19 +11,19 @@ import {
   ExternalLink,
   Users,
   Layers,
-  Search,
   LayoutGrid,
   List,
+  X,
 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useTrendStore } from '@/stores/useTrendStore'
+import { useTrackingStore } from '@/stores/useTrackingStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatRelativeTime, truncate } from '@/lib/utils'
 import { CATEGORY_KEYS, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_BG } from '@/lib/constants'
-import type { TopicCluster } from '@/types'
+import type { TopicCluster, ClusterArticle } from '@/types'
 
 export default function TrendsPage() {
   usePageTitle('트렌드')
@@ -32,7 +32,6 @@ export default function TrendsPage() {
     articleTrends,
     recentArticles,
     expandedClusterId,
-    stats,
     isLoading,
     error,
     period,
@@ -42,14 +41,12 @@ export default function TrendsPage() {
     toggleCluster,
     loadArticleTrends,
     loadRecentArticles,
-    loadStats,
   } = useTrendStore()
 
   useEffect(() => {
     loadArticleTrends()
     loadRecentArticles()
-    loadStats()
-  }, [loadArticleTrends, loadRecentArticles, loadStats])
+  }, [loadArticleTrends, loadRecentArticles])
 
   // Group clusters by primary category for category view
   const categoryGroups = useMemo(() => {
@@ -67,6 +64,49 @@ export default function TrendsPage() {
     return CATEGORY_KEYS.map((cat) => ({ category: cat, clusters: groups[cat] }))
   }, [articleTrends])
 
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  const filteredClusters = useMemo(() => {
+    const clusters = articleTrends?.clusters ?? []
+    if (!selectedCategory) return clusters
+    return clusters.filter((c) => c.categories.includes(selectedCategory))
+  }, [articleTrends, selectedCategory])
+
+  // Collapse expanded cluster on outside click
+  useEffect(() => {
+    if (!expandedClusterId) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('[data-cluster-card]')) {
+        toggleCluster(expandedClusterId)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [expandedClusterId, toggleCluster])
+
+  // View toggle / period change clears all filters + expanded state
+  const handleSetTrendView = useCallback((view: 'overall' | 'category') => {
+    setSelectedCategory(null)
+    setTrendView(view)
+  }, [setTrendView])
+
+  const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
+    setSelectedCategory(null)
+    setPeriod(p)
+  }, [setPeriod])
+
+  const handleTrack = (article: ClusterArticle) => {
+    useTrackingStore.getState().reset()
+    useTrackingStore.getState().selectCandidate({
+      url: article.url,
+      title: article.title,
+      publisher: article.publisher ?? undefined,
+      published_at: article.published_at ?? undefined,
+    })
+    navigate('/')
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Header */}
@@ -80,7 +120,7 @@ export default function TrendsPage() {
           {(['24h', '7d', '30d'] as const).map((p) => (
             <button
               key={p}
-              onClick={() => setPeriod(p)}
+              onClick={() => handleSetPeriod(p)}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 period === p
                   ? 'bg-background text-foreground shadow-sm'
@@ -91,43 +131,6 @@ export default function TrendsPage() {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <Newspaper className="h-8 w-8 text-lifecycle-origin" />
-            <div>
-              <p className="text-xs text-muted-foreground">수집된 기사</p>
-              <p className="text-3xl font-bold tabular-nums">
-                {articleTrends?.total_articles.toLocaleString() ?? '-'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <Layers className="h-8 w-8 text-lifecycle-spread" />
-            <div>
-              <p className="text-xs text-muted-foreground">트렌드 토픽</p>
-              <p className="text-3xl font-bold tabular-nums">
-                {articleTrends?.total_clusters.toLocaleString() ?? '-'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <Flame className="h-8 w-8 text-lifecycle-explosion" />
-            <div>
-              <p className="text-xs text-muted-foreground">최근 24h 수집</p>
-              <p className="text-3xl font-bold tabular-nums">
-                {stats?.recent_articles_24h.toLocaleString() ?? '-'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {error && (
@@ -153,7 +156,7 @@ export default function TrendsPage() {
                   {/* View Toggle */}
                   <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-1">
                     <button
-                      onClick={() => setTrendView('overall')}
+                      onClick={() => handleSetTrendView('overall')}
                       className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                         trendView === 'overall'
                           ? 'bg-background text-foreground shadow-sm'
@@ -164,7 +167,7 @@ export default function TrendsPage() {
                       종합 순위
                     </button>
                     <button
-                      onClick={() => setTrendView('category')}
+                      onClick={() => handleSetTrendView('category')}
                       className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                         trendView === 'category'
                           ? 'bg-background text-foreground shadow-sm'
@@ -176,9 +179,25 @@ export default function TrendsPage() {
                     </button>
                   </div>
                 </div>
+                {selectedCategory && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${CATEGORY_BG[selectedCategory] || 'bg-muted text-muted-foreground'}`}
+                    >
+                      {CATEGORY_LABELS[selectedCategory] || selectedCategory}
+                    </span>
+                    <span className="text-xs text-muted-foreground">필터 적용중</span>
+                    <button
+                      onClick={() => setSelectedCategory(null)}
+                      className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent>
-                {!articleTrends || articleTrends.clusters.length === 0 ? (
+                {!articleTrends || filteredClusters.length === 0 ? (
                   <div className="py-12 text-center">
                     <Newspaper className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
                     <p className="text-muted-foreground">
@@ -191,13 +210,14 @@ export default function TrendsPage() {
                 ) : trendView === 'overall' ? (
                   /* Overall Ranking */
                   <div className="space-y-2">
-                    {articleTrends.clusters.map((cluster, i) => (
+                    {filteredClusters.map((cluster, i) => (
                       <TopicClusterCard
                         key={cluster.cluster_id}
                         cluster={cluster}
                         rank={i + 1}
                         isExpanded={expandedClusterId === cluster.cluster_id}
                         onToggle={() => toggleCluster(cluster.cluster_id)}
+                        onTrack={handleTrack}
                       />
                     ))}
                   </div>
@@ -229,6 +249,7 @@ export default function TrendsPage() {
                                 rank={i + 1}
                                 isExpanded={expandedClusterId === cluster.cluster_id}
                                 onToggle={() => toggleCluster(cluster.cluster_id)}
+                                onTrack={handleTrack}
                               />
                             ))}
                           </div>
@@ -352,18 +373,39 @@ export default function TrendsPage() {
                             fontSize: 11,
                             formatter: '{b}\n{d}%',
                           },
+                          emphasis: {
+                            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' },
+                            label: { fontWeight: 'bold' },
+                          },
                           data: Object.entries(articleTrends.category_distribution).map(
                             ([cat, count]) => ({
                               name: CATEGORY_LABELS[cat] || cat,
                               value: count,
-                              itemStyle: { color: CATEGORY_COLORS[cat] || '#6b7280' },
+                              itemStyle: {
+                                color: CATEGORY_COLORS[cat] || '#6b7280',
+                                opacity: selectedCategory && selectedCategory !== cat ? 0.3 : 1,
+                              },
                             }),
                           ),
                         },
                       ],
                     }}
-                    style={{ height: 220 }}
+                    style={{ height: 220, cursor: 'pointer' }}
                     theme="dark"
+                    onEvents={{
+                      click: (params: any) => {
+                        const catKey = Object.entries(CATEGORY_LABELS).find(
+                          ([, label]) => label === params.name,
+                        )?.[0]
+                        if (catKey) {
+                          const isDeselect = selectedCategory === catKey
+                          setSelectedCategory(isDeselect ? null : catKey)
+                          if (!isDeselect && trendView !== 'overall') {
+                            setTrendView('overall')
+                          }
+                        }
+                      },
+                    }}
                   />
                 </CardContent>
               </Card>
@@ -449,18 +491,6 @@ export default function TrendsPage() {
               </Card>
             )}
 
-            {/* CTA */}
-            <Card>
-              <CardContent className="p-4">
-                <p className="mb-3 text-sm text-muted-foreground">
-                  뉴스 기사의 기원을 추적해보세요
-                </p>
-                <Button className="w-full" onClick={() => navigate('/')}>
-                  <Search className="mr-1.5 h-4 w-4" />
-                  추적 시작하기
-                </Button>
-              </CardContent>
-            </Card>
           </div>
         </div>
       )}
@@ -475,16 +505,18 @@ function TopicClusterCard({
   rank,
   isExpanded,
   onToggle,
+  onTrack,
 }: {
   cluster: TopicCluster
   rank: number
   isExpanded: boolean
   onToggle: () => void
+  onTrack: (article: ClusterArticle) => void
 }) {
   const isHot = cluster.growth_rate >= 2 || cluster.article_count >= 5
 
   return (
-    <div className="rounded-lg border border-border/50 transition-colors hover:border-border">
+    <div data-cluster-card className="rounded-lg border border-border/50 transition-colors hover:border-border">
       <button
         onClick={onToggle}
         className="flex w-full items-start gap-3 p-3 text-left"
@@ -549,6 +581,16 @@ function TopicClusterCard({
 
       {isExpanded && (
         <div className="border-t border-border/50 px-3 pb-3 pt-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onTrack(cluster.representative_article)
+            }}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-3 py-1.5 text-xs font-medium text-lifecycle-origin transition-colors hover:bg-lifecycle-origin/20"
+          >
+            <Newspaper className="h-3.5 w-3.5" />
+            이 토픽의 대표 기사 추적 시작
+          </button>
           <div className="space-y-1">
             {cluster.articles.map((article) => (
               <a

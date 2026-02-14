@@ -11,7 +11,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # 표준 카테고리 키
-STANDARD_CATEGORIES = {"headlines", "politics", "economy", "society", "tech", "entertainment"}
+STANDARD_CATEGORIES = {"headlines", "politics", "economy", "society", "tech", "entertainment", "sports"}
 
 # 한국어/영어 카테고리명 → 표준 키 매핑
 CATEGORY_NORMALIZE_MAP: dict[str, str] = {
@@ -60,11 +60,15 @@ CATEGORY_NORMALIZE_MAP: dict[str, str] = {
     "culture": "entertainment",
     "lifestyle": "entertainment",
     "life": "entertainment",
-    "스포츠": "entertainment",
-    "sports": "entertainment",
-    "sport": "entertainment",
     "레저": "entertainment",
     "여행": "entertainment",
+    # 스포츠
+    "스포츠": "sports",
+    "sports": "sports",
+    "sport": "sports",
+    "야구": "sports",
+    "축구": "sports",
+    "농구": "sports",
     # 국제 → headlines (별도 카테고리 없으므로)
     "국제": "headlines",
     "세계": "headlines",
@@ -116,9 +120,13 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "콘서트", "앨범", "음원", "차트", "방송", "예능",
         "BTS", "블랙핑크", "뉴진스", "에스파", "세븐틴",
         "넷플릭스", "디즈니", "웹툰", "게임",
-        "올림픽", "월드컵", "야구", "축구", "농구",
-        "프로야구", "KBO", "K리그", "EPL", "MLB",
-        "손흥민", "이강인", "오타니",
+    ],
+    "sports": [
+        "올림픽", "월드컵", "야구", "축구", "농구", "배구", "골프", "테니스",
+        "프로야구", "KBO", "K리그", "EPL", "MLB", "NBA", "UFC",
+        "손흥민", "이강인", "오타니", "류현진", "김하성",
+        "감독", "코치", "선수", "우승", "결승", "준결승",
+        "챔피언스리그", "프리미어리그", "분데스리가", "라리가",
     ],
 }
 

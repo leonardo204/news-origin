@@ -29,8 +29,8 @@ def _create_worker_engine():
     worker_engine = create_async_engine(
         settings.database_url,
         echo=settings.app_debug,
-        pool_size=5,
-        max_overflow=2,
+        pool_size=2,
+        max_overflow=1,
     )
     factory = async_sessionmaker(
         worker_engine,

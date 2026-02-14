@@ -85,7 +85,7 @@ async def get_hot_trends(
     # Cache the result
     try:
         trends_dict = [item.model_dump() for item in trends]
-        await cache_set(cache_key, trends_dict, ttl=900)  # 15 minutes
+        await cache_set(cache_key, trends_dict, ttl=1800)  # 30 minutes
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 
@@ -132,7 +132,7 @@ async def get_popular_searches(
     # Cache the result
     try:
         popular_dict = [item.model_dump() for item in popular]
-        await cache_set(cache_key, popular_dict, ttl=3600)  # 1 hour
+        await cache_set(cache_key, popular_dict, ttl=7200)  # 2 hours
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 
@@ -208,7 +208,7 @@ async def get_stats_overview(
     # Cache the result
     try:
         stats_dict = stats.model_dump()
-        await cache_set(cache_key, stats_dict, ttl=300)  # 5 minutes
+        await cache_set(cache_key, stats_dict, ttl=1800)  # 30 minutes
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 
@@ -240,7 +240,7 @@ async def get_article_trends(
     result = await build_article_clusters(db, period, min_cluster_size)
 
     try:
-        await cache_set(cache_key, result.model_dump(), ttl=300)
+        await cache_set(cache_key, result.model_dump(), ttl=1800)  # 30 minutes
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 
@@ -302,7 +302,7 @@ async def get_recent_articles(
 
     try:
         articles_dict = [item.model_dump() for item in articles]
-        await cache_set(cache_key, articles_dict, ttl=120)
+        await cache_set(cache_key, articles_dict, ttl=600)  # 10 minutes
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 

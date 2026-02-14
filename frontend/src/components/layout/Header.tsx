@@ -14,6 +14,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   society: '사회',
   tech: 'IT/과학',
   entertainment: '연예/문화',
+  sports: '스포츠',
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -23,6 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   society: 'bg-rose-400',
   tech: 'bg-violet-400',
   entertainment: 'bg-cyan-400',
+  sports: 'bg-orange-400',
 }
 
 export default function Header() {
@@ -147,6 +149,10 @@ export default function Header() {
               <BarChart3 className="h-4 w-4" aria-hidden="true" />
             )}
             <span className="hidden sm:inline">현황</span>
+            <span className="flex flex-col items-center gap-[2px]" aria-label={`크롤링 상태: ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.label || '대기중'}`}>
+              <span className={`inline-block h-[5px] w-[5px] rounded-full transition-colors ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.dotClass || 'bg-emerald-400'}`} />
+              <span className={`inline-block h-[5px] w-[5px] rounded-full transition-colors ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.dotClass || 'bg-emerald-400'}`} />
+            </span>
           </button>
 
           {/* Floating stats panel */}

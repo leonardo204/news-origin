@@ -17,6 +17,7 @@ CATEGORY_FEEDS = {
     "society": "https://news.google.com/rss/search?q=사회&hl=ko&gl=KR&ceid=KR:ko",
     "tech": "https://news.google.com/rss/search?q=IT+과학+기술&hl=ko&gl=KR&ceid=KR:ko",
     "entertainment": "https://news.google.com/rss/search?q=연예+문화&hl=ko&gl=KR&ceid=KR:ko",
+    "sports": "https://news.google.com/rss/search?q=스포츠&hl=ko&gl=KR&ceid=KR:ko",
 }
 
 # 한국 주요 언론사 RSS 피드 (네이버 뉴스 대체)

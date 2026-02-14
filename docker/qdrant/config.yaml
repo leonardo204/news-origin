@@ -1,5 +1,5 @@
 # Qdrant Configuration - News Origin
-# Version: 0.1.0
+# Version: 0.2.0
 
 log_level: INFO
 
@@ -7,8 +7,9 @@ storage:
   storage_path: /qdrant/storage
   optimizers:
     default_segment_number: 2
+    memmap_threshold_kb: 1000
   performance:
-    max_search_threads: 0  # auto
+    max_search_threads: 1
 
 service:
   host: 0.0.0.0

@@ -1,4 +1,4 @@
-# docker-compose.prod.yml - News Origin Production
+# docker-compose.prod.yml - News Origin Production (Optimized for low-spec host)
 services:
   postgres:
     image: postgres:15-alpine
@@ -14,7 +14,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 2g
+    mem_limit: 128m
     restart: always
 
   qdrant:
@@ -29,7 +29,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
-    mem_limit: 4g
+    mem_limit: 512m
     restart: always
 
   redis:
@@ -44,7 +44,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 1g
+    mem_limit: 64m
     restart: always
 
   backend:
@@ -73,11 +73,11 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
-      interval: 30s
+      interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
-    mem_limit: 2g
+      start_period: 45s
+    mem_limit: 384m
     restart: always
 
   celery-worker:
@@ -85,7 +85,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-celery
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.workers.celery_app worker --loglevel=info --pool=solo
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
@@ -103,12 +103,14 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping --timeout 10 2>/dev/null | grep -q OK || exit 1"]
-      interval: 60s
-      timeout: 15s
+      test: ["CMD-SHELL", "pgrep -f 'celery.*worker' > /dev/null || exit 1"]
+      interval: 120s
+      timeout: 5s
       retries: 3
-      start_period: 30s
-    mem_limit: 2g
+      start_period: 60s
+    mem_limit: 1280m
+    mem_reservation: 768m
+    cpus: 1.0
     restart: always
 
   celery-beat:
@@ -137,7 +139,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    mem_limit: 512m
+    mem_limit: 128m
     restart: always
 
   frontend:
@@ -145,7 +147,15 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-frontend
-    mem_limit: 512m
+    volumes:
+      - frontend_dist:/usr/share/nginx/html
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html || exit 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+      start_period: 10s
+    mem_limit: 32m
     restart: always
 
   nginx:
@@ -155,13 +165,17 @@ services:
       - "${PORT:-10880}:80"
     volumes:
       - ./docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - frontend_dist:/usr/share/nginx/frontend:ro
     depends_on:
-      - frontend
-      - backend
-    mem_limit: 256m
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 64m
     restart: always
 
 volumes:
   postgres_data:
   qdrant_data:
   redis_data:
+  frontend_dist:

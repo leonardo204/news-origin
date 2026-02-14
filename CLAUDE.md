@@ -93,6 +93,47 @@ make docker-down      # 인프라 중지
 - `GET /api/trends/*` - 트렌드 분석
 - `GET /api/health` - 헬스체크
 
+## Host PC & Performance Constraints
+
+### 호스트 사양 (CRITICAL - 모든 변경 시 고려)
+- CPU: Intel i3-2310M (2코어/4스레드, 2.10GHz) - 2011년형 저사양
+- RAM: 3.8GB (동일 호스트에서 Outline Wiki도 운영)
+- GPU: 없음 - 임베딩 모델은 CPU 전용
+- 사용자: 극소수
+
+### Celery Worker 설정 주의 (CRITICAL)
+- `--pool=solo` 필수: 임베딩 모델이 1061MB (278M 파라미터)로 프로세스당 ~1GB 차지
+- `prefork` pool이나 `concurrency > 1`로 변경하면 모델이 프로세스마다 로딩되어 OOM 발생
+- `worker_max_tasks_per_child` 사용 금지: solo pool에서 프로세스 재시작 → 모델 재로딩 유발
+- 임베딩 모델은 Celery 태스크에서만 사용됨, API 핸들러에서는 사용하지 않음
+
+### Uvicorn Worker 설정
+- `--workers 1` 사용: async 단일 워커로 충분 (사용자 극소수)
+- 워커 수 증가 시 메모리 ~120MB/워커 추가 소요
+
+### Docker mem_limit 설정 근거
+| 컨테이너 | 한도 | 실사용 | 비고 |
+|-----------|------|--------|------|
+| celery-worker | 1280m | ~1100m (모델 로딩 후) | 임베딩 모델 1061MB + 오버헤드 |
+| qdrant | 512m | ~75m (현재) | 기사 누적 시 성장, 90일 보존 |
+| backend | 384m | ~130m | 단일 uvicorn 워커 |
+| celery-beat | 128m | ~46m | 스케줄러 전용 |
+| postgres | 128m | ~28m | DB 크기 ~10MB |
+| redis | 64m | ~5m | maxmemory 32mb |
+| nginx | 64m | ~4m | proxy_cache 포함 |
+| frontend | 32m | ~5m | 정적 파일 서빙 |
+
+### Nginx 캐싱 구조
+- **proxy_cache**: trends API 4개 엔드포인트에 2~5분 TTL (nginx.prod.conf)
+- **Redis 캐시**: 동일 엔드포인트에 10~30분 TTL (trends.py), 크롤 완료 시 명시적 삭제
+- **이중 캐시**: Nginx(1ms 응답) → Redis(DB 쿼리 방지) 순서로 동작
+- 프론트엔드: Nginx에서 직접 서빙 (`frontend_dist` 볼륨), /assets/ 1년 캐시
+- 캐시 미적용: SSE(/api/trends/events), 쓰기 엔드포인트, 폴링
+
+### DB 커넥션 풀
+- backend pool_size=3 (base.py), worker pool_size=2 (tasks.py)
+- 워커/프로세스 수 증가 시 pool_size도 조정 필요
+
 ## Code Conventions
 - 파일 헤더에 버전/변경사항 docstring 포함
 - `[BUSINESS LOGIC - DO NOT MODIFY]` 주석이 있는 코드는 수정 금지
