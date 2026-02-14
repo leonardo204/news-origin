@@ -19,10 +19,21 @@ CATEGORY_FEEDS = {
     "entertainment": "https://news.google.com/rss/search?q=연예+문화&hl=ko&gl=KR&ceid=KR:ko",
 }
 
+# 한국 주요 언론사 RSS 피드 (네이버 뉴스 대체)
+PUBLISHER_FEEDS = {
+    "조선일보": "https://www.chosun.com/arc/outboundfeeds/rss/?outputType=xml",
+    "한국경제": "https://www.hankyung.com/feed/all-news",
+    "한겨레": "https://www.hani.co.kr/rss/",
+    "경향신문": "https://www.khan.co.kr/rss/rssdata/total_news.xml",
+    "매일경제": "https://www.mk.co.kr/rss/40300001/",
+    "동아일보": "https://rss.donga.com/total.xml",
+}
+
 # 배치 설정
 FEED_LIMIT_PER_CATEGORY = 15  # RSS 피드 카테고리당 최대 수집 수
+PUBLISHER_FEED_LIMIT = 10     # 언론사 피드당 최대 수집 수
 CRAWL_BATCH_SIZE = 50         # 크롤링 배치 크기
-MAX_ARTICLES_PER_RUN = 90     # 실행당 최대 기사 수 (6개 카테고리 × 15건)
+MAX_ARTICLES_PER_RUN = 90     # 실행당 최대 기사 수 (Google News)
 ARTICLE_RETENTION_DAYS = 90
 
 # Celery Beat 스케줄

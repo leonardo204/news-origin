@@ -86,25 +86,37 @@ async def _run_fetch_trending():
     from app.core.crawler import crawl_articles_batch
     from app.services.embedding import create_embeddings_batch, get_article_text
     from app.services.vector_store import upsert_embedding
-    from app.services.news_feed import fetch_all_category_feeds
+    from app.services.news_feed import fetch_all_category_feeds, fetch_all_publisher_feeds
     from app.workers.beat_schedule import (
-        CATEGORY_FEEDS, CRAWL_BATCH_SIZE, MAX_ARTICLES_PER_RUN,
-        FEED_LIMIT_PER_CATEGORY,
+        CATEGORY_FEEDS, PUBLISHER_FEEDS, CRAWL_BATCH_SIZE, MAX_ARTICLES_PER_RUN,
+        FEED_LIMIT_PER_CATEGORY, PUBLISHER_FEED_LIMIT,
     )
 
     from app.services.cache import set_crawl_status
 
     worker_engine, session_factory = _create_worker_engine()
     try:
-        # 1. 카테고리 피드 수집
+        # 1. 카테고리 피드 수집 (Google News)
         await set_crawl_status("fetching", "RSS 피드 수집중")
         feed_articles = await fetch_all_category_feeds(
             CATEGORY_FEEDS,
             limit_per_category=FEED_LIMIT_PER_CATEGORY,
             max_total=MAX_ARTICLES_PER_RUN,
         )
+
+        # 1-2. 한국 언론사 RSS 피드 수집
+        google_urls = {a["url"] for a in feed_articles}
+        await set_crawl_status("fetching", "언론사 RSS 수집중")
+        publisher_articles = await fetch_all_publisher_feeds(
+            PUBLISHER_FEEDS,
+            limit_per_publisher=PUBLISHER_FEED_LIMIT,
+            max_total=60,
+            exclude_urls=google_urls,
+        )
+        feed_articles.extend(publisher_articles)
+
         if not feed_articles:
-            logger.warning("No articles from feeds — check RSS feed URLs and Google News URL decoder")
+            logger.warning("No articles from feeds — check RSS feed URLs")
             await set_crawl_status("idle")
             return {"status": "ok", "fetched": 0, "crawled": 0, "embedded": 0}
 
@@ -222,8 +234,11 @@ async def _run_fetch_trending():
         await cache_delete("trends:hot:7d")
         await cache_delete("trends:hot:30d")
         await cache_delete("trends:popular")
+        await cache_delete("trends:article-clusters:24h:1")
         await cache_delete("trends:article-clusters:24h:2")
+        await cache_delete("trends:article-clusters:7d:1")
         await cache_delete("trends:article-clusters:7d:2")
+        await cache_delete("trends:article-clusters:30d:1")
         await cache_delete("trends:article-clusters:30d:2")
         await cache_delete("trends:recent-articles:30:all")
         await publish_event("stats_updated", {
@@ -237,6 +252,7 @@ async def _run_fetch_trending():
             "fetched": len(feed_urls),
             "crawled": len(crawled),
             "embedded": len(articles_to_embed),
+            "from_publishers": len(publisher_articles),
         }
 
     finally:
@@ -607,8 +623,11 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             await cache_delete("trends:hot:30d")
             await cache_delete("trends:popular")
             await cache_delete("trends:stats")
+            await cache_delete("trends:article-clusters:24h:1")
             await cache_delete("trends:article-clusters:24h:2")
+            await cache_delete("trends:article-clusters:7d:1")
             await cache_delete("trends:article-clusters:7d:2")
+            await cache_delete("trends:article-clusters:30d:1")
             await cache_delete("trends:article-clusters:30d:2")
             await cache_delete("trends:recent-articles:30:all")
             await publish_event("stats_updated", {
