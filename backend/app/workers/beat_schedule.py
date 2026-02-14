@@ -22,7 +22,7 @@ CATEGORY_FEEDS = {
 # 배치 설정
 FEED_LIMIT_PER_CATEGORY = 15  # RSS 피드 카테고리당 최대 수집 수
 CRAWL_BATCH_SIZE = 50         # 크롤링 배치 크기
-MAX_ARTICLES_PER_RUN = 50     # 실행당 최대 기사 수
+MAX_ARTICLES_PER_RUN = 90     # 실행당 최대 기사 수 (6개 카테고리 × 15건)
 ARTICLE_RETENTION_DAYS = 90
 
 # Celery Beat 스케줄

@@ -88,21 +88,39 @@ async def fetch_all_category_feeds(
 
     Returns: [{url, title, publisher, published_at}, ...]
     """
-    all_articles = []
+    # 카테고리별로 수집 후 라운드로빈으로 균등 분배
+    category_articles: dict[str, list[dict]] = {}
     seen_urls = set()
 
     for name, feed_url in categories.items():
         try:
             articles = await fetch_category_feed(feed_url, limit=limit_per_category)
+            unique = []
             for article in articles:
                 if article["url"] not in seen_urls:
                     seen_urls.add(article["url"])
                     article["feed_category"] = name
-                    all_articles.append(article)
-            logger.info(f"Feed [{name}]: {len(articles)} articles fetched")
+                    unique.append(article)
+            category_articles[name] = unique
+            logger.info(f"Feed [{name}]: {len(unique)} unique articles fetched")
         except Exception as e:
             logger.warning(f"Feed [{name}] failed: {e}")
             continue
 
-    logger.info(f"Total unique articles from feeds: {len(all_articles)}")
-    return all_articles[:max_total]
+    # 라운드로빈: 각 카테고리에서 1건씩 번갈아 선택하여 균등 분배
+    result = []
+    max_len = max((len(v) for v in category_articles.values()), default=0)
+    for i in range(max_len):
+        for name in categories:
+            if name in category_articles and i < len(category_articles[name]):
+                result.append(category_articles[name][i])
+                if len(result) >= max_total:
+                    break
+        if len(result) >= max_total:
+            break
+
+    logger.info(
+        f"Total unique articles: {sum(len(v) for v in category_articles.values())}, "
+        f"selected: {len(result)} (round-robin across {len(category_articles)} categories)"
+    )
+    return result
