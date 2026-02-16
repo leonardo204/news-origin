@@ -72,6 +72,18 @@ export default function TrendsPage() {
     return clusters.filter((c) => c.categories.includes(selectedCategory))
   }, [articleTrends, selectedCategory])
 
+  // Scroll to expanded cluster (e.g. when coming from HomePage)
+  useEffect(() => {
+    if (!expandedClusterId) return
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`[data-cluster-id="${expandedClusterId}"]`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => clearTimeout(timer)
+  // Only on mount or when navigating with a pre-set cluster
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Collapse expanded cluster on outside click
   useEffect(() => {
     if (!expandedClusterId) return
@@ -96,9 +108,9 @@ export default function TrendsPage() {
     setPeriod(p)
   }, [setPeriod])
 
-  const handleTrack = (article: ClusterArticle) => {
+  const handleTrack = async (article: ClusterArticle) => {
     useTrackingStore.getState().reset()
-    useTrackingStore.getState().selectCandidate({
+    await useTrackingStore.getState().selectCandidate({
       url: article.url,
       title: article.title,
       publisher: article.publisher ?? undefined,
@@ -224,7 +236,9 @@ export default function TrendsPage() {
                 ) : (
                   /* Category View */
                   <div className="space-y-6">
-                    {categoryGroups.map(({ category, clusters: catClusters }) => (
+                    {categoryGroups
+                      .filter(({ clusters: catClusters }) => catClusters.length > 0)
+                      .map(({ category, clusters: catClusters }) => (
                       <div key={category}>
                         <div className="mb-3 flex items-center gap-2">
                           <span
@@ -236,24 +250,18 @@ export default function TrendsPage() {
                             {catClusters.length}개 토픽
                           </span>
                         </div>
-                        {catClusters.length === 0 ? (
-                          <p className="py-4 text-center text-xs text-muted-foreground/60">
-                            해당 카테고리에 트렌드가 없습니다.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {catClusters.map((cluster, i) => (
-                              <TopicClusterCard
-                                key={cluster.cluster_id}
-                                cluster={cluster}
-                                rank={i + 1}
-                                isExpanded={expandedClusterId === cluster.cluster_id}
-                                onToggle={() => toggleCluster(cluster.cluster_id)}
-                                onTrack={handleTrack}
-                              />
-                            ))}
-                          </div>
-                        )}
+                        <div className="space-y-2">
+                          {catClusters.map((cluster, i) => (
+                            <TopicClusterCard
+                              key={cluster.cluster_id}
+                              cluster={cluster}
+                              rank={i + 1}
+                              isExpanded={expandedClusterId === cluster.cluster_id}
+                              onToggle={() => toggleCluster(cluster.cluster_id)}
+                              onTrack={handleTrack}
+                            />
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -303,7 +311,8 @@ export default function TrendsPage() {
                             const d = new Date(v)
                             return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}시`
                           },
-                          rotate: 30,
+                          rotate: 25,
+                          interval: 0,
                         },
                         axisLine: { lineStyle: { color: '#374151' } },
                       },
@@ -331,7 +340,7 @@ export default function TrendsPage() {
                         },
                       ],
                     }}
-                    style={{ height: 250 }}
+                    style={{ height: 220 }}
                     theme="dark"
                   />
                 </CardContent>
@@ -516,10 +525,10 @@ function TopicClusterCard({
   const isHot = cluster.growth_rate >= 2 || cluster.article_count >= 5
 
   return (
-    <div data-cluster-card className="rounded-lg border border-border/50 transition-colors hover:border-border">
+    <div data-cluster-card data-cluster-id={cluster.cluster_id} className="rounded-lg border border-border/50 transition-colors hover:border-border">
       <button
         onClick={onToggle}
-        className="flex w-full items-start gap-3 p-3 text-left"
+        className="flex w-full items-start gap-3 p-3 sm:p-4 text-left"
       >
         <span
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
@@ -532,14 +541,14 @@ function TopicClusterCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
-            <p className="flex-1 text-sm font-medium leading-tight">
+            <p className="flex-1 text-sm font-medium leading-snug sm:text-[15px]">
               {truncate(cluster.title, 80)}
             </p>
             {isHot && (
               <Flame className="h-4 w-4 shrink-0 text-lifecycle-explosion" />
             )}
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1 font-medium text-foreground/80">
               <Newspaper className="h-3 w-3" />
               {cluster.article_count}건
@@ -553,17 +562,17 @@ function TopicClusterCard({
               {formatRelativeTime(cluster.last_seen)}
             </span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className="mt-2 flex flex-wrap gap-1">
             {cluster.categories.map((cat) => (
               <span
                 key={cat}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CATEGORY_BG[cat] || 'bg-muted text-muted-foreground'}`}
+                className={`rounded px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium ${CATEGORY_BG[cat] || 'bg-muted text-muted-foreground'}`}
               >
                 {CATEGORY_LABELS[cat] || cat}
               </span>
             ))}
             {cluster.publishers.length > 0 && (
-              <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] sm:text-[11px] text-muted-foreground">
                 {cluster.publishers.slice(0, 3).join(', ')}
                 {cluster.publishers.length > 3 && ` +${cluster.publishers.length - 3}`}
               </span>
@@ -580,31 +589,31 @@ function TopicClusterCard({
       </button>
 
       {isExpanded && (
-        <div className="border-t border-border/50 px-3 pb-3 pt-2">
+        <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-3 sm:px-4 pb-3 pt-2">
           <button
             onClick={(e) => {
               e.stopPropagation()
               onTrack(cluster.representative_article)
             }}
-            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-3 py-1.5 text-xs font-medium text-lifecycle-origin transition-colors hover:bg-lifecycle-origin/20"
+            className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-4 py-2.5 text-sm font-medium text-lifecycle-origin transition-colors hover:bg-lifecycle-origin/20 active:scale-[0.98]"
           >
-            <Newspaper className="h-3.5 w-3.5" />
+            <Newspaper className="h-4 w-4" />
             이 토픽의 대표 기사 추적 시작
           </button>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {cluster.articles.map((article) => (
               <a
                 key={article.id}
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/30"
+                className="flex items-start gap-2 rounded-md px-2 py-2 transition-colors hover:bg-secondary/30 active:bg-secondary/50"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] leading-tight text-foreground/90">
+                  <p className="text-[13px] sm:text-sm leading-snug text-foreground/90">
                     {article.title}
                   </p>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <div className="mt-1 flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground">
                     {article.publisher && <span>{article.publisher}</span>}
                     {article.published_at && (
                       <span>{formatRelativeTime(article.published_at)}</span>
@@ -616,7 +625,7 @@ function TopicClusterCard({
                     )}
                   </div>
                 </div>
-                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/50" />
+                <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
               </a>
             ))}
           </div>

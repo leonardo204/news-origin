@@ -7,7 +7,9 @@
 - **Backend**: FastAPI + SQLAlchemy (async) + Alembic + Celery + Pydantic Settings
 - **Frontend**: React 19 + TypeScript + Vite + Zustand + Tailwind CSS + ECharts + @antv/g6
 - **Infra**: PostgreSQL 15 + Qdrant (vector DB) + Redis 7 + Nginx
-- **Embedding**: `paraphrase-multilingual-mpnet-base-v2` (768차원, sentence-transformers)
+- **Embedding**: Azure OpenAI `text-embedding-3-large` (1024차원, API 기반)
+- **NER**: `klue/bert-base` 기반 키워드 추출 (kiwipiepy 폴백)
+- **평가**: Azure OpenAI `gpt-5` (샘플링 품질 평가, reasoning model)
 
 ## Project Structure
 ```
@@ -82,8 +84,16 @@ make docker-down      # 인프라 중지
 1. Celery Beat → `fetch_trending_news` (30분 간격)
 2. Google News RSS 6개 카테고리 (headlines, politics, economy, society, tech, entertainment)
 3. 카테고리당 최대 15건, 실행당 최대 50건
-4. DB 중복 체크 → 본문 크롤링 → 임베딩 생성 → PostgreSQL + Qdrant 저장
-5. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
+4. DB 중복 체크 → 본문 크롤링 → **BERT NER 키워드 추출** → **Azure 임베딩 생성** → PostgreSQL + Qdrant 저장
+5. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
+6. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
+
+## Clustering Algorithm (v0.4.0)
+- **그래프 기반 클러스터 병합**: Connected Components via BFS
+- **임베딩 유사도 게이트**: cosine_sim >= 0.52 (CLUSTER_MERGE_EMB_THRESHOLD)
+- **키워드 오버랩 게이트**: 정확 일치 또는 부분 문자열 매칭 (한국어 엔터티 변형 대응)
+- **최대 컴포넌트 제한**: MAX_COMPONENT_ARTICLES = 30 (메가 클러스터 방지)
+- **마이그레이션**: `python -m scripts.migrate_embeddings` (관계 초기화 + 재임베딩)
 
 ## API Endpoints
 - `POST /api/articles/track` - URL로 기사 추적 시작
@@ -102,10 +112,11 @@ make docker-down      # 인프라 중지
 - 사용자: 극소수
 
 ### Celery Worker 설정 주의 (CRITICAL)
-- `--pool=solo` 필수: 임베딩 모델이 1061MB (278M 파라미터)로 프로세스당 ~1GB 차지
-- `prefork` pool이나 `concurrency > 1`로 변경하면 모델이 프로세스마다 로딩되어 OOM 발생
+- `--pool=solo` 필수: BERT NER 모델이 ~440MB로 프로세스당 차지
+- 임베딩은 Azure OpenAI API로 전환되어 로컬 모델 로딩 없음 (메모리 ~600MB 절감)
+- `prefork` pool이나 `concurrency > 1`로 변경하면 BERT 모델이 프로세스마다 로딩되어 OOM 발생
 - `worker_max_tasks_per_child` 사용 금지: solo pool에서 프로세스 재시작 → 모델 재로딩 유발
-- 임베딩 모델은 Celery 태스크에서만 사용됨, API 핸들러에서는 사용하지 않음
+- BERT NER 모델은 Celery 태스크에서만 사용됨, API 핸들러에서는 사용하지 않음
 
 ### Uvicorn Worker 설정
 - `--workers 1` 사용: async 단일 워커로 충분 (사용자 극소수)
@@ -114,7 +125,7 @@ make docker-down      # 인프라 중지
 ### Docker mem_limit 설정 근거
 | 컨테이너 | 한도 | 실사용 | 비고 |
 |-----------|------|--------|------|
-| celery-worker | 1280m | ~1100m (모델 로딩 후) | 임베딩 모델 1061MB + 오버헤드 |
+| celery-worker | 1024m | ~740m (BERT NER 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + 오버헤드, 임베딩은 Azure API |
 | qdrant | 512m | ~75m (현재) | 기사 누적 시 성장, 90일 보존 |
 | backend | 384m | ~130m | 단일 uvicorn 워커 |
 | celery-beat | 128m | ~46m | 스케줄러 전용 |
@@ -129,6 +140,7 @@ make docker-down      # 인프라 중지
 - **이중 캐시**: Nginx(1ms 응답) → Redis(DB 쿼리 방지) 순서로 동작
 - 프론트엔드: Nginx에서 직접 서빙 (`frontend_dist` 볼륨), /assets/ 1년 캐시
 - 캐시 미적용: SSE(/api/trends/events), 쓰기 엔드포인트, 폴링
+- **SSE 재연결**: 프론트엔드 Header.tsx에서 지수 백오프 자동 재연결 (1s → 최대 30s)
 
 ### DB 커넥션 풀
 - backend pool_size=3 (base.py), worker pool_size=2 (tasks.py)

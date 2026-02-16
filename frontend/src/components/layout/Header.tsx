@@ -6,18 +6,9 @@ import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { CATEGORY_LABELS } from '@/lib/constants'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  headlines: '헤드라인',
-  politics: '정치',
-  economy: '경제',
-  society: '사회',
-  tech: 'IT/과학',
-  entertainment: '연예/문화',
-  sports: '스포츠',
-}
-
-const CATEGORY_COLORS: Record<string, string> = {
+const CATEGORY_DOT_COLORS: Record<string, string> = {
   headlines: 'bg-emerald-400',
   politics: 'bg-blue-400',
   economy: 'bg-amber-400',
@@ -36,27 +27,59 @@ export default function Header() {
 
   const { stats, crawlStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus } = useTrendStore()
 
-  // Load stats + crawl status on mount + SSE
+  // Load stats + crawl status on mount + SSE with auto-reconnect
   useEffect(() => {
     loadStats()
     loadCrawlStatus()
-    const es = new EventSource('/api/trends/events')
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'crawl_status') {
-          updateCrawlStatus({ phase: data.phase, started_at: data.started_at, detail: data.detail })
-          if (data.phase === 'idle') loadStats()
-        }
-        if (data.type === 'crawl_complete' || data.type === 'tracking_complete') {
+
+    let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let retryDelay = 1000
+    let unmounted = false
+
+    function connect() {
+      if (unmounted) return
+      es = new EventSource('/api/trends/events')
+      retryDelay = 1000 // reset on successful connection attempt
+
+      es.onopen = () => {
+        retryDelay = 1000
+      }
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'crawl_status') {
+            updateCrawlStatus({ phase: data.phase, started_at: data.started_at, detail: data.detail })
+            if (data.phase === 'idle') loadStats()
+          }
+          if (data.type === 'crawl_complete' || data.type === 'tracking_complete') {
+            loadStats()
+          }
+        } catch {
           loadStats()
         }
-      } catch {
-        loadStats()
+      }
+
+      es.onerror = () => {
+        es?.close()
+        es = null
+        if (!unmounted) {
+          reconnectTimer = setTimeout(() => {
+            retryDelay = Math.min(retryDelay * 2, 30000)
+            connect()
+          }, retryDelay)
+        }
       }
     }
-    es.onerror = () => {}
-    return () => es.close()
+
+    connect()
+
+    return () => {
+      unmounted = true
+      es?.close()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+    }
   }, [loadStats, loadCrawlStatus, updateCrawlStatus])
 
   // Refresh stats when panel opens
@@ -87,11 +110,7 @@ export default function Header() {
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault()
     useTrackingStore.getState().reset()
-    if (location.pathname === '/') {
-      window.location.reload()
-    } else {
-      navigate('/')
-    }
+    navigate('/')
   }
 
   const handleHomeClick = () => {
@@ -159,7 +178,7 @@ export default function Header() {
           <div
             ref={panelRef}
             className={cn(
-              'absolute right-0 top-full mt-2 w-56 origin-top-right transition-all duration-200',
+              'absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-64 max-w-72 origin-top-right transition-all duration-200',
               panelOpen
                 ? 'pointer-events-auto scale-100 opacity-100'
                 : 'pointer-events-none scale-95 opacity-0',
@@ -282,7 +301,7 @@ function CategoryDistribution({ counts }: { counts: Record<string, number> }) {
               <div key={category} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_COLORS[category] || 'bg-muted-foreground'}`} />
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT_COLORS[category] || 'bg-muted-foreground'}`} />
                     <span className="text-[12px] text-foreground/80">
                       {CATEGORY_LABELS[category] || category}
                     </span>
@@ -294,7 +313,7 @@ function CategoryDistribution({ counts }: { counts: Record<string, number> }) {
                 </div>
                 <div className="h-1 overflow-hidden rounded-sm bg-muted/40">
                   <div
-                    className={`h-full rounded-sm ${CATEGORY_COLORS[category] || 'bg-primary'}`}
+                    className={`h-full rounded-sm ${CATEGORY_DOT_COLORS[category] || 'bg-primary'}`}
                     style={{ width: `${(count / maxCount) * 100}%`, opacity: 0.65 }}
                   />
                 </div>

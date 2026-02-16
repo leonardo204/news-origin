@@ -17,7 +17,7 @@ export default function TrackingProgress() {
   const { progress, total_articles, status } = trackingStatus
 
   return (
-    <div className="mt-8 w-full max-w-md space-y-5">
+    <div className="mt-8 w-full max-w-lg space-y-5">
       {/* Progress bar */}
       <div className="space-y-2">
         <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">

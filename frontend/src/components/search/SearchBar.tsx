@@ -134,14 +134,16 @@ export default function SearchBar() {
             {isSearching ? searchingText : '추적'}
           </Button>
         </div>
-        <p className="mt-2 text-center text-xs text-muted-foreground">
+        <p className={`mt-2 text-center text-xs text-muted-foreground transition-all duration-300 ${
+          focused || searchQuery ? 'max-h-6 opacity-100' : 'max-h-0 overflow-hidden opacity-0'
+        }`}>
           URL을 입력하면 해당 기사를 기원점으로 추적합니다. 제목을 입력하면 관련 기사를 먼저 검색합니다.
         </p>
       </form>
 
-      {/* Recent searches */}
-      {recentSearches.length > 0 && !searchQuery && (
-        <div className="mt-3 rounded-lg border border-border bg-gray-900/30 p-3">
+      {/* Recent searches - only visible on focus */}
+      {recentSearches.length > 0 && !searchQuery && focused && (
+        <div className="mt-3 rounded-lg border border-border bg-gray-900/30 p-3 animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Clock className="h-3 w-3" />
