@@ -1,12 +1,13 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.5.0
+# Version: 0.6.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
 #   - 0.3.0: fetch_trending_news, cleanup_old_articles, 파이프라인 최적화
 #   - 0.4.0: origin content null이면 파이프라인 시작 시 백그라운드 크롤링
 #   - 0.5.0: 3단 카테고리 분류 + 기존 기사 카테고리 마이그레이션
+#   - 0.6.0: 2단계 추적 - 즉시 추적(Qdrant only) + Live 추적(full pipeline)
 """
 
 import asyncio
@@ -370,7 +371,207 @@ async def _run_cleanup():
         await worker_engine.dispose()
 
 
-# ── Article Propagation Analysis Task ──
+# ── Instant Tracking Task (Qdrant-only) ──
+
+
+@celery_app.task(bind=True, max_retries=2, soft_time_limit=120, time_limit=150)
+def analyze_article_instant(self, tracking_id: str, article_id: str):
+    """
+    즉시 추적 파이프라인 (Celery 태스크)
+
+    기존 DB/Qdrant 데이터에서만 검색하여 빠른 결과 제공 (크롤링 없음)
+    실행 순서:
+    1. 원본 기사 임베딩 생성 (없으면)
+    2. Qdrant 벡터 검색으로 유사 기사 탐색
+    3. 타임라인 구성
+    4. DB 저장
+
+    Timeouts:
+    - soft_time_limit=120 (2분): 크롤링 없이 빠르게 완료
+    - time_limit=150 (2.5분): 강제 종료
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        loop.run_until_complete(
+            _run_instant_pipeline(self, tracking_id, article_id)
+        )
+    except SoftTimeLimitExceeded:
+        logger.error(f"Instant task timed out: tracking_id={tracking_id}")
+        loop.run_until_complete(
+            _mark_failed(tracking_id, "즉시 분석 시간이 초과되었습니다.")
+        )
+    finally:
+        loop.close()
+
+
+async def _run_instant_pipeline(task, tracking_id: str, article_id: str):
+    """즉시 추적 파이프라인 - Qdrant 벡터 검색만 수행"""
+    from sqlalchemy import select
+    from app.models.article import Article
+    from app.models.timeline import TrackingRequest, TimelineEntry
+    from app.core.analyzer import analyze_article, find_similar_articles
+    from app.core.timeline import build_timeline
+    from app.services.embedding import create_embedding, get_article_text
+    from app.services.keyword_extractor import extract_keywords
+
+    worker_engine, session_factory = _create_worker_engine()
+    tracking = None
+    try:
+        async with session_factory() as db:
+            # 추적 상태 업데이트
+            result = await db.execute(
+                select(TrackingRequest).where(TrackingRequest.id == tracking_id)
+            )
+            tracking = result.scalar_one()
+            tracking.status = "processing"
+            tracking.progress = 10
+            await db.commit()
+
+            # 1. 원본 기사 로드
+            result = await db.execute(
+                select(Article).where(Article.id == article_id)
+            )
+            origin = result.scalar_one()
+
+            # 2. 원본 기사 NER 키워드 추출 (없으면)
+            origin_meta = dict(origin.metadata_ or {})
+            if "keywords_data" not in origin_meta:
+                kw_data = extract_keywords(origin.title)
+                origin_meta["keywords_data"] = kw_data
+                origin.metadata_ = origin_meta
+                await db.commit()
+
+            tracking.progress = 20
+            await db.commit()
+
+            # 3. 원본 기사 임베딩 생성 (없으면)
+            origin_kw = origin_meta.get("keywords_data", {})
+            if origin.qdrant_point_id:
+                # 이미 임베딩이 있으면 텍스트에서 재생성 (검색용)
+                text = get_article_text(origin.title, origin.content)
+                origin_embedding = create_embedding(text)
+            else:
+                point_id, origin_embedding = analyze_article(
+                    article_id=str(origin.id),
+                    title=origin.title,
+                    content=origin.content,
+                    publisher=origin.publisher,
+                    published_at=str(origin.published_at) if origin.published_at else None,
+                    keywords=origin_kw.get("keywords", []),
+                )
+                origin.qdrant_point_id = point_id
+
+            tracking.progress = 40
+            await db.commit()
+
+            # 4. Qdrant에서 유사 기사 검색 (기존 데이터만)
+            qdrant_results = find_similar_articles(
+                origin_embedding,
+                exclude_article_id=str(origin.id),
+            )
+
+            tracking.progress = 60
+            tracking.total_articles = len(qdrant_results)
+            await db.commit()
+
+            # 5. 유사 기사 정보 로드 (DB에서)
+            similar_articles = []
+            article_ids = [r["payload"].get("article_id") for r in qdrant_results if r["payload"].get("article_id")]
+            if article_ids:
+                result = await db.execute(
+                    select(Article).where(Article.id.in_(article_ids))
+                )
+                db_articles = {str(a.id): a for a in result.scalars().all()}
+
+                for qr in qdrant_results:
+                    aid = qr["payload"].get("article_id")
+                    if aid and aid in db_articles:
+                        article = db_articles[aid]
+                        similar_articles.append({
+                            "id": aid,
+                            "title": article.title,
+                            "published_at": article.published_at,
+                            "publisher": article.publisher,
+                            "score": qr["score"],
+                            "category": qr["category"],
+                            "embedding": None,
+                        })
+
+            tracking.progress = 80
+            await db.commit()
+
+            # 6. 타임라인 구성
+            input_data = {
+                "id": str(origin.id),
+                "title": origin.title,
+                "published_at": origin.published_at,
+            }
+            timeline_entries, true_origin_id = build_timeline(input_data, similar_articles)
+
+            # origin_article_id 업데이트
+            if str(tracking.origin_article_id) != true_origin_id:
+                import uuid as _uuid
+                tracking.origin_article_id = _uuid.UUID(true_origin_id)
+
+            # 7. 타임라인 엔트리 DB 저장
+            seen_article_ids = set()
+            for entry_data in timeline_entries:
+                aid = entry_data["article_id"]
+                if aid in seen_article_ids:
+                    continue
+                seen_article_ids.add(aid)
+                entry = TimelineEntry(
+                    tracking_id=tracking_id,
+                    **entry_data,
+                )
+                db.add(entry)
+
+            tracking.status = "completed"
+            tracking.progress = 100
+            tracking.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            # 캐시 무효화 + 이벤트 발행
+            from app.services.cache import publish_event
+            await publish_event("stats_updated", {
+                "type": "tracking_complete",
+                "tracking_id": tracking_id,
+                "tracking_type": "instant",
+                "articles": len(similar_articles),
+            })
+
+            logger.info(
+                f"Instant pipeline completed: tracking_id={tracking_id}, "
+                f"articles={len(similar_articles)}"
+            )
+
+    except SoftTimeLimitExceeded:
+        raise
+
+    except Exception as e:
+        logger.error(f"Instant pipeline failed: tracking_id={tracking_id}, error={e}", exc_info=True)
+        if tracking is not None:
+            try:
+                async with session_factory() as db:
+                    result = await db.execute(
+                        select(TrackingRequest).where(TrackingRequest.id == tracking_id)
+                    )
+                    t = result.scalar_one_or_none()
+                    if t:
+                        t.status = "error"
+                        t.error_message = str(e)[:500]
+                        await db.commit()
+            except Exception as inner_e:
+                logger.error(f"Failed to update error status: {inner_e}")
+        raise
+
+    finally:
+        await worker_engine.dispose()
+
+
+# ── Article Propagation Analysis Task (Live Tracking) ──
 
 
 @celery_app.task(bind=True, max_retries=3, soft_time_limit=600, time_limit=660)
@@ -681,11 +882,12 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             await publish_event("stats_updated", {
                 "type": "tracking_complete",
                 "tracking_id": tracking_id,
+                "tracking_type": "live",
                 "articles": len(similar_articles),
             })
 
             await db.commit()
-            logger.info(f"Pipeline completed: tracking_id={tracking_id}, articles={len(similar_articles)}")
+            logger.info(f"Live pipeline completed: tracking_id={tracking_id}, articles={len(similar_articles)}")
 
     except SoftTimeLimitExceeded:
         raise  # Let the outer handler deal with it

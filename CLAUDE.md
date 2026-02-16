@@ -95,10 +95,33 @@ make docker-down      # 인프라 중지
 - **최대 컴포넌트 제한**: MAX_COMPONENT_ARTICLES = 30 (메가 클러스터 방지)
 - **마이그레이션**: `python -m scripts.migrate_embeddings` (관계 초기화 + 재임베딩)
 
+## 2단계 추적 시스템 (Tracking Pipeline)
+
+### 1단계: 즉시 추적 (Instant)
+- 사용자가 기사 확인 후 `confirm` 시 기본 동작
+- 기존 DB/Qdrant 데이터에서 벡터 유사도 검색 (크롤링 없음)
+- Celery 태스크: `analyze_article_instant` (soft_time_limit=120s)
+- 파이프라인: 원본 기사 로드 → NER 키워드 추출 → 임베딩 생성/재사용 → Qdrant 검색 → 타임라인 구성
+
+### 2단계: Live 추적
+- 즉시 추적 결과 화면에서 "Live 추적" 버튼으로 전환
+- Google News RSS 실시간 크롤링 → 임베딩 → 유사도 분석 전체 파이프라인 실행
+- Celery 태스크: `analyze_article_propagation` (soft_time_limit=600s)
+- 새 TrackingRequest 생성 (tracking_type="live"), 기존 instant 결과 보존
+- Live 결과 완료 시 프론트엔드가 자동으로 Live 타임라인으로 이동
+
+### tracking_type 컬럼
+- `TrackingRequest.tracking_type`: "instant" (기본값) | "live"
+- Alembic 마이그레이션: `003_add_tracking_type.py`
+- API 응답의 `tracking_type` 필드로 프론트엔드에서 UI 분기
+
 ## API Endpoints
-- `POST /api/articles/track` - URL로 기사 추적 시작
-- `POST /api/articles/confirm` - 크롤링 결과 확인/저장
+- `POST /api/articles/track` - URL/제목으로 기사 검색 또는 크롤링
+- `POST /api/articles/confirm` - 기사 확인 후 추적 시작 (instant 기본, tracking_type 선택 가능)
+- `POST /api/articles/live-track` - 즉시 추적 → Live 추적 전환
+- `GET /api/articles/{id}` - 기사 상세 조회
 - `GET /api/timeline/{id}` - 기사 타임라인 조회
+- `GET /api/timeline/{id}/status` - 추적 상태 폴링
 - `GET /api/search/news` - 뉴스 검색
 - `GET /api/trends/*` - 트렌드 분석
 - `GET /api/health` - 헬스체크

@@ -70,6 +70,7 @@ async def get_tracking_status(
         status=tracking.status,
         progress=tracking.progress,
         total_articles=tracking.total_articles,
+        tracking_type=tracking.tracking_type or "instant",
         message=message,
     )
 
@@ -191,6 +192,7 @@ async def get_timeline(
 
     response = TimelineResponse(
         tracking_id=tracking_id,
+        tracking_type=tracking.tracking_type or "instant",
         origin_article=origin_article,
         graph=GraphData(nodes=nodes, edges=edges),
         timeline=timeline_items,

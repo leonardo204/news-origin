@@ -33,11 +33,16 @@ interface TrackingState {
   _pollTimer: ReturnType<typeof setTimeout> | null
   _abortController: AbortController | null
 
+  // Live tracking
+  isLiveTracking: boolean
+  liveTrackingId: string | null
+
   // Actions
   setSearchQuery: (query: string) => void
   submitSearch: () => Promise<void>
   selectCandidate: (candidate: { url: string; title?: string; publisher?: string; published_at?: string }) => Promise<void>
   confirmArticle: (articleId: string) => Promise<void>
+  startLiveTrack: (trackingId: string) => Promise<void>
   pollStatus: () => Promise<void>
   loadTimeline: (trackingId: string) => Promise<void>
   setViewMode: (mode: ViewMode) => void
@@ -57,6 +62,8 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
   timeline: null,
   isLoadingTimeline: false,
   viewMode: 'timeline',
+  isLiveTracking: false,
+  liveTrackingId: null,
   _pollTimer: null,
   _abortController: null,
 
@@ -108,15 +115,50 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
           status: 'pending',
           progress: 0,
           total_articles: 0,
+          tracking_type: result.tracking_type || 'instant',
           message: result.message,
         },
         isPolling: true,
       })
-      toast.info('기사 전파 분석을 시작합니다.')
-      // Start polling
+      toast.info('기존 데이터에서 빠른 분석을 시작합니다.')
       get().pollStatus()
     } catch (err) {
       const message = err instanceof Error ? err.message : '추적 시작 중 오류가 발생했습니다.'
+      set({ searchError: message })
+      toast.error(message)
+    }
+  },
+
+  startLiveTrack: async (trackingId) => {
+    // Clean up existing poll
+    const { _pollTimer, _abortController } = get()
+    if (_pollTimer) clearTimeout(_pollTimer)
+    if (_abortController) _abortController.abort()
+
+    try {
+      const result = await api.liveTrack({ tracking_id: trackingId })
+      set({
+        trackingId: result.tracking_id,
+        liveTrackingId: result.tracking_id,
+        isLiveTracking: true,
+        trackingStatus: {
+          tracking_id: result.tracking_id,
+          status: 'pending',
+          progress: 0,
+          total_articles: 0,
+          tracking_type: 'live',
+          message: result.message,
+        },
+        isPolling: true,
+        pollFailCount: 0,
+        timeline: null,
+        _pollTimer: null,
+        _abortController: null,
+      })
+      toast.info('Live 추적을 시작합니다. 실시간 데이터를 수집합니다.')
+      get().pollStatus()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Live 추적 시작 중 오류가 발생했습니다.'
       set({ searchError: message })
       toast.error(message)
     }
@@ -195,6 +237,8 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
       pollFailCount: 0,
       timeline: null,
       isLoadingTimeline: false,
+      isLiveTracking: false,
+      liveTrackingId: null,
       viewMode: 'timeline',
       _pollTimer: null,
       _abortController: null,

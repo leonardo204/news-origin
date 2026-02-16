@@ -9,10 +9,14 @@
 
 ## 주요 기능
 
+- **2단계 추적 시스템**:
+  - **즉시 추적 (Instant)**: 기존 DB/벡터 데이터에서 빠른 유사 기사 검색 (수초 내 결과)
+  - **Live 추적**: Google News RSS 실시간 크롤링 + BERT NER 키워드 추출 + Azure 임베딩으로 정확한 분석
 - **기사 출처 추적**: URL 또는 제목으로 뉴스 기사의 최초 출처 탐색
 - **전파 경로 시각화**: 그래프 기반의 기사 전파 네트워크 시각화
 - **타임라인 분석**: 시간 순서에 따른 기사 확산 과정 추적
-- **유사도 분석**: Vector embedding 기반의 기사 유사도 측정
+- **유사도 분석**: Azure OpenAI text-embedding-3-large 기반의 기사 유사도 측정
+- **NER 키워드 추출**: BERT(klue/bert-base) 기반 한국어 엔터티 인식
 - **트렌드 분석**: 인기 검색어 및 실시간 트렌드 통계
 - **실시간 검색**: 다양한 언론사의 뉴스 기사 통합 검색
 
@@ -67,11 +71,13 @@
 
 1. **기사 추적 요청**: 사용자가 URL 또는 제목 입력
 2. **메타데이터 추출**: 웹 크롤러가 기사 본문 및 메타데이터 수집
-3. **확인 및 분석**: 사용자 확인 후 유사 기사 검색 시작
-4. **Vector Embedding**: 기사 본문을 vector로 변환하여 Qdrant에 저장
-5. **유사도 계산**: 다른 기사들과의 cosine similarity 계산
-6. **관계 분류**: 동일(same), 파생(derivative), 관련(related) 관계 판정
-7. **시각화**: 전파 경로를 그래프와 타임라인으로 표현
+3. **확인 및 즉시 분석**: 사용자 확인 후 기존 DB/Qdrant에서 빠른 유사 기사 검색
+4. **Live 추적 (선택)**: 즉시 결과 확인 후 "Live 추적" 버튼으로 정밀 분석 전환
+5. **NER 키워드 추출**: BERT(klue/bert-base) 기반 한국어 엔터티 인식
+6. **Vector Embedding**: Azure OpenAI text-embedding-3-large로 1024차원 벡터 생성, Qdrant 저장
+7. **유사도 계산**: 다른 기사들과의 cosine similarity 계산
+8. **관계 분류**: 동일(same), 파생(derivative), 관련(related) 관계 판정
+9. **시각화**: 전파 경로를 그래프와 타임라인으로 표현
 
 ## 프로젝트 구조
 
@@ -275,12 +281,13 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ### 기사 추적
 - `POST /api/articles/track` - 기사 추적 시작 (URL 또는 제목)
-- `POST /api/articles/confirm` - 기사 확인 및 분석 시작
+- `POST /api/articles/confirm` - 기사 확인 후 추적 시작 (즉시 분석 기본, tracking_type 선택 가능)
+- `POST /api/articles/live-track` - 즉시 추적 → Live 추적 전환
 - `GET /api/articles/{id}` - 기사 상세 정보 조회
 
 ### 타임라인
-- `GET /api/timeline/{tracking_id}` - 타임라인 데이터 조회
-- `GET /api/timeline/{tracking_id}/status` - 추적 상태 확인
+- `GET /api/timeline/{tracking_id}` - 타임라인 데이터 조회 (tracking_type 포함)
+- `GET /api/timeline/{tracking_id}/status` - 추적 상태 확인 (tracking_type 포함)
 
 ### 검색
 - `GET /api/search/news?q={query}` - 뉴스 기사 검색

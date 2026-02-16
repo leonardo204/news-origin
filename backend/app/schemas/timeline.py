@@ -1,7 +1,9 @@
 """
 # timeline.py - Timeline Pydantic Schemas
-# Version: 0.2.0
+# Version: 0.3.0
 # Description: 타임라인 관련 요청/응답 스키마 (프론트엔드 타입과 일치)
+# Changes:
+#   - 0.3.0: 2단계 추적 (instant/live) 지원 - tracking_type 필드 추가
 """
 from __future__ import annotations
 
@@ -39,12 +41,19 @@ class TrackResponse(BaseModel):
 class ConfirmInput(BaseModel):
     """기사 확인 요청"""
     article_id: UUID
+    tracking_type: str = "instant"  # 'instant' | 'live'
+
+
+class LiveTrackInput(BaseModel):
+    """Live 추적 요청 (instant → live 전환)"""
+    tracking_id: UUID
 
 
 class ConfirmResponse(BaseModel):
     """추적 확인 응답"""
     tracking_id: UUID
     status: str
+    tracking_type: str = "instant"
     message: str = ""
 
 
@@ -54,6 +63,7 @@ class TrackingStatus(BaseModel):
     status: str
     progress: int = 0
     total_articles: int = 0
+    tracking_type: str = "instant"
     message: str = ""
 
 
@@ -127,6 +137,7 @@ class LifecycleSummary(BaseModel):
 class TimelineResponse(BaseModel):
     """타임라인 전체 응답"""
     tracking_id: UUID
+    tracking_type: str = "instant"  # 'instant' | 'live'
     origin_article: ArticleResponse
     graph: GraphData = GraphData()
     timeline: list[TimelineItem] = []

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download, Network, X } from 'lucide-react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download, Network, X, Radio, Loader2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -79,12 +79,27 @@ export default function TimelinePage() {
     loadTimeline,
     trackingStatus,
     isPolling,
+    isLiveTracking,
+    startLiveTrack,
   } = useTrackingStore()
 
+  const navigate = useNavigate()
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [copied, setCopied] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showGraph, setShowGraph] = useState(false)
+
+  // Navigate to live tracking result when complete
+  useEffect(() => {
+    if (
+      isLiveTracking &&
+      trackingStatus?.status === 'completed' &&
+      trackingStatus.tracking_type === 'live' &&
+      trackingStatus.tracking_id !== trackingId
+    ) {
+      navigate(`/timeline/${trackingStatus.tracking_id}`, { replace: true })
+    }
+  }, [isLiveTracking, trackingStatus, trackingId, navigate])
   const exportRef = useRef<HTMLDivElement>(null)
 
   usePageTitle(timeline?.origin_article?.title)
@@ -254,9 +269,41 @@ export default function TimelinePage() {
               원문 보기
             </a>
             <Badge stage="origin">기원</Badge>
+            {timeline.tracking_type === 'live' ? (
+              <span className="flex items-center gap-1 rounded-full bg-lifecycle-origin/15 px-2 py-0.5 text-xs font-medium text-lifecycle-origin">
+                <Radio className="h-3 w-3" />
+                Live 데이터
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                <Zap className="h-3 w-3" />
+                즉시 분석
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Live tracking button - only show for instant results */}
+          {timeline.tracking_type !== 'live' && !isLiveTracking && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => trackingId && startLiveTrack(trackingId)}
+              className="gap-1.5 bg-lifecycle-origin hover:bg-lifecycle-origin/90"
+            >
+              <Radio className="h-3.5 w-3.5" />
+              Live 추적
+            </Button>
+          )}
+          {/* Live tracking in progress */}
+          {isLiveTracking && isPolling && (
+            <div className="flex items-center gap-2 rounded-md border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-3 py-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-lifecycle-origin" />
+              <span className="text-xs font-medium text-lifecycle-origin">
+                Live 추적 중... {trackingStatus?.progress ?? 0}%
+              </span>
+            </div>
+          )}
           {/* Propagation tree button */}
           <Button
             variant="outline"

@@ -48,11 +48,17 @@ export interface TrackResponse {
 
 export interface ConfirmInput {
   article_id: string
+  tracking_type?: 'instant' | 'live'
+}
+
+export interface LiveTrackInput {
+  tracking_id: string
 }
 
 export interface ConfirmResponse {
   tracking_id: string
   status: string
+  tracking_type: 'instant' | 'live'
   message: string
 }
 
@@ -62,6 +68,7 @@ export interface TrackingStatus {
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'error'
   progress: number
   total_articles: number
+  tracking_type: 'instant' | 'live'
   message: string
 }
 
@@ -121,6 +128,7 @@ export interface LifecycleSummary {
 // Full timeline response
 export interface TimelineResponse {
   tracking_id: string
+  tracking_type: 'instant' | 'live'
   origin_article: Article
   graph: {
     nodes: GraphNode[]

@@ -1,9 +1,10 @@
 """
 # articles.py - Article API Routes
-# Version: 0.3.0
+# Version: 0.4.0
 # Description: 기사 추적 요청, 확인, 상세 조회 API
 # Changes:
 #   - 0.3.0: 메타데이터 기반 빠른 기사 생성 + 검색 결과 Redis 캐싱
+#   - 0.4.0: 2단계 추적 - 즉시(instant) + Live 추적 엔드포인트
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ from app.schemas.timeline import (
     TrackCandidate,
     ConfirmInput,
     ConfirmResponse,
+    LiveTrackInput,
 )
 from app.services.cache import cache_get, cache_set
 
@@ -234,26 +236,99 @@ async def confirm_article(
     if not article:
         raise HTTPException(status_code=404, detail="기사를 찾을 수 없습니다.")
 
+    tracking_type = body.tracking_type or "instant"
+    if tracking_type not in ("instant", "live"):
+        raise HTTPException(status_code=400, detail="tracking_type은 'instant' 또는 'live'만 가능합니다.")
+
     tracking = TrackingRequest(
         input_text=article.title,
         input_type="url",
         origin_article_id=article.id,
+        tracking_type=tracking_type,
         status="processing",
     )
     db.add(tracking)
     await db.flush()
 
-    logger.info(f"Starting propagation analysis: tracking_id={tracking.id}")
-
-    _get_celery_app().send_task(
-        "app.workers.tasks.analyze_article_propagation",
-        args=[str(tracking.id), str(article.id)],
-    )
+    if tracking_type == "live":
+        logger.info(f"Starting LIVE propagation analysis: tracking_id={tracking.id}")
+        _get_celery_app().send_task(
+            "app.workers.tasks.analyze_article_propagation",
+            args=[str(tracking.id), str(article.id)],
+        )
+        message = "Live 추적을 시작합니다. 실시간 크롤링으로 정확한 데이터를 수집합니다."
+    else:
+        logger.info(f"Starting INSTANT analysis: tracking_id={tracking.id}")
+        _get_celery_app().send_task(
+            "app.workers.tasks.analyze_article_instant",
+            args=[str(tracking.id), str(article.id)],
+        )
+        message = "즉시 분석을 시작합니다. 기존 데이터에서 빠르게 결과를 제공합니다."
 
     return ConfirmResponse(
         tracking_id=tracking.id,
         status="processing",
-        message="기사 전파 분석을 시작합니다.",
+        tracking_type=tracking_type,
+        message=message,
+    )
+
+
+@router.post(
+    "/live-track",
+    response_model=ConfirmResponse,
+    summary="Live 추적 시작",
+    description="즉시 추적 결과에서 Live 추적으로 전환합니다. 실시간 크롤링을 통해 정확한 데이터를 수집합니다.",
+    responses={
+        404: {"description": "추적 요청을 찾을 수 없음"},
+    },
+)
+@limiter.limit("5/minute")
+async def live_track(
+    request: Request,
+    body: LiveTrackInput,
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Live 추적 시작 (instant → live 전환)
+
+    기존 instant 추적의 origin article을 사용하여 full pipeline 실행
+    """
+    result = await db.execute(
+        select(TrackingRequest).where(TrackingRequest.id == body.tracking_id)
+    )
+    original_tracking = result.scalar_one_or_none()
+    if not original_tracking:
+        raise HTTPException(status_code=404, detail="추적 요청을 찾을 수 없습니다.")
+
+    if not original_tracking.origin_article_id:
+        raise HTTPException(status_code=400, detail="원본 기사가 없습니다.")
+
+    # 새 Live TrackingRequest 생성
+    live_tracking = TrackingRequest(
+        input_text=original_tracking.input_text,
+        input_type=original_tracking.input_type,
+        origin_article_id=original_tracking.origin_article_id,
+        tracking_type="live",
+        status="processing",
+    )
+    db.add(live_tracking)
+    await db.flush()
+
+    logger.info(
+        f"Starting LIVE tracking: live_id={live_tracking.id}, "
+        f"from_instant={body.tracking_id}"
+    )
+
+    _get_celery_app().send_task(
+        "app.workers.tasks.analyze_article_propagation",
+        args=[str(live_tracking.id), str(original_tracking.origin_article_id)],
+    )
+
+    return ConfirmResponse(
+        tracking_id=live_tracking.id,
+        status="processing",
+        tracking_type="live",
+        message="Live 추적을 시작합니다. 실시간 크롤링으로 정확한 데이터를 수집합니다.",
     )
 
 

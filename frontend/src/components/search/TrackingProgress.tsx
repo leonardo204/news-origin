@@ -1,8 +1,16 @@
 import { Check, Loader2, Circle } from 'lucide-react'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 
-const STAGES = [
-  { key: 'crawling', label: '기사 수집', threshold: 20 },
+const INSTANT_STAGES = [
+  { key: 'embedding', label: '임베딩 생성', threshold: 20 },
+  { key: 'search', label: '유사 기사 검색', threshold: 40 },
+  { key: 'matching', label: '기사 매칭', threshold: 60 },
+  { key: 'timeline', label: '타임라인 구성', threshold: 80 },
+  { key: 'complete', label: '분석 완료', threshold: 100 },
+] as const
+
+const LIVE_STAGES = [
+  { key: 'crawling', label: '실시간 기사 수집', threshold: 20 },
   { key: 'embedding', label: '임베딩 생성', threshold: 40 },
   { key: 'similarity', label: '유사도 분석', threshold: 75 },
   { key: 'timeline', label: '타임라인 구성', threshold: 85 },
@@ -14,10 +22,24 @@ export default function TrackingProgress() {
 
   if (!trackingStatus || (!isPolling && trackingStatus.status !== 'completed' && trackingStatus.status !== 'error')) return null
 
-  const { progress, total_articles, status } = trackingStatus
+  const { progress, total_articles, status, tracking_type } = trackingStatus
+  const isLive = tracking_type === 'live'
+  const stages: ReadonlyArray<{ readonly key: string; readonly label: string; readonly threshold: number }> =
+    isLive ? LIVE_STAGES : INSTANT_STAGES
 
   return (
     <div className="mt-8 w-full max-w-lg space-y-5">
+      {/* Tracking type indicator */}
+      <div className="flex items-center justify-center gap-2">
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+          isLive
+            ? 'bg-lifecycle-origin/15 text-lifecycle-origin'
+            : 'bg-muted text-muted-foreground'
+        }`}>
+          {isLive ? 'Live 추적' : '즉시 분석'}
+        </span>
+      </div>
+
       {/* Progress bar */}
       <div className="space-y-2">
         <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -35,7 +57,7 @@ export default function TrackingProgress() {
               : status === 'error' || status === 'failed'
                 ? '오류 발생'
                 : status === 'processing'
-                  ? '분석 중...'
+                  ? isLive ? 'Live 분석 중...' : '빠른 분석 중...'
                   : '대기 중...'}
           </span>
           <span>
@@ -47,11 +69,11 @@ export default function TrackingProgress() {
 
       {/* Stage breakdown */}
       <div className="space-y-1.5">
-        {STAGES.map((stage) => {
+        {stages.map((stage) => {
           const isDone = progress >= stage.threshold
           const isActive =
             !isDone &&
-            progress >= (STAGES[STAGES.indexOf(stage) - 1]?.threshold ?? 0)
+            progress >= (stages[stages.indexOf(stage) - 1]?.threshold ?? 0)
 
           return (
             <div

@@ -4,6 +4,7 @@ import type {
   TrackResponse,
   ConfirmInput,
   ConfirmResponse,
+  LiveTrackInput,
   TrackingStatus,
   TimelineResponse,
   Article,
@@ -88,6 +89,11 @@ export async function trackArticle(input: TrackInput, signal?: AbortSignal): Pro
 
 export async function confirmTracking(input: ConfirmInput): Promise<ConfirmResponse> {
   const { data } = await api.post<ConfirmResponse>('/articles/confirm', input)
+  return data
+}
+
+export async function liveTrack(input: LiveTrackInput): Promise<ConfirmResponse> {
+  const { data } = await api.post<ConfirmResponse>('/articles/live-track', input)
   return data
 }
 
