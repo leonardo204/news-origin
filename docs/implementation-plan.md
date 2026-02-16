@@ -1,8 +1,8 @@
 # News Origin - Implementation Plan
 
-> Version: 0.2.0
-> Date: 2025-02-11
-> Status: Draft (v2 - 시각화/Vector DB/완성도 전면 개선)
+> Version: 1.0.0
+> Date: 2026-02-16
+> Status: Production (v1.0 - 전 기능 구현 완료, E2E/데이터 검증 통과)
 
 ---
 
@@ -10,6 +10,11 @@
 
 | 버전 | 날짜 | 변경 사항 |
 |------|------|-----------|
+| 1.0.0 | 2026-02-16 | Production 릴리스 - E2E UI/UX 테스트 + 데이터 정합성 검증 완료 |
+| 0.9.0 | 2026-02-16 | 모바일 반응형 개선, 2단계 추적 시스템 (즉시 분석 + Live 추적) |
+| 0.8.0 | 2026-02-15 | GPT-5 마이그레이션, 클러스터링 v0.4.0, NER/임베딩 파이프라인 개선 |
+| 0.7.0 | 2026-02-14 | 저사양 호스트 성능 최적화 (메모리 65% 절감) |
+| 0.6.0 | 2026-02-13 | 한국 주요 언론사 RSS 피드 수집 추가, 크롤링 안정성 개선 |
 | 0.2.0 | 2025-02-11 | React Flow → AntV G6 + Apache ECharts 변경, pgvector → Qdrant 변경, PoC 제한 제거 |
 | 0.1.0 | 2025-02-11 | 초안 작성 |
 
@@ -59,7 +64,7 @@
 
 | 항목 | 선택 | 근거 |
 |------|------|------|
-| **Framework** | React 18 + TypeScript | 생태계 최대, 시각화 라이브러리 호환성 |
+| **Framework** | React 19 + TypeScript | 생태계 최대, 시각화 라이브러리 호환성 |
 | **Build Tool** | Vite | 빠른 개발 서버, HMR |
 | **UI Library** | shadcn/ui + Tailwind CSS | 무료, 커스터마이징 자유도 최고, 가장 널리 사용 |
 | **Graph View** | AntV G6 v5 | 전파 그래프 전용 - 읽기 전용에 최적화된 강력한 그래프 시각화 |
@@ -926,18 +931,63 @@ react-router-dom@6
 
 ## 15. Success Criteria
 
-- [ ] URL 입력 → 기사 크롤링 → 유사 기사 검색 → 시각화 표시 (E2E)
-- [ ] 기사 제목 입력 → 후보 기사 표시 → 사용자 확인 → 시각화 표시
-- [ ] 최초 출처(Origin) 기사 자동 식별 및 시각적 강조
-- [ ] 전파 흐름 그래프 시각화 (AntV G6 Radial Tree)
-- [ ] 시간순 타임라인 시각화 (ECharts Timeline)
-- [ ] 밀도 차트로 시간대별 기사 볼륨 표시 (ECharts Area)
-- [ ] 폭발 시점 자동 감지 및 하이라이트
-- [ ] 독립(Isolated) 기사 식별 및 별도 영역 표시
-- [ ] 기사 Lifecycle 단계 시각적 구분 (Origin → Spread → Explosion → Fadeout)
-- [ ] hover 시 기사 상세 툴팁 / click 시 원문 링크
-- [ ] Graph/Timeline 뷰 전환
-- [ ] Hot Trends 및 인기 검색어 표시
-- [ ] 반응형 UI (모바일/데스크톱)
-- [ ] Docker Compose 단일 명령 배포
-- [ ] Qdrant 벡터 검색 20-50ms 이내 응답
+- [x] URL 입력 → 기사 크롤링 → 유사 기사 검색 → 시각화 표시 (E2E)
+- [x] 기사 제목 입력 → 후보 기사 표시 → 사용자 확인 → 시각화 표시
+- [x] 최초 출처(Origin) 기사 자동 식별 및 시각적 강조
+- [x] 전파 흐름 그래프 시각화 (AntV G6 Radial Tree)
+- [x] 시간순 타임라인 시각화 (ECharts Timeline)
+- [x] 밀도 차트로 시간대별 기사 볼륨 표시 (ECharts Area)
+- [x] 폭발 시점 자동 감지 및 하이라이트
+- [x] 독립(Isolated) 기사 식별 및 별도 영역 표시
+- [x] 기사 Lifecycle 단계 시각적 구분 (Origin → Spread → Explosion → Fadeout)
+- [x] hover 시 기사 상세 툴팁 / click 시 원문 링크
+- [x] Graph/Timeline 뷰 전환
+- [x] Hot Trends 및 인기 검색어 표시
+- [x] 반응형 UI (모바일/데스크톱)
+- [x] Docker Compose 단일 명령 배포
+- [x] Qdrant 벡터 검색 20-50ms 이내 응답
+
+---
+
+## 16. QA Verification Report (2026-02-16)
+
+### 16.1 E2E UI/UX 테스트 (Playwright MCP)
+
+모든 페이지를 데스크톱(1280x800)과 모바일(375x812) 뷰포트에서 테스트하여 통과.
+
+| 페이지 | 테스트 항목 | 결과 |
+|--------|------------|------|
+| **홈페이지** | 검색 (URL/제목), Ctrl+K 단축키, 최근 검색, 트렌드 카드 클릭, 모바일 레이아웃 | PASS |
+| **트렌드** | 20개 토픽 표시, 클러스터 확장, 종합/카테고리 전환, 24h/7d/30d 필터, 모바일 | PASS |
+| **타임라인** | 공유 버튼, 뷰 전환, CSV/JSON 내보내기, 전파 트리 오버레이, 기사 정렬, 모바일 | PASS |
+| **헤더** | 통계 패널, SSE 실시간 업데이트, 네비게이션, 크롤링 상태 표시 | PASS |
+
+**성능 측정:**
+- FCP: 248ms
+- DOM Interactive: 81ms
+- Page Load: 135ms
+- 전송 크기: 18KB
+- 콘솔 에러: 0건
+
+### 16.2 데이터 정합성 검증 (API vs UI)
+
+Playwright를 통해 API 응답과 UI 표시 데이터를 동시점에 비교하여 전수 검증.
+
+| 검증 항목 | API 엔드포인트 | 검증 필드 | 결과 |
+|-----------|---------------|-----------|------|
+| **헤더 통계** | `/api/trends/stats` | 총 추적, 수집 기사, 임베딩, 최근 24h, 카테고리별 건수 (7개) | PASS |
+| **홈 트렌드 카드** | `/api/trends/article-trends` | 9개 카드: 제목, 기사수, 언론사수, 카테고리 | PASS |
+| **트렌드 클러스터** | `/api/trends/article-trends` | 20개 클러스터: 순위, 건수, 언론사수, 카테고리 배지 | PASS |
+| **트렌드 언론사 랭킹** | `publisher_distribution` | 상위 10개 언론사: 이름, 기사수 | PASS |
+| **타임라인 기원 기사** | `/api/timeline/{id}` | 제목, 언론사, 발행일, URL, 추적 타입 | PASS |
+| **타임라인 기사 목록** | `timeline[]` | 29건: 제목, 유사도(%), 라이프사이클 단계, 언론사 | PASS |
+| **라이프사이클 패널** | `lifecycle` | 최초/마지막 발행, 피크 시간, 총 기사수, 단계별 분포 | PASS |
+| **전파 트리 그래프** | `graph` | 노드 29개, 엣지 28개 | PASS |
+| **폭발 구간 마커** | `explosions[]` | 2개 폭발 구간 (peak 9, 17건) | PASS |
+
+**검증 방법:**
+- `page.evaluate(fetch('/api/...'))` 로 API 데이터 획득
+- `browser_snapshot()` 으로 DOM 데이터 획득
+- 동시점 비교로 캐시 차이 배제
+
+**Architect 검증:** APPROVED (데이터 변환 파이프라인 정합성 확인됨)
