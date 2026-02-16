@@ -49,29 +49,30 @@ describe('ArticleList', () => {
 
   it('renders all article titles', () => {
     render(<ArticleList items={mockItems} />)
-    expect(screen.getByText('기원 기사 제목')).toBeInTheDocument()
-    expect(screen.getByText('확산 기사 제목')).toBeInTheDocument()
-    expect(screen.getByText('폭발 기사 제목')).toBeInTheDocument()
+    // Desktop + mobile layouts both render, so titles appear twice
+    expect(screen.getAllByText('기원 기사 제목').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('확산 기사 제목').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('폭발 기사 제목').length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders publisher names', () => {
     render(<ArticleList items={mockItems} />)
-    expect(screen.getByText('한국일보')).toBeInTheDocument()
-    expect(screen.getByText('조선일보')).toBeInTheDocument()
+    expect(screen.getAllByText('한국일보').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('조선일보').length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders similarity scores', () => {
     render(<ArticleList items={mockItems} />)
-    expect(screen.getByText('100.0%')).toBeInTheDocument()
-    expect(screen.getByText('85.0%')).toBeInTheDocument()
-    expect(screen.getByText('72.0%')).toBeInTheDocument()
+    expect(screen.getAllByText('100.0%').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('85.0%').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('72.0%').length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders lifecycle badges', () => {
     render(<ArticleList items={mockItems} />)
-    expect(screen.getByText('기원')).toBeInTheDocument()
-    expect(screen.getByText('확산')).toBeInTheDocument()
-    expect(screen.getByText('폭발')).toBeInTheDocument()
+    expect(screen.getAllByText('기원').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('확산').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('폭발').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows filter panel when filter button is clicked', () => {
@@ -121,27 +122,29 @@ describe('ArticleList', () => {
     fireEvent.click(screen.getByText('필터'))
     // Filter by "폭발" which doesn't exist
     fireEvent.click(screen.getByText('폭발'))
-    expect(screen.getByText('필터 조건에 맞는 기사가 없습니다.')).toBeInTheDocument()
+    // Desktop + mobile both show empty state
+    expect(screen.getAllByText('필터 조건에 맞는 기사가 없습니다.').length).toBeGreaterThanOrEqual(1)
   })
 
   it('sorts by similarity score descending when header clicked', () => {
     render(<ArticleList items={mockItems} />)
-    // Click similarity header
-    fireEvent.click(screen.getByText('유사도'))
+    // Click similarity header (use getAllByText since both desktop header and mobile sort show '유사도')
+    const similarityButtons = screen.getAllByText('유사도')
+    fireEvent.click(similarityButtons[0])
 
     // Get all score elements
     const scores = screen.getAllByText(/%$/)
     expect(scores[0].textContent).toBe('100.0%')
     expect(scores[1].textContent).toBe('85.0%')
     expect(scores[2].textContent).toBe('72.0%')
-    expect(scores[2].textContent).toBe('72.0%')
   })
 
   it('toggles sort direction on re-click', () => {
     render(<ArticleList items={mockItems} />)
     // Click similarity header twice (first = desc default, second = asc)
-    fireEvent.click(screen.getByText('유사도'))
-    fireEvent.click(screen.getByText('유사도'))
+    const similarityButtons = screen.getAllByText('유사도')
+    fireEvent.click(similarityButtons[0])
+    fireEvent.click(similarityButtons[0])
 
     const scores = screen.getAllByText(/%$/)
     expect(scores[0].textContent).toBe('72.0%')

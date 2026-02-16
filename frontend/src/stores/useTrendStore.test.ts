@@ -5,6 +5,7 @@ vi.mock('@/services/api', () => ({
   getArticleTrends: vi.fn(),
   getRecentArticles: vi.fn(),
   getStats: vi.fn(),
+  getCrawlStatus: vi.fn(),
 }))
 
 import * as api from '@/services/api'
@@ -16,9 +17,12 @@ describe('useTrendStore', () => {
       recentArticles: [],
       expandedClusterId: null,
       stats: null,
+      crawlStatus: { phase: 'idle', started_at: null, detail: null },
+      sseStatus: 'connected',
       isLoading: false,
       error: null,
       period: '24h',
+      trendView: 'overall',
     })
     vi.clearAllMocks()
   })
@@ -28,9 +32,12 @@ describe('useTrendStore', () => {
     expect(state.articleTrends).toBeNull()
     expect(state.recentArticles).toEqual([])
     expect(state.stats).toBeNull()
+    expect(state.crawlStatus.phase).toBe('idle')
+    expect(state.sseStatus).toBe('connected')
     expect(state.isLoading).toBe(false)
     expect(state.error).toBeNull()
     expect(state.period).toBe('24h')
+    expect(state.trendView).toBe('overall')
   })
 
   it('setPeriod updates period and triggers loadArticleTrends', async () => {
@@ -110,5 +117,81 @@ describe('useTrendStore', () => {
 
     useTrendStore.getState().toggleCluster('abc-123')
     expect(useTrendStore.getState().expandedClusterId).toBeNull()
+  })
+
+  it('setTrendView updates view mode', () => {
+    useTrendStore.getState().setTrendView('category')
+    expect(useTrendStore.getState().trendView).toBe('category')
+
+    useTrendStore.getState().setTrendView('overall')
+    expect(useTrendStore.getState().trendView).toBe('overall')
+  })
+
+  it('setSseStatus updates connection status', () => {
+    useTrendStore.getState().setSseStatus('reconnecting')
+    expect(useTrendStore.getState().sseStatus).toBe('reconnecting')
+
+    useTrendStore.getState().setSseStatus('offline')
+    expect(useTrendStore.getState().sseStatus).toBe('offline')
+
+    useTrendStore.getState().setSseStatus('connected')
+    expect(useTrendStore.getState().sseStatus).toBe('connected')
+  })
+
+  it('updateCrawlStatus updates crawl status', () => {
+    useTrendStore.getState().updateCrawlStatus({
+      phase: 'crawling',
+      started_at: '2026-01-01T00:00:00Z',
+      detail: '10건 크롤링중',
+    })
+
+    const status = useTrendStore.getState().crawlStatus
+    expect(status.phase).toBe('crawling')
+    expect(status.started_at).toBe('2026-01-01T00:00:00Z')
+    expect(status.detail).toBe('10건 크롤링중')
+  })
+
+  it('loadCrawlStatus fetches crawl status', async () => {
+    const mockStatus = { phase: 'embedding' as const, started_at: '2026-01-01', detail: '임베딩 생성중' }
+    vi.mocked(api.getCrawlStatus).mockResolvedValue(mockStatus)
+
+    await useTrendStore.getState().loadCrawlStatus()
+
+    expect(useTrendStore.getState().crawlStatus).toEqual(mockStatus)
+  })
+
+  it('loadCrawlStatus handles error silently', async () => {
+    const previousStatus = { phase: 'idle' as const, started_at: null, detail: null }
+    useTrendStore.setState({ crawlStatus: previousStatus })
+
+    vi.mocked(api.getCrawlStatus).mockRejectedValue(new Error('서버 오류'))
+
+    await useTrendStore.getState().loadCrawlStatus()
+
+    // Should keep previous status on error
+    expect(useTrendStore.getState().crawlStatus).toEqual(previousStatus)
+  })
+
+  it('loadRecentArticles fetches recent articles', async () => {
+    const mockArticles = [
+      { id: '1', title: '기사 1', publisher: '언론사1', published_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', url: 'https://example.com/1', category: 'politics' },
+      { id: '2', title: '기사 2', publisher: '언론사2', published_at: '2026-01-02', created_at: '2026-01-02T00:00:00Z', url: 'https://example.com/2', category: 'economy' },
+    ]
+    vi.mocked(api.getRecentArticles).mockResolvedValue(mockArticles)
+
+    await useTrendStore.getState().loadRecentArticles()
+
+    expect(useTrendStore.getState().recentArticles).toEqual(mockArticles)
+    expect(api.getRecentArticles).toHaveBeenCalledWith(20)
+  })
+
+  it('loadRecentArticles handles error silently', async () => {
+    useTrendStore.setState({ recentArticles: [] })
+    vi.mocked(api.getRecentArticles).mockRejectedValue(new Error('서버 오류'))
+
+    await useTrendStore.getState().loadRecentArticles()
+
+    // Should keep empty array on error (non-critical)
+    expect(useTrendStore.getState().recentArticles).toEqual([])
   })
 })

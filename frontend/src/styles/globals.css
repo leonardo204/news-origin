@@ -3,7 +3,32 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light theme (default) */
   :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 98%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 142 71% 45%;
+    --radius: 0.5rem;
+  }
+
+  /* Dark theme */
+  .dark {
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
     --card: 0 0% 6%;
@@ -41,22 +66,22 @@
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
   .lifecycle-origin {
-    @apply bg-green-500/15 text-green-400 ring-1 ring-green-500/30;
+    @apply bg-green-500/15 text-green-600 ring-1 ring-green-500/30 dark:text-green-400;
   }
   .lifecycle-spread {
-    @apply bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30;
+    @apply bg-blue-500/15 text-blue-600 ring-1 ring-blue-500/30 dark:text-blue-400;
   }
   .lifecycle-explosion {
-    @apply bg-red-500/15 text-red-400 ring-1 ring-red-500/30;
+    @apply bg-red-500/15 text-red-600 ring-1 ring-red-500/30 dark:text-red-400;
   }
   .lifecycle-sustained {
-    @apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30;
+    @apply bg-amber-500/15 text-amber-600 ring-1 ring-amber-500/30 dark:text-amber-400;
   }
   .lifecycle-fadeout {
-    @apply bg-gray-500/15 text-gray-400 ring-1 ring-gray-500/30;
+    @apply bg-gray-500/15 text-gray-600 ring-1 ring-gray-500/30 dark:text-gray-400;
   }
   .lifecycle-resurge {
-    @apply bg-purple-500/15 text-purple-400 ring-1 ring-purple-500/30;
+    @apply bg-purple-500/15 text-purple-600 ring-1 ring-purple-500/30 dark:text-purple-400;
   }
 }
 

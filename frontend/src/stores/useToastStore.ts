@@ -1,35 +1,39 @@
 import { create } from 'zustand'
 
-export type ToastType = 'success' | 'error' | 'info'
+export type ToastType = 'success' | 'error' | 'warning' | 'info'
 
 export interface Toast {
   id: string
   type: ToastType
   message: string
+  duration?: number
 }
 
 interface ToastState {
   toasts: Toast[]
-  addToast: (type: ToastType, message: string) => void
+  addToast: (type: ToastType, message: string, duration?: number) => void
   removeToast: (id: string) => void
 }
-
-let nextId = 0
 
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
 
-  addToast: (type, message) => {
-    const id = String(++nextId)
+  addToast: (type, message, duration = 3000) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    const toast: Toast = { id, type, message, duration }
+
     set((state) => ({
-      toasts: [...state.toasts, { id, type, message }],
+      toasts: [...state.toasts.slice(-2), toast], // Keep max 3 (2 existing + 1 new)
     }))
-    // Auto-dismiss after 4 seconds
-    setTimeout(() => {
-      set((state) => ({
-        toasts: state.toasts.filter((t) => t.id !== id),
-      }))
-    }, 4000)
+
+    // Auto-remove after duration
+    if (duration > 0) {
+      setTimeout(() => {
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        }))
+      }, duration)
+    }
   },
 
   removeToast: (id) =>
@@ -40,7 +44,8 @@ export const useToastStore = create<ToastState>((set) => ({
 
 // Convenience helpers
 export const toast = {
-  success: (message: string) => useToastStore.getState().addToast('success', message),
-  error: (message: string) => useToastStore.getState().addToast('error', message),
-  info: (message: string) => useToastStore.getState().addToast('info', message),
+  success: (message: string, duration?: number) => useToastStore.getState().addToast('success', message, duration),
+  error: (message: string, duration?: number) => useToastStore.getState().addToast('error', message, duration),
+  warning: (message: string, duration?: number) => useToastStore.getState().addToast('warning', message, duration),
+  info: (message: string, duration?: number) => useToastStore.getState().addToast('info', message, duration),
 }

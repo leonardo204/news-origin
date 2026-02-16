@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react'
 import { Graph } from '@antv/g6'
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, truncate } from '@/lib/utils'
@@ -19,6 +19,26 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   nodesRef.current = nodes
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showLegend, setShowLegend] = useState(true)
+  const [showAllNodes, setShowAllNodes] = useState(false)
+
+  // Limit nodes to top 50 by similarity_score when count exceeds 50
+  const NODE_LIMIT = 50
+  const hasExcessNodes = nodes.length > NODE_LIMIT
+  const limitedNodes = useMemo(() => {
+    if (!hasExcessNodes || showAllNodes) return nodes
+    // Always include origin node + top 49 by similarity_score
+    const origin = nodes.find(n => n.is_origin)
+    const nonOrigin = nodes.filter(n => !n.is_origin)
+      .sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0))
+      .slice(0, NODE_LIMIT - (origin ? 1 : 0))
+    return origin ? [origin, ...nonOrigin] : nonOrigin
+  }, [nodes, hasExcessNodes, showAllNodes])
+
+  const limitedEdges = useMemo(() => {
+    if (!hasExcessNodes || showAllNodes) return edges
+    const nodeIds = new Set(limitedNodes.map(n => n.id))
+    return edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+  }, [edges, limitedNodes, hasExcessNodes, showAllNodes])
 
   const handleNodeClick = useCallback(
     (nodeId: string) => {
@@ -67,7 +87,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   }, [])
 
   useEffect(() => {
-    if (!containerRef.current || nodes.length === 0) return
+    if (!containerRef.current || limitedNodes.length === 0) return
 
     // Clean up previous graph
     if (graphRef.current) {
@@ -82,11 +102,11 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     const height = Math.max(550, container.offsetHeight)
 
     const graphData = {
-      nodes: nodes.map((node) => ({
+      nodes: limitedNodes.map((node) => ({
         id: node.id,
         data: { ...node },
       })),
-      edges: edges.map((edge, i) => ({
+      edges: limitedEdges.map((edge, i) => ({
         id: `edge-${i}`,
         source: edge.source,
         target: edge.target,
@@ -185,6 +205,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
       behaviors: [
         'zoom-canvas',
         'drag-canvas',
+        'drag-element',
       ],
     })
 
@@ -192,9 +213,8 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     graphRef.current = graph
 
     // Click handler
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    graph.on('node:click', (evt: any) => {
-      const nodeId = evt?.target?.id
+    graph.on('node:click', (evt) => {
+      const nodeId = (evt as { target?: { id?: string } })?.target?.id
       if (nodeId) handleNodeClick(nodeId)
     })
 
@@ -233,7 +253,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
         graphRef.current = null
       }
     }
-  }, [nodes, edges, handleNodeClick])
+  }, [limitedNodes, limitedEdges, handleNodeClick])
 
   if (nodes.length === 0) {
     return (
@@ -244,40 +264,66 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-4' : ''}`}>
+    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-4 sm:p-6 md:p-8' : ''}`}>
+      {/* Node limit warning */}
+      {hasExcessNodes && (
+        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2">
+            <span className="text-yellow-400">⚠️</span>
+            <div className="text-sm">
+              <p className="font-medium text-yellow-400">
+                노드가 {nodes.length}개로 많습니다
+              </p>
+              <p className="mt-0.5 text-xs text-yellow-400/80">
+                성능 보호를 위해 {showAllNodes ? '전체' : `상위 ${NODE_LIMIT}개`} 노드를 표시 중입니다
+                {!showAllNodes && ` (${nodes.length - NODE_LIMIT}개 숨김)`}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAllNodes(!showAllNodes)}
+            className="shrink-0 rounded-md border border-yellow-500/40 bg-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-400 transition-colors hover:bg-yellow-500/30"
+            aria-label={showAllNodes ? '상위 50개만 보기' : '모두 표시'}
+          >
+            {showAllNodes ? '축소 모드' : '모두 표시'}
+          </button>
+        </div>
+      )}
+
       <div
         ref={containerRef}
-        className={`w-full rounded-lg border border-border bg-gray-900/30 ${
+        className={`w-full rounded-lg border border-border bg-gray-100/30 dark:bg-gray-900/30 ${
           isFullscreen ? 'h-full' : className || 'h-[400px] sm:h-[600px]'
         }`}
+        style={{ touchAction: 'none' }}
       />
 
       {/* Zoom controls */}
       <div className="absolute right-3 top-3 flex flex-col gap-1">
         <button
           onClick={handleZoomIn}
-          className="rounded-md bg-gray-900/80 p-1.5 text-gray-400 backdrop-blur-sm hover:text-white"
+          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
           aria-label="확대"
         >
           <ZoomIn className="h-4 w-4" />
         </button>
         <button
           onClick={handleZoomOut}
-          className="rounded-md bg-gray-900/80 p-1.5 text-gray-400 backdrop-blur-sm hover:text-white"
+          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
           aria-label="축소"
         >
           <ZoomOut className="h-4 w-4" />
         </button>
         <button
           onClick={handleFitView}
-          className="rounded-md bg-gray-900/80 p-1.5 text-xs text-gray-400 backdrop-blur-sm hover:text-white"
+          className="rounded-md bg-gray-100/80 p-1.5 text-xs text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
           aria-label="전체보기"
         >
           FIT
         </button>
         <button
           onClick={toggleFullscreen}
-          className="rounded-md bg-gray-900/80 p-1.5 text-gray-400 backdrop-blur-sm hover:text-white"
+          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
           aria-label={isFullscreen ? '전체화면 종료' : '전체화면'}
         >
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -288,12 +334,12 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
       <div className="absolute bottom-3 left-3">
         <button
           onClick={() => setShowLegend(!showLegend)}
-          className="mb-1 rounded-md bg-gray-900/80 px-2 py-1 text-[10px] text-gray-400 backdrop-blur-sm hover:text-white"
+          className="mb-1 rounded-md bg-gray-100/80 px-2 py-1 text-[10px] text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
         >
           {showLegend ? '범례 숨기기' : '범례'}
         </button>
         {showLegend && (
-          <div className="flex flex-wrap gap-2 rounded-lg bg-gray-900/80 p-2 backdrop-blur-sm">
+          <div className="flex flex-wrap gap-2 rounded-lg bg-gray-100/80 p-2 backdrop-blur-sm dark:bg-gray-900/80">
             {(['origin', 'spread', 'explosion', 'sustained', 'fadeout'] as LifecycleStage[]).map(
               (stage) => (
                 <div key={stage} className="flex items-center gap-1">
@@ -301,7 +347,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
                     className="inline-block h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: LIFECYCLE_COLORS[stage] }}
                   />
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[10px] text-gray-600 dark:text-gray-400">
                     {LIFECYCLE_LABELS[stage]}
                   </span>
                 </div>
@@ -309,15 +355,15 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
             )}
             <div className="ml-2 flex items-center gap-1">
               <span className="inline-block h-px w-4 bg-green-500" />
-              <span className="text-[10px] text-gray-400">동일</span>
+              <span className="text-[10px] text-gray-600 dark:text-gray-400">동일</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="inline-block h-px w-4 bg-blue-500" />
-              <span className="text-[10px] text-gray-400">파생</span>
+              <span className="text-[10px] text-gray-600 dark:text-gray-400">파생</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="inline-block h-px w-4 border-t border-dashed border-gray-500" />
-              <span className="text-[10px] text-gray-400">관련</span>
+              <span className="text-[10px] text-gray-600 dark:text-gray-400">관련</span>
             </div>
           </div>
         )}
@@ -325,7 +371,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
 
       {/* ESC to exit fullscreen */}
       {isFullscreen && (
-        <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-md bg-gray-900/80 px-3 py-1 text-xs text-gray-400 backdrop-blur-sm">
+        <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-md bg-gray-100/80 px-3 py-1 text-xs text-gray-600 backdrop-blur-sm dark:bg-gray-900/80 dark:text-gray-400">
           ESC 또는 버튼으로 전체화면 종료
         </div>
       )}

@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, Clock, Flame, Users } from 'lucide-react'
+import { Newspaper, TrendingUp, Clock, Flame, Users, TrendingDown } from 'lucide-react'
 import SearchBar from '@/components/search/SearchBar'
 import ArticleConfirm from '@/components/search/ArticleConfirm'
 import TrackingProgress from '@/components/search/TrackingProgress'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
+import EmptyState from '@/components/ui/EmptyState'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
@@ -82,6 +83,16 @@ export default function HomePage() {
               </Card>
             ))}
           </div>
+        ) : !isLoading && clusters.length === 0 ? (
+          <EmptyState
+            icon={<TrendingDown className="h-10 w-10" />}
+            title="실시간 트렌드를 불러오지 못했습니다"
+            description="네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요."
+            action={{
+              label: '다시 시도',
+              onClick: () => loadArticleTrends(),
+            }}
+          />
         ) : clusters.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {clusters.slice(0, 9).map((cluster: TopicCluster, i: number) => {
@@ -132,7 +143,13 @@ export default function HomePage() {
               )
             })}
           </div>
-        ) : null}
+        ) : (
+          <EmptyState
+            icon={<TrendingUp className="h-10 w-10" />}
+            title="아직 트렌드가 없습니다"
+            description="기사가 수집되면 트렌드가 표시됩니다. 30분마다 자동으로 수집합니다."
+          />
+        )}
       </div>
     </div>
   )

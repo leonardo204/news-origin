@@ -356,3 +356,90 @@ async def stats_events():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get(
+    "/compare",
+    summary="기간별 트렌드 비교",
+    description="두 기간의 트렌드를 비교하여 신규 토픽, 성장 토픽, 카테고리 변화를 분석합니다.",
+)
+async def compare_trends(
+    period_a: Literal["24h", "7d", "30d"] = Query("24h", description="비교 기간 A"),
+    period_b: Literal["24h", "7d", "30d"] = Query("7d", description="비교 기간 B"),
+    db: AsyncSession = Depends(get_session),
+):
+    """두 기간의 트렌드 비교 분석"""
+    cache_key = f"trends:compare:{period_a}:{period_b}"
+
+    try:
+        cached = await cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception as e:
+        logger.warning(f"Cache get failed: {e}")
+
+    from app.core.trend_clustering import build_article_clusters
+
+    trends_a = await build_article_clusters(db, period=period_a)
+    trends_b = await build_article_clusters(db, period=period_b)
+
+    # 1. 카테고리별 변화량
+    category_changes = {}
+    all_cats = set(trends_a.category_distribution.keys()) | set(
+        trends_b.category_distribution.keys()
+    )
+    for cat in all_cats:
+        count_a = trends_a.category_distribution.get(cat, 0)
+        count_b = trends_b.category_distribution.get(cat, 0)
+        change = count_a - count_b
+        change_pct = round((change / max(count_b, 1)) * 100, 1)
+        category_changes[cat] = {
+            "period_a": count_a,
+            "period_b": count_b,
+            "change": change,
+            "change_pct": change_pct,
+        }
+
+    # 2. 신규 토픽 (period_a에만 있는 클러스터)
+    titles_b = {c.title for c in trends_b.clusters}
+    new_topics = [
+        {
+            "title": c.title,
+            "article_count": c.article_count,
+            "categories": c.categories,
+        }
+        for c in trends_a.clusters
+        if c.title not in titles_b
+    ][:10]
+
+    # 3. 성장 토픽 (growth_rate 상위)
+    growing = sorted(trends_a.clusters, key=lambda c: c.growth_rate, reverse=True)[:5]
+    growing_topics = [
+        {
+            "title": c.title,
+            "article_count": c.article_count,
+            "growth_rate": c.growth_rate,
+        }
+        for c in growing
+    ]
+
+    result = {
+        "period_a": period_a,
+        "period_b": period_b,
+        "summary": {
+            "total_a": trends_a.total_articles,
+            "total_b": trends_b.total_articles,
+            "clusters_a": trends_a.total_clusters,
+            "clusters_b": trends_b.total_clusters,
+        },
+        "category_changes": category_changes,
+        "new_topics": new_topics,
+        "growing_topics": growing_topics,
+    }
+
+    try:
+        await cache_set(cache_key, result, ttl=300)  # 5 minutes
+    except Exception as e:
+        logger.warning(f"Cache set failed: {e}")
+
+    return result

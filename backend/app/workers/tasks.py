@@ -1,6 +1,6 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.6.0
+# Version: 0.7.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
@@ -8,6 +8,7 @@
 #   - 0.4.0: origin content null이면 파이프라인 시작 시 백그라운드 크롤링
 #   - 0.5.0: 3단 카테고리 분류 + 기존 기사 카테고리 마이그레이션
 #   - 0.6.0: 2단계 추적 - 즉시 추적(Qdrant only) + Live 추적(full pipeline)
+#   - 0.7.0: 캐시 무효화 통합, distributed lock, run_async 헬퍼
 """
 
 import asyncio
@@ -20,6 +21,16 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def run_async(coro):
+    """Celery 태스크에서 async 코루틴 실행을 위한 헬퍼"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _create_worker_engine():
@@ -60,12 +71,20 @@ def fetch_trending_news(self):
         logger.warning("Background crawling is disabled")
         return {"status": "disabled"}
 
-    from app.services.cache import set_crawl_status
+    from app.services.cache import set_crawl_status, acquire_task_lock, release_task_lock
 
-    logger.warning("fetch_trending_news started")
+    # 동시실행 방지 (distributed lock)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+        lock_acquired = loop.run_until_complete(
+            acquire_task_lock("fetch_trending_news", timeout=1800)
+        )
+        if not lock_acquired:
+            logger.warning("fetch_trending_news already running, skipping")
+            return {"status": "skipped", "reason": "already_running"}
+
+        logger.warning("fetch_trending_news started")
         result = loop.run_until_complete(_run_fetch_trending())
         logger.warning(f"fetch_trending_news completed: {result}")
         return result
@@ -78,6 +97,7 @@ def fetch_trending_news(self):
         loop.run_until_complete(set_crawl_status("idle"))
         return {"status": "error", "error": str(e)[:200]}
     finally:
+        loop.run_until_complete(release_task_lock("fetch_trending_news"))
         loop.close()
 
 
@@ -227,7 +247,11 @@ async def _run_fetch_trending():
                 ]
                 embeddings = create_embeddings_batch(texts)
 
+                embedded_count = 0
                 for article, embedding in zip(articles_to_embed, embeddings):
+                    if embedding is None:
+                        logger.warning(f"Skipping article {article.id}: embedding generation failed")
+                        continue
                     article_meta = article.metadata_ or {}
                     kw_data = article_meta.get("keywords_data", {})
                     payload = {
@@ -238,9 +262,10 @@ async def _run_fetch_trending():
                     }
                     point_id = upsert_embedding(str(article.id), embedding, payload)
                     article.qdrant_point_id = point_id
+                    embedded_count += 1
 
                 await db.commit()
-                logger.info(f"Embedded {len(articles_to_embed)} articles")
+                logger.info(f"Embedded {embedded_count}/{len(articles_to_embed)} articles")
 
             # 5.5. 샘플링 품질 평가 (비용 절감)
             try:
@@ -255,19 +280,8 @@ async def _run_fetch_trending():
 
         # 6. 상태 초기화 + 캐시 무효화 + SSE 이벤트 발행
         await set_crawl_status("idle")
-        from app.services.cache import cache_delete, publish_event
-        await cache_delete("trends:stats")
-        await cache_delete("trends:hot:24h")
-        await cache_delete("trends:hot:7d")
-        await cache_delete("trends:hot:30d")
-        await cache_delete("trends:popular")
-        await cache_delete("trends:article-clusters:24h:1")
-        await cache_delete("trends:article-clusters:24h:2")
-        await cache_delete("trends:article-clusters:7d:1")
-        await cache_delete("trends:article-clusters:7d:2")
-        await cache_delete("trends:article-clusters:30d:1")
-        await cache_delete("trends:article-clusters:30d:2")
-        await cache_delete("trends:recent-articles:30:all")
+        from app.services.cache import invalidate_all_trend_caches, publish_event
+        await invalidate_all_trend_caches()
         await publish_event("stats_updated", {
             "type": "crawl_complete",
             "crawled": len(crawled),
@@ -294,16 +308,11 @@ def cleanup_old_articles(self):
     article_retention_days 초과 기사 삭제 (timeline_entries에서 참조되는 기사는 보존)
     Celery Beat에 의해 매일 03:00에 실행
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(_run_cleanup())
-        return result
+        return run_async(_run_cleanup())
     except Exception as e:
         logger.error(f"cleanup_old_articles failed: {e}", exc_info=True)
         return {"status": "error", "error": str(e)[:200]}
-    finally:
-        loop.close()
 
 
 async def _run_cleanup():
@@ -311,6 +320,7 @@ async def _run_cleanup():
     from sqlalchemy import select, delete, func
     from app.models.article import Article
     from app.models.timeline import TimelineEntry
+    from app.models.search_log import SearchLog
     from app.services.vector_store import get_qdrant_client
     from app.config import get_settings
 
@@ -342,9 +352,16 @@ async def _run_cleanup():
                     if row.qdrant_point_id:
                         qdrant_point_ids.append(str(row.qdrant_point_id))
 
+            # search_logs 정리 (90일 초과 로그 삭제)
+            old_logs_result = await db.execute(
+                delete(SearchLog).where(SearchLog.created_at < cutoff)
+            )
+            deleted_logs = old_logs_result.rowcount
+            logger.info(f"Deleted {deleted_logs} old search logs")
+
             if not to_delete_ids:
                 logger.info("No old articles to clean up")
-                return {"status": "ok", "deleted": 0}
+                return {"status": "ok", "deleted": 0, "deleted_logs": deleted_logs}
 
             # Qdrant 포인트 삭제
             if qdrant_point_ids:
@@ -365,7 +382,7 @@ async def _run_cleanup():
             await db.commit()
 
             logger.info(f"Cleaned up {len(to_delete_ids)} old articles")
-            return {"status": "ok", "deleted": len(to_delete_ids)}
+            return {"status": "ok", "deleted": len(to_delete_ids), "deleted_logs": deleted_logs}
 
     finally:
         await worker_engine.dispose()
@@ -390,20 +407,11 @@ def analyze_article_instant(self, tracking_id: str, article_id: str):
     - soft_time_limit=120 (2분): 크롤링 없이 빠르게 완료
     - time_limit=150 (2.5분): 강제 종료
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        loop.run_until_complete(
-            _run_instant_pipeline(self, tracking_id, article_id)
-        )
+        run_async(_run_instant_pipeline(self, tracking_id, article_id))
     except SoftTimeLimitExceeded:
         logger.error(f"Instant task timed out: tracking_id={tracking_id}")
-        loop.run_until_complete(
-            _mark_failed(tracking_id, "즉시 분석 시간이 초과되었습니다.")
-        )
-    finally:
-        loop.close()
+        run_async(_mark_failed(tracking_id, "즉시 분석 시간이 초과되었습니다."))
 
 
 async def _run_instant_pipeline(task, tracking_id: str, article_id: str):
@@ -592,20 +600,11 @@ def analyze_article_propagation(self, tracking_id: str, article_id: str):
     - soft_time_limit=600 (10분): SoftTimeLimitExceeded 발생, 정리 가능
     - time_limit=660 (11분): 강제 종료
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        loop.run_until_complete(
-            _run_pipeline(self, tracking_id, article_id)
-        )
+        run_async(_run_pipeline(self, tracking_id, article_id))
     except SoftTimeLimitExceeded:
         logger.error(f"Task timed out: tracking_id={tracking_id}")
-        loop.run_until_complete(
-            _mark_failed(tracking_id, "분석 시간이 초과되었습니다. (10분 제한)")
-        )
-    finally:
-        loop.close()
+        run_async(_mark_failed(tracking_id, "분석 시간이 초과되었습니다. (10분 제한)"))
 
 
 async def _mark_failed(tracking_id: str, error_message: str):
@@ -794,6 +793,9 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                 embeddings = create_embeddings_batch(texts)
                 embed_map = {}
                 for article, embedding in zip(articles_needing_embed, embeddings):
+                    if embedding is None:
+                        logger.warning(f"Skipping article {article.id}: embedding generation failed")
+                        continue
                     article_meta = article.metadata_ or {}
                     kw_data = article_meta.get("keywords_data", {})
                     payload = {
@@ -866,19 +868,8 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             tracking.completed_at = datetime.now(timezone.utc)
 
             # Invalidate trend caches + notify frontend
-            from app.services.cache import cache_delete, publish_event
-            await cache_delete("trends:hot:24h")
-            await cache_delete("trends:hot:7d")
-            await cache_delete("trends:hot:30d")
-            await cache_delete("trends:popular")
-            await cache_delete("trends:stats")
-            await cache_delete("trends:article-clusters:24h:1")
-            await cache_delete("trends:article-clusters:24h:2")
-            await cache_delete("trends:article-clusters:7d:1")
-            await cache_delete("trends:article-clusters:7d:2")
-            await cache_delete("trends:article-clusters:30d:1")
-            await cache_delete("trends:article-clusters:30d:2")
-            await cache_delete("trends:recent-articles:30:all")
+            from app.services.cache import invalidate_all_trend_caches, publish_event
+            await invalidate_all_trend_caches()
             await publish_event("stats_updated", {
                 "type": "tracking_complete",
                 "tracking_id": tracking_id,
@@ -926,17 +917,13 @@ def migrate_article_categories(self):
     2순위: 제목 키워드 매칭
     3순위: feed_category (headlines 포함)
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(_run_category_migration())
+        result = run_async(_run_category_migration())
         logger.warning(f"Category migration completed: {result}")
         return result
     except Exception as e:
         logger.error(f"Category migration failed: {e}", exc_info=True)
         return {"status": "error", "error": str(e)[:200]}
-    finally:
-        loop.close()
 
 
 @celery_app.task(bind=True, soft_time_limit=1800, time_limit=1860)
@@ -949,17 +936,13 @@ def reembed_all_articles(self):
     - 본문 윈도우 500→300자 축소
     - Qdrant 벡터 in-place 업데이트
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        result = loop.run_until_complete(_run_reembed_all())
+        result = run_async(_run_reembed_all())
         logger.warning(f"Re-embedding completed: {result}")
         return result
     except Exception as e:
         logger.error(f"Re-embedding failed: {e}", exc_info=True)
         return {"status": "error", "error": str(e)[:200]}
-    finally:
-        loop.close()
 
 
 async def _run_reembed_all():
@@ -1004,10 +987,14 @@ async def _run_reembed_all():
 
                 points = []
                 for article, embedding in zip(batch, embeddings):
+                    if embedding is None:
+                        logger.warning(f"Skipping re-embed for article {article.id}: embedding failed")
+                        continue
                     article_meta = article.metadata_ or {}
                     kw_data = article_meta.get("keywords_data", {})
+                    point_id = str(article.qdrant_point_id) if article.qdrant_point_id else str(uuid.uuid4())
                     points.append(models.PointStruct(
-                        id=str(article.qdrant_point_id) if article.qdrant_point_id else str(uuid.uuid4()),
+                        id=point_id,
                         vector=embedding,
                         payload={
                             "article_id": str(article.id),
@@ -1019,7 +1006,7 @@ async def _run_reembed_all():
                     ))
                     # qdrant_point_id가 없었던 기사에 할당
                     if not article.qdrant_point_id:
-                        article.qdrant_point_id = points[-1].id
+                        article.qdrant_point_id = point_id
 
                 client.upsert(
                     collection_name=settings.qdrant_collection,
@@ -1030,13 +1017,8 @@ async def _run_reembed_all():
                 logger.info(f"Re-embedded {updated}/{total} articles")
 
             # 캐시 무효화
-            from app.services.cache import cache_delete
-            await cache_delete("trends:article-clusters:24h:1")
-            await cache_delete("trends:article-clusters:24h:2")
-            await cache_delete("trends:article-clusters:7d:1")
-            await cache_delete("trends:article-clusters:7d:2")
-            await cache_delete("trends:article-clusters:30d:1")
-            await cache_delete("trends:article-clusters:30d:2")
+            from app.services.cache import invalidate_all_trend_caches
+            await invalidate_all_trend_caches()
 
             return {"status": "ok", "reembedded": updated, "total": total}
 
@@ -1082,12 +1064,8 @@ async def _run_category_migration():
             logger.info(f"Migrated {migrated} / {len(articles)} articles")
 
             # 캐시 무효화
-            from app.services.cache import cache_delete
-            await cache_delete("trends:stats")
-            await cache_delete("trends:article-clusters:24h:2")
-            await cache_delete("trends:article-clusters:7d:2")
-            await cache_delete("trends:article-clusters:30d:2")
-            await cache_delete("trends:recent-articles:30:all")
+            from app.services.cache import invalidate_all_trend_caches
+            await invalidate_all_trend_caches()
 
             return {"status": "ok", "migrated": migrated, "total": len(articles)}
 

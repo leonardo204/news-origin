@@ -19,16 +19,20 @@ interface TrendState {
   // Crawl status
   crawlStatus: CrawlStatus
 
+  // SSE connection status
+  sseStatus: 'connected' | 'reconnecting' | 'offline'
+
   // UI state
   isLoading: boolean
   error: string | null
   period: '24h' | '7d' | '30d'
-  trendView: 'overall' | 'category'
+  trendView: 'overall' | 'category' | 'compare'
 
   setPeriod: (period: '24h' | '7d' | '30d') => void
-  setTrendView: (view: 'overall' | 'category') => void
+  setTrendView: (view: 'overall' | 'category' | 'compare') => void
   toggleCluster: (clusterId: string) => void
   updateCrawlStatus: (status: CrawlStatus) => void
+  setSseStatus: (status: 'connected' | 'reconnecting' | 'offline') => void
   loadArticleTrends: () => Promise<void>
   loadRecentArticles: () => Promise<void>
   loadStats: () => Promise<void>
@@ -41,6 +45,7 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   expandedClusterId: null,
   stats: null,
   crawlStatus: { phase: 'idle', started_at: null, detail: null },
+  sseStatus: 'connected',
   isLoading: false,
   error: null,
   period: '24h',
@@ -63,6 +68,10 @@ export const useTrendStore = create<TrendState>((set, get) => ({
 
   updateCrawlStatus: (status) => {
     set({ crawlStatus: status })
+  },
+
+  setSseStatus: (status) => {
+    set({ sseStatus: status })
   },
 
   loadArticleTrends: async () => {

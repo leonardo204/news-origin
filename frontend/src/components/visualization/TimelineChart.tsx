@@ -45,7 +45,12 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
   let lastExplosionShown = -1
 
   return (
-    <div className="max-h-[600px] overflow-y-auto px-1 py-4 sm:px-2">
+    <div
+      className="max-h-[400px] sm:max-h-[600px] overflow-y-auto px-1 py-4 sm:px-2"
+      role="img"
+      aria-label={`${items.length}개 기사의 타임라인. ${explosions.length}개의 폭발 구간 포함.`}
+      style={{ touchAction: 'pan-y' }}
+    >
       <div className="relative ml-2 border-l-2 border-border pl-4 sm:ml-4 sm:pl-6">
         {sorted.map((item) => {
           const inExplosion = isInExplosion(item.published_at)

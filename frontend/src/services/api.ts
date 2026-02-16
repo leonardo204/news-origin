@@ -1,4 +1,15 @@
-import axios, { type AxiosError } from 'axios'
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { getErrorMessage, isRetryableError, type ApiError } from '@/lib/errors'
+import { safeParse,
+  ArticleTrendsResponseSchema,
+  StatsOverviewSchema,
+  TrackingStatusSchema,
+  CrawlStatusSchema,
+  TrackResponseSchema,
+  ConfirmResponseSchema,
+  RecentArticleItemSchema,
+  TrendComparisonSchema,
+} from '@/lib/schemas'
 import type {
   TrackInput,
   TrackResponse,
@@ -15,6 +26,7 @@ import type {
   ArticleTrendsResponse,
   RecentArticleItem,
   CrawlStatus,
+  TrendComparison,
 } from '@/types'
 
 const api = axios.create({
@@ -26,12 +38,15 @@ const api = axios.create({
 })
 
 // Retry config
-const RETRY_STATUS_CODES = new Set([502, 503, 504])
 const MAX_RETRIES = 2
-const RETRY_DELAY = 1000
+const INITIAL_RETRY_DELAY = 1000
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+interface RetryableAxiosConfig extends InternalAxiosRequestConfig {
+  __retryCount?: number
 }
 
 // Response interceptor with retry for transient failures
@@ -41,19 +56,28 @@ api.interceptors.response.use(
     const config = error.config
     if (!config) return Promise.reject(formatError(error))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const configAny = config as any
-    const retryCount: number = configAny.__retryCount || 0
+    const retryableConfig = config as RetryableAxiosConfig
+    const retryCount: number = retryableConfig.__retryCount || 0
 
-    // Retry on 502/503/504 or network error (not timeout), GET only (POST는 중복 생성 방지)
-    const isRetryable =
+    // API 에러 객체 생성
+    const apiError: ApiError = {
+      name: 'ApiError',
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+    }
+
+    // 4xx 에러는 재시도하지 않음 (POST는 기본적으로 재시도 안 함)
+    const shouldRetry =
       config.method?.toUpperCase() !== 'POST' &&
-      ((error.response && RETRY_STATUS_CODES.has(error.response.status)) ||
-      (!error.response && error.code !== 'ECONNABORTED' && error.code !== 'ERR_CANCELED'))
+      isRetryableError(apiError) &&
+      retryCount < MAX_RETRIES
 
-    if (isRetryable && retryCount < MAX_RETRIES) {
-      configAny.__retryCount = retryCount + 1
-      await sleep(RETRY_DELAY * (retryCount + 1))
+    if (shouldRetry) {
+      retryableConfig.__retryCount = retryCount + 1
+      // Exponential backoff: 1초, 3초
+      const delay = INITIAL_RETRY_DELAY * Math.pow(3, retryCount)
+      await sleep(delay)
       return api(config)
     }
 
@@ -61,19 +85,26 @@ api.interceptors.response.use(
   },
 )
 
-function formatError(error: AxiosError): Error {
-  if (error.code === 'ERR_CANCELED') {
-    return new Error('요청이 취소되었습니다.')
+function formatError(error: AxiosError): ApiError {
+  const apiError: ApiError = {
+    name: 'ApiError',
+    message: error.message,
+    code: error.code,
+    status: error.response?.status,
   }
+
+  // 서버에서 반환한 상세 메시지 우선 사용
   if (error.response) {
     const detail = (error.response.data as Record<string, unknown>)?.detail
-    const message = typeof detail === 'string' ? detail : '서버 오류가 발생했습니다.'
-    return new Error(message)
+    if (typeof detail === 'string') {
+      apiError.message = detail
+      return apiError
+    }
   }
-  if (error.code === 'ECONNABORTED') {
-    return new Error('요청 시간이 초과되었습니다.')
-  }
-  return new Error('네트워크 연결을 확인해주세요.')
+
+  // 에러 유틸리티로 메시지 변환
+  apiError.message = getErrorMessage(apiError)
+  return apiError
 }
 
 // AbortController helper
@@ -83,18 +114,18 @@ export function createAbortController(): AbortController {
 
 // Articles & Tracking
 export async function trackArticle(input: TrackInput, signal?: AbortSignal): Promise<TrackResponse> {
-  const { data } = await api.post<TrackResponse>('/articles/track', input, { signal })
-  return data
+  const { data } = await api.post('/articles/track', input, { signal })
+  return safeParse(TrackResponseSchema, data) as TrackResponse
 }
 
 export async function confirmTracking(input: ConfirmInput): Promise<ConfirmResponse> {
-  const { data } = await api.post<ConfirmResponse>('/articles/confirm', input)
-  return data
+  const { data } = await api.post('/articles/confirm', input)
+  return safeParse(ConfirmResponseSchema, data) as ConfirmResponse
 }
 
 export async function liveTrack(input: LiveTrackInput): Promise<ConfirmResponse> {
-  const { data } = await api.post<ConfirmResponse>('/articles/live-track', input)
-  return data
+  const { data } = await api.post('/articles/live-track', input)
+  return safeParse(ConfirmResponseSchema, data) as ConfirmResponse
 }
 
 export async function getArticle(articleId: string): Promise<Article> {
@@ -104,8 +135,8 @@ export async function getArticle(articleId: string): Promise<Article> {
 
 // Timeline
 export async function getTrackingStatus(trackingId: string, signal?: AbortSignal): Promise<TrackingStatus> {
-  const { data } = await api.get<TrackingStatus>(`/timeline/${trackingId}/status`, { signal })
-  return data
+  const { data } = await api.get(`/timeline/${trackingId}/status`, { signal })
+  return safeParse(TrackingStatusSchema, data) as TrackingStatus
 }
 
 export async function getTimeline(trackingId: string): Promise<TimelineResponse> {
@@ -140,32 +171,43 @@ export async function getPopularSearches(): Promise<PopularSearch[]> {
 }
 
 export async function getStats(): Promise<StatsOverview> {
-  const { data } = await api.get<StatsOverview>('/trends/stats')
-  return data
+  const { data } = await api.get('/trends/stats')
+  return safeParse(StatsOverviewSchema, data) as StatsOverview
 }
 
 // Article-based Trends
 export async function getArticleTrends(
   period: '24h' | '7d' | '30d' = '24h',
 ): Promise<ArticleTrendsResponse> {
-  const { data } = await api.get<ArticleTrendsResponse>('/trends/article-trends', {
+  const { data } = await api.get('/trends/article-trends', {
     params: { period },
   })
-  return data
+  return safeParse(ArticleTrendsResponseSchema, data) as ArticleTrendsResponse
 }
 
 export async function getRecentArticles(
   limit: number = 30,
   category?: string,
 ): Promise<RecentArticleItem[]> {
-  const { data } = await api.get<RecentArticleItem[]>('/trends/recent-articles', {
+  const { data } = await api.get('/trends/recent-articles', {
     params: { limit, ...(category ? { category } : {}) },
   })
-  return data
+  return (data as unknown[]).map((item) => safeParse(RecentArticleItemSchema, item)) as RecentArticleItem[]
 }
 
 // Crawl Status
 export async function getCrawlStatus(): Promise<CrawlStatus> {
-  const { data } = await api.get<CrawlStatus>('/trends/crawl-status')
-  return data
+  const { data } = await api.get('/trends/crawl-status')
+  return safeParse(CrawlStatusSchema, data) as CrawlStatus
+}
+
+// Trend Comparison
+export async function compareTrends(
+  periodA: '24h' | '7d' | '30d' = '24h',
+  periodB: '24h' | '7d' | '30d' = '7d',
+): Promise<TrendComparison> {
+  const { data } = await api.get('/trends/compare', {
+    params: { period_a: periodA, period_b: periodB },
+  })
+  return safeParse(TrendComparisonSchema, data) as TrendComparison
 }

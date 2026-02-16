@@ -101,7 +101,7 @@ export default function SearchBar() {
     <div className="w-full max-w-2xl">
       <form onSubmit={handleSubmit}>
         <div
-          className={`flex items-center gap-2 rounded-xl border bg-gray-900/50 px-4 py-3 transition-all ${
+          className={`flex items-center gap-2 rounded-xl border bg-gray-100/50 px-4 py-3 transition-all dark:bg-gray-900/50 ${
             focused
               ? 'border-lifecycle-origin shadow-lg shadow-lifecycle-origin/10'
               : 'border-border'
@@ -143,7 +143,7 @@ export default function SearchBar() {
 
       {/* Recent searches - only visible on focus */}
       {recentSearches.length > 0 && !searchQuery && focused && (
-        <div className="mt-3 rounded-lg border border-border bg-gray-900/30 p-3 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="mt-3 rounded-lg border border-border bg-gray-100/30 p-3 animate-in fade-in slide-in-from-top-1 duration-200 dark:bg-gray-900/30">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Clock className="h-3 w-3" />

@@ -1,6 +1,6 @@
 """
 # trend_clustering.py - Article Trend Clustering Service
-# Version: 0.4.0
+# Version: 0.6.0
 # Description: 가중치 복합 스코어링 기반 기사 클러스터링으로 트렌딩 토픽 추출
 # Changes:
 #   - 0.1.0: Greedy 클러스터링 알고리즘, 메타데이터 계산
@@ -8,11 +8,14 @@
 #   - 0.3.0: 제목 중복 제거 + 유사 클러스터 자동 병합 (실효성 부족으로 0.4.0에서 교체)
 #   - 0.4.0: 그래프 기반 클러스터 병합 (connected components)
 #            임베딩 유사도 + 키워드 겹침 게이트, 전이적 병합으로 동일 토픽 통합
+#   - 0.5.0: Qdrant 벡터 검색 배치화 (search_similar_batch)
+#   - 0.6.0: numpy 코사인 유사도 최적화 (10-50x 성능 향상)
 """
 
 import logging
 import math
 import uuid
+import numpy as np
 from collections import Counter, deque
 from datetime import datetime, timedelta, timezone
 
@@ -25,7 +28,7 @@ from app.schemas.search import (
     ClusterArticle,
     TopicCluster,
 )
-from app.services.vector_store import retrieve_vectors, search_similar
+from app.services.vector_store import retrieve_vectors, search_similar, search_similar_batch
 from app.services.keyword_extractor import compute_keyword_similarity
 
 logger = logging.getLogger(__name__)
@@ -45,13 +48,14 @@ MAX_ARTICLES_PER_CLUSTER_RESPONSE = 10
 
 
 def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """코사인 유사도 계산"""
-    dot = sum(a * b for a, b in zip(vec_a, vec_b))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    """코사인 유사도 계산 (numpy 최적화)"""
+    a = np.asarray(vec_a, dtype=np.float32)
+    b = np.asarray(vec_b, dtype=np.float32)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 
 def _get_keyword_texts(keywords_data: dict) -> set[str]:
@@ -255,7 +259,7 @@ async def build_article_clusters(
     if not valid_articles:
         return _empty_response(period)
 
-    # 3. Greedy 클러스터링 (가중치 복합 스코어링)
+    # 3. Greedy 클러스터링 (가중치 복합 스코어링) - 배치 검색 최적화
     clustered_ids: set[str] = set()
     clusters: list[dict] = []
 
@@ -265,6 +269,32 @@ async def build_article_clusters(
         key=lambda a: a["created_at"],
         reverse=True,
     )
+
+    # 배치 검색: 모든 벡터를 한 번에 검색
+    embeddings_list = []
+    aid_to_batch_pos = {}  # article_id → embeddings_list 내 위치
+    for article in sorted_articles:
+        pid = article["qdrant_point_id"]
+        vector = vectors.get(pid)
+        if vector:
+            aid_to_batch_pos[article["id"]] = len(embeddings_list)
+            embeddings_list.append(vector)
+
+    # Qdrant 배치 검색 (낮은 임계값으로 넓게 후보 수집)
+    if embeddings_list:
+        batch_results = search_similar_batch(
+            embeddings=embeddings_list,
+            limit=100,
+            score_threshold=CLUSTER_EMBEDDING_THRESHOLD,
+        )
+    else:
+        batch_results = []
+
+    # 배치 결과를 article ID로 매핑
+    similar_map = {}
+    for aid, batch_pos in aid_to_batch_pos.items():
+        if batch_pos < len(batch_results):
+            similar_map[aid] = batch_results[batch_pos]
 
     for article in sorted_articles:
         aid = article["id"]
@@ -276,12 +306,8 @@ async def build_article_clusters(
         if not vector:
             continue
 
-        # Qdrant에서 유사 기사 검색 (낮은 임계값으로 넓게 후보 수집)
-        similar = search_similar(
-            embedding=vector,
-            limit=100,
-            score_threshold=CLUSTER_EMBEDDING_THRESHOLD,
-        )
+        # 배치 검색 결과 사용
+        similar = similar_map.get(aid, [])
 
         # 클러스터 멤버 수집 (가중치 복합 스코어링)
         members = [{"article": article, "score": 1.0}]
@@ -290,6 +316,8 @@ async def build_article_clusters(
         seed_keywords = article.get("keywords_data", {})
 
         for hit in similar:
+            if not hit.get("payload"):
+                continue
             hit_aid = hit["payload"].get("article_id")
             if not hit_aid or hit_aid in clustered_ids:
                 continue

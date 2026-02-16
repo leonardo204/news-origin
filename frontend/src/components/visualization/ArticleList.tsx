@@ -3,6 +3,7 @@ import { ArrowUp, ArrowDown, Filter, X, ExternalLink } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import BookmarkButton from '@/components/ui/BookmarkButton'
 import { LIFECYCLE_LABELS } from '@/lib/utils'
 import type { TimelineItem, LifecycleStage } from '@/types'
 
@@ -146,7 +147,7 @@ export default function ArticleList({ items }: ArticleListProps) {
         <div className="hidden sm:block">
           <div className="space-y-1">
             {/* Sortable header */}
-            <div className="grid grid-cols-[1fr_100px_80px_80px] gap-2 px-2 pb-2 text-xs font-medium text-muted-foreground">
+            <div className="grid grid-cols-[1fr_100px_80px_80px_32px] gap-2 px-2 pb-2 text-xs font-medium text-muted-foreground">
               <button className="text-left hover:text-foreground" onClick={() => handleSort('title')}>
                 제목<SortIcon field="title" />
               </button>
@@ -159,6 +160,7 @@ export default function ArticleList({ items }: ArticleListProps) {
               <button className="text-right hover:text-foreground" onClick={() => handleSort('similarity_score')}>
                 유사도<SortIcon field="similarity_score" />
               </button>
+              <span></span>
             </div>
 
             {filtered.length === 0 ? (
@@ -167,20 +169,22 @@ export default function ArticleList({ items }: ArticleListProps) {
               </p>
             ) : (
               filtered.map((item) => (
-                <a
+                <div
                   key={item.article_id}
-                  href={item.url || undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`grid grid-cols-[1fr_100px_80px_80px] items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-secondary/30 ${
-                    item.url ? 'cursor-pointer' : 'cursor-default'
-                  }`}
-                  onClick={item.url ? undefined : (e) => e.preventDefault()}
+                  className="grid grid-cols-[1fr_100px_80px_80px_32px] items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-secondary/30"
                 >
-                  <div className="flex items-center gap-2 overflow-hidden">
+                  <a
+                    href={item.url || undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center gap-2 overflow-hidden ${
+                      item.url ? 'cursor-pointer' : 'cursor-default'
+                    }`}
+                    onClick={item.url ? undefined : (e) => e.preventDefault()}
+                  >
                     <span className="truncate">{item.title}</span>
                     {item.url && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 [a:hover_&]:opacity-100" />}
-                  </div>
+                  </a>
                   <span className="truncate text-xs text-muted-foreground">
                     {item.publisher || '-'}
                   </span>
@@ -194,7 +198,17 @@ export default function ArticleList({ items }: ArticleListProps) {
                   <span className="text-right text-xs tabular-nums text-muted-foreground">
                     {(item.similarity_score * 100).toFixed(1)}%
                   </span>
-                </a>
+                  {item.url && (
+                    <BookmarkButton
+                      articleId={item.article_id}
+                      title={item.title}
+                      publisher={item.publisher}
+                      url={item.url}
+                      size="sm"
+                      className="justify-self-center"
+                    />
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -222,32 +236,47 @@ export default function ArticleList({ items }: ArticleListProps) {
           ) : (
             <div className="space-y-2">
               {filtered.map((item) => (
-                <a
+                <div
                   key={item.article_id}
-                  href={item.url || undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`block rounded-lg border border-border/50 p-3 transition-colors hover:bg-secondary/30 ${
-                    item.url ? 'cursor-pointer' : 'cursor-default'
-                  }`}
-                  onClick={item.url ? undefined : (e) => e.preventDefault()}
+                  className="relative rounded-lg border border-border/50 p-3 transition-colors hover:bg-secondary/30"
                 >
-                  <p className="text-sm font-medium leading-snug">{item.title}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                    {item.publisher && (
-                      <span className="text-xs text-muted-foreground">{item.publisher}</span>
-                    )}
-                    {item.lifecycle_stage && (
-                      <Badge stage={item.lifecycle_stage as LifecycleStage}>
-                        {LIFECYCLE_LABELS[item.lifecycle_stage as LifecycleStage]}
-                      </Badge>
-                    )}
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {(item.similarity_score * 100).toFixed(1)}%
-                    </span>
-                    {item.url && <ExternalLink className="h-3 w-3 text-muted-foreground/50" />}
-                  </div>
-                </a>
+                  <a
+                    href={item.url || undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`block ${
+                      item.url ? 'cursor-pointer' : 'cursor-default'
+                    }`}
+                    onClick={item.url ? undefined : (e) => e.preventDefault()}
+                  >
+                    <p className="pr-8 text-sm font-medium leading-snug">{item.title}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      {item.publisher && (
+                        <span className="text-xs text-muted-foreground">{item.publisher}</span>
+                      )}
+                      {item.lifecycle_stage && (
+                        <Badge stage={item.lifecycle_stage as LifecycleStage}>
+                          {LIFECYCLE_LABELS[item.lifecycle_stage as LifecycleStage]}
+                        </Badge>
+                      )}
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {(item.similarity_score * 100).toFixed(1)}%
+                      </span>
+                      {item.url && <ExternalLink className="h-3 w-3 text-muted-foreground/50" />}
+                    </div>
+                  </a>
+                  {item.url && (
+                    <div className="absolute right-2 top-2">
+                      <BookmarkButton
+                        articleId={item.article_id}
+                        title={item.title}
+                        publisher={item.publisher}
+                        url={item.url}
+                        size="sm"
+                      />
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}

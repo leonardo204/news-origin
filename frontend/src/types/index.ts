@@ -219,3 +219,34 @@ export interface CrawlStatus {
   started_at: string | null
   detail: string | null
 }
+
+// Trend Comparison
+export interface TrendComparison {
+  period_a: string
+  period_b: string
+  summary: {
+    total_a: number
+    total_b: number
+    clusters_a: number
+    clusters_b: number
+  }
+  category_changes: Record<
+    string,
+    {
+      period_a: number
+      period_b: number
+      change: number
+      change_pct: number
+    }
+  >
+  new_topics: Array<{
+    title: string
+    article_count: number
+    categories: string[]
+  }>
+  growing_topics: Array<{
+    title: string
+    article_count: number
+    growth_rate: number
+  }>
+}

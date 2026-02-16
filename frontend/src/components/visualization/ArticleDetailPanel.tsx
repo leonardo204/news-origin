@@ -1,12 +1,15 @@
-import { X, ExternalLink, Building2, Clock, Percent } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, ExternalLink, Building2, Clock, Percent, Loader2, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import BookmarkButton from '@/components/ui/BookmarkButton'
+import { getArticle } from '@/services/api'
 import {
   formatDate,
   LIFECYCLE_LABELS,
   SIMILARITY_LABELS,
 } from '@/lib/utils'
-import type { GraphNode, LifecycleStage, SimilarityCategory } from '@/types'
+import type { GraphNode, LifecycleStage, SimilarityCategory, Article } from '@/types'
 
 interface ArticleDetailPanelProps {
   node: GraphNode | null
@@ -14,19 +17,59 @@ interface ArticleDetailPanelProps {
 }
 
 export default function ArticleDetailPanel({ node, onClose }: ArticleDetailPanelProps) {
+  const [articleDetail, setArticleDetail] = useState<Article | null>(null)
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!node) return
+
+    setIsLoadingDetail(true)
+    setDetailError(null)
+    setArticleDetail(null)
+
+    getArticle(node.id)
+      .then((article) => {
+        setArticleDetail(article)
+        setIsLoadingDetail(false)
+      })
+      .catch((error) => {
+        console.error('Failed to load article detail:', error)
+        setDetailError('본문을 불러올 수 없습니다.')
+        setIsLoadingDetail(false)
+      })
+  }, [node?.id])
+
   if (!node) return null
+
+  const contentPreview = articleDetail?.content
+    ? articleDetail.content.length > 500
+      ? articleDetail.content.slice(0, 500) + '...'
+      : articleDetail.content
+    : null
 
   return (
     <div className="absolute inset-0 z-10 overflow-y-auto border-l border-border bg-card p-4 shadow-lg sm:inset-auto sm:right-0 sm:top-0 sm:h-full sm:w-80">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground">기사 상세</h3>
-        <button
-          onClick={onClose}
-          className="rounded-md p-1 hover:bg-secondary"
-          aria-label="상세 패널 닫기"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-1">
+          {node.url && (
+            <BookmarkButton
+              articleId={node.id}
+              title={node.title}
+              publisher={node.publisher}
+              url={node.url}
+              size="sm"
+            />
+          )}
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 hover:bg-secondary"
+            aria-label="상세 패널 닫기"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -98,6 +141,41 @@ export default function ArticleDetailPanel({ node, onClose }: ArticleDetailPanel
             />
           </div>
         </div>
+
+        {/* Content Preview */}
+        {isLoadingDetail && (
+          <div className="rounded-md border border-border bg-secondary/20 p-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              본문을 불러오는 중...
+            </div>
+          </div>
+        )}
+
+        {!isLoadingDetail && detailError && (
+          <div className="rounded-md border border-border bg-secondary/20 p-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4" />
+              {detailError}
+            </div>
+          </div>
+        )}
+
+        {!isLoadingDetail && !detailError && contentPreview && (
+          <div className="rounded-md border border-border bg-secondary/20 p-3">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">본문 미리보기</p>
+            <p className="text-xs leading-relaxed text-foreground/80">{contentPreview}</p>
+          </div>
+        )}
+
+        {!isLoadingDetail && !detailError && !contentPreview && articleDetail && (
+          <div className="rounded-md border border-border bg-secondary/20 p-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4" />
+              본문을 불러올 수 없습니다
+            </div>
+          </div>
+        )}
 
         {/* Open article */}
         {node.url && (

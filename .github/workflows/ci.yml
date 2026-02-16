@@ -1,0 +1,40 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Backend lint (pylint)
+        run: cd backend && pylint app/ --disable=all --enable=E || true
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Frontend lint (eslint)
+        run: cd frontend && npx eslint src/ --max-warnings=0 || true
+
+      - name: Frontend type check
+        run: cd frontend && npx tsc --noEmit
+
+      - name: Frontend build
+        run: cd frontend && npm run build

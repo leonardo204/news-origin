@@ -1,4 +1,5 @@
 import ReactECharts from 'echarts-for-react'
+import echarts from '@/lib/echarts'
 import { formatDate } from '@/lib/utils'
 import type { DensityPoint, ExplosionPoint } from '@/types'
 
@@ -94,12 +95,20 @@ export default function DensityChart({ density, explosions }: DensityChartProps)
   }
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height: 400 }}
-      theme="dark"
-      notMerge
-      opts={{ renderer: 'canvas' }}
-    />
+    <div
+      role="img"
+      aria-label={`시간대별 기사 밀도 차트. ${density.length}개 시점, ${explosions.length}개 폭발 구간.`}
+      style={{ touchAction: 'pan-x' }}
+    >
+      <ReactECharts
+        echarts={echarts}
+        option={option}
+        style={{ height: 300 }}
+        className="sm:h-[400px]"
+        theme="dark"
+        notMerge
+        opts={{ renderer: 'canvas' }}
+      />
+    </div>
   )
 }

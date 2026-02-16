@@ -6,17 +6,7 @@ import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { CATEGORY_LABELS } from '@/lib/constants'
-
-const CATEGORY_DOT_COLORS: Record<string, string> = {
-  headlines: 'bg-emerald-400',
-  politics: 'bg-blue-400',
-  economy: 'bg-amber-400',
-  society: 'bg-rose-400',
-  tech: 'bg-violet-400',
-  entertainment: 'bg-cyan-400',
-  sports: 'bg-orange-400',
-}
+import ThemeToggle from '@/components/ui/ThemeToggle'
 
 export default function Header() {
   const location = useLocation()
@@ -25,7 +15,7 @@ export default function Header() {
   const panelRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
-  const { stats, crawlStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus } = useTrendStore()
+  const { stats, crawlStatus, sseStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus, setSseStatus } = useTrendStore()
 
   // Load stats + crawl status on mount + SSE with auto-reconnect
   useEffect(() => {
@@ -39,11 +29,13 @@ export default function Header() {
 
     function connect() {
       if (unmounted) return
+      setSseStatus('reconnecting')
       es = new EventSource('/api/trends/events')
       retryDelay = 1000 // reset on successful connection attempt
 
       es.onopen = () => {
         retryDelay = 1000
+        setSseStatus('connected')
       }
 
       es.onmessage = (event) => {
@@ -64,6 +56,7 @@ export default function Header() {
       es.onerror = () => {
         es?.close()
         es = null
+        setSseStatus('offline')
         if (!unmounted) {
           reconnectTimer = setTimeout(() => {
             retryDelay = Math.min(retryDelay * 2, 30000)
@@ -118,7 +111,7 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-gray-950/80 backdrop-blur-sm" role="banner">
+    <header className="sticky top-0 z-50 border-b border-border bg-white/80 backdrop-blur-sm dark:bg-gray-950/80" role="banner">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <a href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg font-bold" aria-label="News Origin 홈으로 이동">
           <Newspaper className="h-5 w-5 text-lifecycle-origin" aria-hidden="true" />
@@ -150,6 +143,8 @@ export default function Header() {
 
           <div className="ml-1 h-5 w-px bg-border" />
 
+          <ThemeToggle />
+
           <button
             ref={buttonRef}
             onClick={() => setPanelOpen((v) => !v)}
@@ -168,9 +163,11 @@ export default function Header() {
               <BarChart3 className="h-4 w-4" aria-hidden="true" />
             )}
             <span className="hidden sm:inline">현황</span>
-            <span className="flex flex-col items-center gap-[2px]" aria-label={`크롤링 상태: ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.label || '대기중'}`}>
-              <span className={`inline-block h-[5px] w-[5px] rounded-full transition-colors ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.dotClass || 'bg-emerald-400'}`} />
-              <span className={`inline-block h-[5px] w-[5px] rounded-full transition-colors ${CRAWL_PHASE_LABELS[crawlStatus.phase]?.dotClass || 'bg-emerald-400'}`} />
+            <span className="flex items-center gap-1.5" aria-label={`SSE 상태: ${SSE_STATUS_LABELS[sseStatus]?.label || '연결됨'}`}>
+              <span className={`h-2 w-2 rounded-full ${SSE_STATUS_LABELS[sseStatus]?.dotClass || 'bg-emerald-400'}`} />
+              {sseStatus !== 'connected' && (
+                <span className="text-xs text-muted-foreground">{SSE_STATUS_LABELS[sseStatus]?.label}</span>
+              )}
             </span>
           </button>
 
@@ -184,7 +181,7 @@ export default function Header() {
                 : 'pointer-events-none scale-95 opacity-0',
             )}
           >
-            <div className="space-y-2 rounded-lg border border-border bg-gray-950/95 p-2 shadow-xl backdrop-blur-md">
+            <div className="space-y-2 rounded-lg border border-border bg-white/95 p-2 shadow-xl backdrop-blur-md dark:bg-gray-950/95">
               {stats ? (
                 <>
                   <Card className="border-0 bg-transparent shadow-none">
@@ -210,9 +207,6 @@ export default function Header() {
                       </div>
                     </CardContent>
                   </Card>
-                  {Object.keys(stats.category_counts).length > 0 && (
-                    <CategoryDistribution counts={stats.category_counts} />
-                  )}
                 </>
               ) : isLoading ? (
                 <Card className="border-0 bg-transparent shadow-none">
@@ -242,6 +236,12 @@ const CRAWL_PHASE_LABELS: Record<string, { label: string; dotClass: string }> = 
   fetching: { label: 'RSS 수집중', dotClass: 'bg-yellow-400 animate-pulse' },
   crawling: { label: '크롤링중', dotClass: 'bg-orange-400 animate-pulse' },
   embedding: { label: '임베딩 생성중', dotClass: 'bg-violet-400 animate-pulse' },
+}
+
+const SSE_STATUS_LABELS: Record<string, { label: string; dotClass: string }> = {
+  connected: { label: '연결됨', dotClass: 'bg-emerald-400' },
+  reconnecting: { label: '재연결 중...', dotClass: 'bg-yellow-400 animate-pulse' },
+  offline: { label: '연결 끊김', dotClass: 'bg-red-400' },
 }
 
 function CrawlStatusRow({ phase, detail }: { phase: string; detail: string | null }) {
@@ -280,48 +280,3 @@ function StatRow({
   )
 }
 
-function CategoryDistribution({ counts }: { counts: Record<string, number> }) {
-  const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a)
-  const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
-  const maxCount = Math.max(...Object.values(counts))
-
-  return (
-    <Card className="border-0 bg-transparent shadow-none">
-      <CardContent className="px-3 py-2">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h3 className="text-[13px] font-medium text-muted-foreground">카테고리별 수집</h3>
-          <span className="text-[11px] tabular-nums text-muted-foreground/60">
-            {total.toLocaleString()}건
-          </span>
-        </div>
-        <div className="space-y-2.5">
-          {sorted.map(([category, count]) => {
-            const pct = total > 0 ? Math.round((count / total) * 100) : 0
-            return (
-              <div key={category} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT_COLORS[category] || 'bg-muted-foreground'}`} />
-                    <span className="text-[12px] text-foreground/80">
-                      {CATEGORY_LABELS[category] || category}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-[12px] font-medium tabular-nums">{count.toLocaleString()}</span>
-                    <span className="w-7 text-right text-[10px] tabular-nums text-muted-foreground/50">{pct}%</span>
-                  </div>
-                </div>
-                <div className="h-1 overflow-hidden rounded-sm bg-muted/40">
-                  <div
-                    className={`h-full rounded-sm ${CATEGORY_DOT_COLORS[category] || 'bg-primary'}`}
-                    style={{ width: `${(count / maxCount) * 100}%`, opacity: 0.65 }}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}

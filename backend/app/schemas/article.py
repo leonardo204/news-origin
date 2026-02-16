@@ -27,6 +27,7 @@ class ArticleResponse(ArticleBase):
     author: str | None = None
     publisher_domain: str | None = None
     summary: str | None = None
+    content: str | None = None
     language: str = "ko"
     created_at: datetime
 

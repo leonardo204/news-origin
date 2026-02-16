@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   TrendingUp,
   Newspaper,
   Flame,
-  BarChart3,
   Clock,
   ChevronDown,
   ChevronUp,
@@ -14,20 +13,43 @@ import {
   LayoutGrid,
   List,
   X,
+  Filter,
+  ArrowUpRight,
+  ArrowDownRight,
+  Sparkles,
 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
+import echarts from '@/lib/echarts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
+import EmptyState from '@/components/ui/EmptyState'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatRelativeTime, truncate } from '@/lib/utils'
 import { CATEGORY_KEYS, CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_BG } from '@/lib/constants'
-import type { TopicCluster, ClusterArticle } from '@/types'
+import { compareTrends } from '@/services/api'
+import type { TopicCluster, ClusterArticle, TrendComparison } from '@/types'
+
+interface EChartsTooltipParam {
+  name?: string
+  value?: number | number[]
+  seriesName?: string
+  data?: { value?: number; name?: string }
+  marker?: string
+  percent?: number
+}
+
+interface EChartsClickParam {
+  name?: string
+  value?: number
+  data?: Record<string, unknown>
+}
 
 export default function TrendsPage() {
   usePageTitle('트렌드')
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const {
     articleTrends,
     recentArticles,
@@ -42,6 +64,14 @@ export default function TrendsPage() {
     loadArticleTrends,
     loadRecentArticles,
   } = useTrendStore()
+
+  // Read filters from URL
+  const selectedCategories = useMemo(() => {
+    const cats = searchParams.get('categories')
+    return cats ? cats.split(',').filter(Boolean) : []
+  }, [searchParams])
+
+  const selectedPublisher = searchParams.get('publisher') || null
 
   useEffect(() => {
     loadArticleTrends()
@@ -64,13 +94,71 @@ export default function TrendsPage() {
     return CATEGORY_KEYS.map((cat) => ({ category: cat, clusters: groups[cat] }))
   }, [articleTrends])
 
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  // Top 10 publishers from publisher_distribution
+  const topPublishers = useMemo(() => {
+    if (!articleTrends?.publisher_distribution) return []
+    return Object.entries(articleTrends.publisher_distribution)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([pub]) => pub)
+  }, [articleTrends])
 
   const filteredClusters = useMemo(() => {
-    const clusters = articleTrends?.clusters ?? []
-    if (!selectedCategory) return clusters
-    return clusters.filter((c) => c.categories.includes(selectedCategory))
-  }, [articleTrends, selectedCategory])
+    let clusters = articleTrends?.clusters ?? []
+
+    // Filter by categories
+    if (selectedCategories.length > 0) {
+      clusters = clusters.filter((c) =>
+        c.categories.some((cat) => selectedCategories.includes(cat))
+      )
+    }
+
+    // Filter by publisher
+    if (selectedPublisher) {
+      clusters = clusters.filter((c) => c.publishers.includes(selectedPublisher))
+    }
+
+    return clusters
+  }, [articleTrends, selectedCategories, selectedPublisher])
+
+  const toggleCategory = useCallback((cat: string) => {
+    const newCategories = selectedCategories.includes(cat)
+      ? selectedCategories.filter((c) => c !== cat)
+      : [...selectedCategories, cat]
+
+    const params = new URLSearchParams(searchParams)
+    if (newCategories.length > 0) {
+      params.set('categories', newCategories.join(','))
+    } else {
+      params.delete('categories')
+    }
+    setSearchParams(params)
+  }, [selectedCategories, searchParams, setSearchParams])
+
+  const setPublisher = useCallback((pub: string | null) => {
+    const params = new URLSearchParams(searchParams)
+    if (pub) {
+      params.set('publisher', pub)
+    } else {
+      params.delete('publisher')
+    }
+    setSearchParams(params)
+  }, [searchParams, setSearchParams])
+
+  const clearFilters = useCallback(() => {
+    setSearchParams(new URLSearchParams())
+  }, [setSearchParams])
+
+  const hasActiveFilters = selectedCategories.length > 0 || selectedPublisher !== null
+
+  // Legacy support for pie chart click
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [categoryFilterExpanded, setCategoryFilterExpanded] = useState(false)
+
+  // Comparison state
+  const [comparison, setComparison] = useState<TrendComparison | null>(null)
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false)
+  const [comparisonError, setComparisonError] = useState<string | null>(null)
 
   // Scroll to expanded cluster (e.g. when coming from HomePage)
   useEffect(() => {
@@ -98,15 +186,35 @@ export default function TrendsPage() {
   }, [expandedClusterId, toggleCluster])
 
   // View toggle / period change clears all filters + expanded state
-  const handleSetTrendView = useCallback((view: 'overall' | 'category') => {
+  const handleSetTrendView = useCallback((view: 'overall' | 'category' | 'compare') => {
     setSelectedCategory(null)
     setTrendView(view)
+    if (view === 'compare') {
+      loadComparison()
+    }
   }, [setTrendView])
 
   const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
     setSelectedCategory(null)
     setPeriod(p)
-  }, [setPeriod])
+    if (trendView === 'compare') {
+      loadComparison()
+    }
+  }, [setPeriod, trendView])
+
+  const loadComparison = useCallback(async () => {
+    setIsLoadingComparison(true)
+    setComparisonError(null)
+    try {
+      const periodB = period === '24h' ? '7d' : period === '7d' ? '30d' : '7d'
+      const data = await compareTrends(period, periodB)
+      setComparison(data)
+    } catch (err) {
+      setComparisonError(err instanceof Error ? err.message : '비교 데이터를 불러올 수 없습니다')
+    } finally {
+      setIsLoadingComparison(false)
+    }
+  }, [period])
 
   const handleTrack = async (article: ClusterArticle) => {
     useTrackingStore.getState().reset()
@@ -151,6 +259,92 @@ export default function TrendsPage() {
         </div>
       )}
 
+      {/* Filters */}
+      {!isLoading && articleTrends && (
+        <div className="mb-6 space-y-3">
+          {/* Category Filter */}
+          <div className="rounded-lg border border-border bg-secondary/20 p-3">
+            <button
+              onClick={() => setCategoryFilterExpanded(!categoryFilterExpanded)}
+              className="flex w-full items-center justify-between md:hidden"
+              aria-label="카테고리 필터 토글"
+              aria-expanded={categoryFilterExpanded}
+            >
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Filter className="h-4 w-4" />
+                <span className="font-medium">카테고리</span>
+                {selectedCategories.length > 0 && (
+                  <span className="rounded-full bg-lifecycle-origin/20 px-2 py-0.5 text-xs font-medium text-lifecycle-origin">
+                    {selectedCategories.length}
+                  </span>
+                )}
+              </div>
+              {categoryFilterExpanded ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+            <div className={`${categoryFilterExpanded ? 'mt-3' : 'hidden'} md:block`}>
+              <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex md:mb-2">
+                <Filter className="h-4 w-4" />
+                <span className="font-medium">카테고리:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORY_KEYS.map((cat) => {
+                  const isSelected = selectedCategories.includes(cat)
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCategory(cat)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                        isSelected
+                          ? CATEGORY_BG[cat] || 'bg-primary/20 text-primary'
+                          : 'border border-border bg-secondary/30 text-muted-foreground hover:bg-secondary'
+                      }`}
+                      aria-label={`${CATEGORY_LABELS[cat]} 카테고리 필터 ${isSelected ? '해제' : '적용'}`}
+                    >
+                      {CATEGORY_LABELS[cat] || cat}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Publisher Filter */}
+          {topPublishers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" />
+                <span className="font-medium">언론사:</span>
+              </div>
+              <select
+                value={selectedPublisher || ''}
+                onChange={(e) => setPublisher(e.target.value || null)}
+                className="rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-lifecycle-origin/50"
+              >
+                <option value="">전체</option>
+                {topPublishers.map((pub) => (
+                  <option key={pub} value={pub}>
+                    {pub}
+                  </option>
+                ))}
+              </select>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                  필터 초기화
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <LoadingSkeleton />
       ) : (
@@ -189,6 +383,17 @@ export default function TrendsPage() {
                       <LayoutGrid className="h-3.5 w-3.5" />
                       카테고리별
                     </button>
+                    <button
+                      onClick={() => handleSetTrendView('compare')}
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 ${
+                        trendView === 'compare'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      비교
+                    </button>
                   </div>
                 </div>
                 {selectedCategory && (
@@ -210,15 +415,30 @@ export default function TrendsPage() {
               </CardHeader>
               <CardContent>
                 {!articleTrends || filteredClusters.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <Newspaper className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
-                    <p className="text-muted-foreground">
-                      더 많은 기사가 수집되면 트렌드가 나타납니다.
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground/60">
-                      30분마다 자동으로 기사를 수집합니다.
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon={<Newspaper className="h-10 w-10" />}
+                    title={hasActiveFilters ? '필터 조건에 맞는 트렌드가 없습니다' : '현재 분석 중인 트렌드가 없습니다'}
+                    description={
+                      hasActiveFilters
+                        ? '다른 필터 조건을 선택하거나 초기화해보세요.'
+                        : '더 많은 기사가 수집되면 트렌드가 나타납니다. 30분마다 자동으로 기사를 수집합니다.'
+                    }
+                    action={
+                      hasActiveFilters
+                        ? {
+                            label: '필터 초기화',
+                            onClick: clearFilters,
+                          }
+                        : undefined
+                    }
+                  />
+                ) : trendView === 'compare' ? (
+                  /* Comparison View */
+                  <ComparisonView
+                    comparison={comparison}
+                    isLoading={isLoadingComparison}
+                    error={comparisonError}
+                  />
                 ) : trendView === 'overall' ? (
                   /* Overall Ranking */
                   <div className="space-y-2">
@@ -269,83 +489,6 @@ export default function TrendsPage() {
               </CardContent>
             </Card>
 
-            {/* Hourly Activity Chart */}
-            {articleTrends && articleTrends.hourly_counts.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-lifecycle-spread" />
-                    시간대별 수집량
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ReactECharts
-                    notMerge
-                    option={{
-                      backgroundColor: 'transparent',
-                      tooltip: {
-                        trigger: 'axis',
-                        backgroundColor: '#1f2937',
-                        borderColor: '#374151',
-                        textStyle: { color: '#e5e7eb', fontSize: 12 },
-                        formatter: (params: any) => {
-                          const p = params[0]
-                          const d = new Date(p.name)
-                          const label = d.toLocaleString('ko-KR', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                          return `${label}<br/>${p.value}건`
-                        },
-                      },
-                      grid: { left: 10, right: 10, top: 10, bottom: 30, containLabel: true },
-                      xAxis: {
-                        type: 'category',
-                        data: articleTrends.hourly_counts.map((h) => h.hour),
-                        axisLabel: {
-                          color: '#9ca3af',
-                          fontSize: 10,
-                          formatter: (v: string) => {
-                            const d = new Date(v)
-                            return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}시`
-                          },
-                          rotate: 25,
-                          interval: 0,
-                        },
-                        axisLine: { lineStyle: { color: '#374151' } },
-                      },
-                      yAxis: {
-                        type: 'value',
-                        axisLabel: { color: '#9ca3af', fontSize: 10 },
-                        splitLine: { lineStyle: { color: '#1f2937' } },
-                      },
-                      series: [
-                        {
-                          type: 'bar',
-                          data: articleTrends.hourly_counts.map((h) => h.count),
-                          itemStyle: {
-                            color: {
-                              type: 'linear',
-                              x: 0, y: 0, x2: 0, y2: 1,
-                              colorStops: [
-                                { offset: 0, color: '#3b82f6' },
-                                { offset: 1, color: '#1e3a5f' },
-                              ],
-                            },
-                            borderRadius: [4, 4, 0, 0],
-                          },
-                          barWidth: '60%',
-                        },
-                      ],
-                    }}
-                    style={{ height: 180 }}
-                    theme="dark"
-                  />
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Right: Sidebar */}
@@ -361,6 +504,7 @@ export default function TrendsPage() {
                 </CardHeader>
                 <CardContent>
                   <ReactECharts
+                    echarts={echarts}
                     notMerge
                     option={{
                       backgroundColor: 'transparent',
@@ -368,7 +512,7 @@ export default function TrendsPage() {
                         backgroundColor: '#1f2937',
                         borderColor: '#374151',
                         textStyle: { color: '#e5e7eb', fontSize: 12 },
-                        formatter: (params: any) =>
+                        formatter: (params: EChartsTooltipParam) =>
                           `${params.name}: ${params.value}건 (${params.percent}%)`,
                       },
                       series: [
@@ -402,7 +546,7 @@ export default function TrendsPage() {
                     style={{ height: 200, cursor: 'pointer' }}
                     theme="dark"
                     onEvents={{
-                      click: (params: any) => {
+                      click: (params: EChartsClickParam) => {
                         const catKey = Object.entries(CATEGORY_LABELS).find(
                           ([, label]) => label === params.name,
                         )?.[0]
@@ -627,6 +771,217 @@ function TopicClusterCard({
                 </div>
                 <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
               </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Comparison View ── */
+
+function ComparisonView({
+  comparison,
+  isLoading,
+  error,
+}: {
+  comparison: TrendComparison | null
+  isLoading: boolean
+  error: string | null
+}) {
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        {error}
+      </div>
+    )
+  }
+
+  if (!comparison) {
+    return (
+      <EmptyState
+        icon={<Sparkles className="h-10 w-10" />}
+        title="비교 데이터를 불러오는 중입니다"
+        description="잠시만 기다려주세요."
+      />
+    )
+  }
+
+  const periodLabel = (p: string) => {
+    if (p === '24h') return '24시간'
+    if (p === '7d') return '7일'
+    if (p === '30d') return '30일'
+    return p
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="rounded-lg border border-border/50 bg-secondary/20 p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Sparkles className="h-4 w-4" />
+          비교 요약: {periodLabel(comparison.period_a)} vs {periodLabel(comparison.period_b)}
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {periodLabel(comparison.period_a)} 기사
+            </div>
+            <div className="text-xl font-bold">{comparison.summary.total_a}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {periodLabel(comparison.period_b)} 기사
+            </div>
+            <div className="text-xl font-bold">{comparison.summary.total_b}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {periodLabel(comparison.period_a)} 토픽
+            </div>
+            <div className="text-xl font-bold">{comparison.summary.clusters_a}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {periodLabel(comparison.period_b)} 토픽
+            </div>
+            <div className="text-xl font-bold">{comparison.summary.clusters_b}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Category Changes */}
+      {Object.keys(comparison.category_changes).length > 0 && (
+        <div>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Layers className="h-4 w-4" />
+            카테고리별 변화
+          </h3>
+          <div className="space-y-2">
+            {Object.entries(comparison.category_changes)
+              .sort(([, a], [, b]) => Math.abs(b.change) - Math.abs(a.change))
+              .map(([cat, data]) => {
+                const isGrowth = data.change > 0
+                const isDecline = data.change < 0
+                return (
+                  <div
+                    key={cat}
+                    className="flex items-center justify-between rounded-lg border border-border/50 bg-secondary/10 p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded px-2 py-1 text-xs font-medium ${CATEGORY_BG[cat] || 'bg-muted text-muted-foreground'}`}
+                      >
+                        {CATEGORY_LABELS[cat] || cat}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {data.period_a}건 → {data.period_b}건
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isGrowth && (
+                        <ArrowUpRight className="h-4 w-4 text-green-500" />
+                      )}
+                      {isDecline && (
+                        <ArrowDownRight className="h-4 w-4 text-red-500" />
+                      )}
+                      <span
+                        className={`text-sm font-medium ${
+                          isGrowth
+                            ? 'text-green-500'
+                            : isDecline
+                              ? 'text-red-500'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {data.change > 0 && '+'}
+                        {data.change}건 ({data.change_pct > 0 && '+'}
+                        {data.change_pct}%)
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* New Topics */}
+      {comparison.new_topics.length > 0 && (
+        <div>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <TrendingUp className="h-4 w-4 text-lifecycle-explosion" />
+            신규 토픽 ({periodLabel(comparison.period_a)}에만 존재)
+          </h3>
+          <div className="space-y-2">
+            {comparison.new_topics.map((topic, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-border/50 bg-secondary/10 p-3"
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <p className="flex-1 text-sm font-medium leading-snug">
+                    {truncate(topic.title, 80)}
+                  </p>
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    {topic.article_count}건
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {topic.categories.map((cat) => (
+                    <span
+                      key={cat}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${CATEGORY_BG[cat] || 'bg-muted text-muted-foreground'}`}
+                    >
+                      {CATEGORY_LABELS[cat] || cat}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Growing Topics */}
+      {comparison.growing_topics.length > 0 && (
+        <div>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Flame className="h-4 w-4 text-lifecycle-explosion" />
+            성장 토픽 (성장률 상위)
+          </h3>
+          <div className="space-y-2">
+            {comparison.growing_topics.map((topic, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between rounded-lg border border-border/50 bg-secondary/10 p-3"
+              >
+                <div className="flex-1">
+                  <p className="text-sm font-medium leading-snug">
+                    {truncate(topic.title, 70)}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{topic.article_count}건</span>
+                  </div>
+                </div>
+                <div className="ml-2 text-right">
+                  <div className="text-sm font-bold text-lifecycle-explosion">
+                    {topic.growth_rate.toFixed(1)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">건/시간</div>
+                </div>
+              </div>
             ))}
           </div>
         </div>

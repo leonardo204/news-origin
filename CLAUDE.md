@@ -131,7 +131,7 @@ make docker-down      # 인프라 중지
 ### 호스트 사양 (CRITICAL - 모든 변경 시 고려)
 - CPU: Intel i3-2310M (2코어/4스레드, 2.10GHz) - 2011년형 저사양
 - RAM: 3.8GB (동일 호스트에서 Outline Wiki도 운영)
-- GPU: 없음 - 임베딩 모델은 CPU 전용
+- GPU: 없음 - BERT NER 모델은 CPU 전용, 임베딩은 Azure OpenAI API
 - 사용자: 극소수
 
 ### Celery Worker 설정 주의 (CRITICAL)

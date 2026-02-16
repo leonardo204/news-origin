@@ -1,10 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download, Network, X, Radio, Loader2, Zap } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Building2, Clock, Share2, Check, Download, Network, X, Radio, Loader2, Zap, FileQuestion } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
+import EmptyState from '@/components/ui/EmptyState'
+import BookmarkButton from '@/components/ui/BookmarkButton'
 import ViewToggle from '@/components/visualization/ViewToggle'
 import LifecyclePanel from '@/components/visualization/LifecyclePanel'
 import ArticleDetailPanel from '@/components/visualization/ArticleDetailPanel'
@@ -218,14 +220,19 @@ export default function TimelinePage() {
 
   if (!timeline) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">타임라인 데이터를 찾을 수 없습니다.</p>
-        <Link to="/">
-          <Button variant="outline">
-            <ArrowLeft className="mr-1.5 h-4 w-4" />
-            홈으로 돌아가기
-          </Button>
-        </Link>
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <EmptyState
+          icon={<FileQuestion className="h-12 w-12" />}
+          title="타임라인 데이터를 찾을 수 없습니다"
+          description="요청하신 추적 기록이 존재하지 않거나 삭제되었습니다."
+          action={{
+            label: '새 검색 시작',
+            onClick: () => {
+              useTrackingStore.getState().reset()
+              navigate('/')
+            },
+          }}
+        />
       </div>
     )
   }
@@ -269,6 +276,13 @@ export default function TimelinePage() {
               원문 보기
             </a>
             <Badge stage="origin">기원</Badge>
+            <BookmarkButton
+              articleId={origin_article.id}
+              title={origin_article.title}
+              publisher={origin_article.publisher || undefined}
+              url={origin_article.url}
+              size="sm"
+            />
             {timeline.tracking_type === 'live' ? (
               <span className="flex items-center gap-1 rounded-full bg-lifecycle-origin/15 px-2 py-0.5 text-xs font-medium text-lifecycle-origin">
                 <Radio className="h-3 w-3" />

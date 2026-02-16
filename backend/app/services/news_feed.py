@@ -1,12 +1,14 @@
 """
 # news_feed.py - Category News Feed Service
-# Version: 0.2.0
+# Version: 0.3.0
 # Description: Google News RSS + 한국 주요 언론사 RSS 피드 수집 (백그라운드 크롤링용)
 # Changes:
 #   - 0.1.0: 카테고리별 RSS 피드 수집, URL 중복 제거
 #   - 0.2.0: 한국 주요 언론사 RSS 피드 수집 추가 (네이버 뉴스 대체)
+#   - 0.3.0: RSS 피드 수집 병렬화 (asyncio.gather)
 """
 
+import asyncio
 import logging
 import xml.etree.ElementTree as ET
 
@@ -89,13 +91,24 @@ async def fetch_all_category_feeds(
 
     Returns: [{url, title, publisher, published_at}, ...]
     """
-    # 카테고리별로 수집 후 라운드로빈으로 균등 분배
+    # 카테고리별로 병렬 수집 후 라운드로빈으로 균등 분배
     category_articles: dict[str, list[dict]] = {}
     seen_urls = set()
 
-    for name, feed_url in categories.items():
+    # asyncio.gather로 병렬 수집
+    tasks = [
+        fetch_category_feed(feed_url, limit=limit_per_category)
+        for name, feed_url in categories.items()
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for (name, feed_url), result in zip(categories.items(), results):
+        if isinstance(result, Exception):
+            logger.warning(f"Feed [{name}] failed: {result}")
+            continue
+
         try:
-            articles = await fetch_category_feed(feed_url, limit=limit_per_category)
+            articles = result
             unique = []
             for article in articles:
                 if article["url"] not in seen_urls:
@@ -105,7 +118,7 @@ async def fetch_all_category_feeds(
             category_articles[name] = unique
             logger.info(f"Feed [{name}]: {len(unique)} unique articles fetched")
         except Exception as e:
-            logger.warning(f"Feed [{name}] failed: {e}")
+            logger.warning(f"Feed [{name}] processing failed: {e}")
             continue
 
     # 라운드로빈: 각 카테고리에서 1건씩 번갈아 선택하여 균등 분배
@@ -201,9 +214,20 @@ async def fetch_all_publisher_feeds(
     seen_urls = set(exclude_urls or set())
     publisher_articles: dict[str, list[dict]] = {}
 
-    for name, feed_url in publishers.items():
+    # asyncio.gather로 병렬 수집
+    tasks = [
+        fetch_publisher_feed(name, feed_url, limit=limit_per_publisher)
+        for name, feed_url in publishers.items()
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for (name, feed_url), result in zip(publishers.items(), results):
+        if isinstance(result, Exception):
+            logger.warning(f"Publisher [{name}] failed: {result}")
+            continue
+
         try:
-            articles = await fetch_publisher_feed(name, feed_url, limit=limit_per_publisher)
+            articles = result
             unique = []
             for article in articles:
                 if article["url"] not in seen_urls:
@@ -212,7 +236,7 @@ async def fetch_all_publisher_feeds(
             publisher_articles[name] = unique
             logger.info(f"Publisher [{name}]: {len(unique)} unique articles fetched")
         except Exception as e:
-            logger.warning(f"Publisher [{name}] failed: {e}")
+            logger.warning(f"Publisher [{name}] processing failed: {e}")
             continue
 
     # 라운드로빈: 각 언론사에서 1건씩 번갈아 선택하여 균등 분배
