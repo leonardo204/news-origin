@@ -178,7 +178,7 @@ export default function Header() {
           <div
             ref={panelRef}
             className={cn(
-              'absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-64 max-w-72 origin-top-right transition-all duration-200',
+              'absolute right-0 top-full mt-2 w-[min(calc(100vw-2rem),18rem)] origin-top-right transition-all duration-200',
               panelOpen
                 ? 'pointer-events-auto scale-100 opacity-100'
                 : 'pointer-events-none scale-95 opacity-0',

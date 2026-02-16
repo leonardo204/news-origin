@@ -142,8 +142,9 @@ export default function ArticleList({ items }: ArticleListProps) {
       )}
 
       <CardContent>
-        <div className="overflow-x-auto">
-          <div className="min-w-[500px] space-y-1">
+        {/* Desktop: table layout */}
+        <div className="hidden sm:block">
+          <div className="space-y-1">
             {/* Sortable header */}
             <div className="grid grid-cols-[1fr_100px_80px_80px] gap-2 px-2 pb-2 text-xs font-medium text-muted-foreground">
               <button className="text-left hover:text-foreground" onClick={() => handleSort('title')}>
@@ -197,6 +198,59 @@ export default function ArticleList({ items }: ArticleListProps) {
               ))
             )}
           </div>
+        </div>
+
+        {/* Mobile: card layout */}
+        <div className="sm:hidden">
+          {/* Sort controls */}
+          <div className="mb-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+            {([['published_at', '시간'], ['similarity_score', '유사도'], ['title', '제목']] as const).map(([field, label]) => (
+              <button
+                key={field}
+                onClick={() => handleSort(field)}
+                className={`rounded-md px-2 py-1 transition-colors ${sortField === field ? 'bg-secondary text-foreground' : 'hover:text-foreground'}`}
+              >
+                {label}<SortIcon field={field} />
+              </button>
+            ))}
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              필터 조건에 맞는 기사가 없습니다.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((item) => (
+                <a
+                  key={item.article_id}
+                  href={item.url || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block rounded-lg border border-border/50 p-3 transition-colors hover:bg-secondary/30 ${
+                    item.url ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                  onClick={item.url ? undefined : (e) => e.preventDefault()}
+                >
+                  <p className="text-sm font-medium leading-snug">{item.title}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    {item.publisher && (
+                      <span className="text-xs text-muted-foreground">{item.publisher}</span>
+                    )}
+                    {item.lifecycle_stage && (
+                      <Badge stage={item.lifecycle_stage as LifecycleStage}>
+                        {LIFECYCLE_LABELS[item.lifecycle_stage as LifecycleStage]}
+                      </Badge>
+                    )}
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {(item.similarity_score * 100).toFixed(1)}%
+                    </span>
+                    {item.url && <ExternalLink className="h-3 w-3 text-muted-foreground/50" />}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

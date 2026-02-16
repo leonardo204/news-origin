@@ -160,7 +160,7 @@ export default function TrendsPage() {
             {/* Topic Clusters */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Flame className="h-4 w-4 text-lifecycle-explosion" />
                     트렌딩 토픽
@@ -169,7 +169,7 @@ export default function TrendsPage() {
                   <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-1">
                     <button
                       onClick={() => handleSetTrendView('overall')}
-                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 ${
                         trendView === 'overall'
                           ? 'bg-background text-foreground shadow-sm'
                           : 'text-muted-foreground hover:text-foreground'
@@ -180,7 +180,7 @@ export default function TrendsPage() {
                     </button>
                     <button
                       onClick={() => handleSetTrendView('category')}
-                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 ${
                         trendView === 'category'
                           ? 'bg-background text-foreground shadow-sm'
                           : 'text-muted-foreground hover:text-foreground'
@@ -340,7 +340,7 @@ export default function TrendsPage() {
                         },
                       ],
                     }}
-                    style={{ height: 220 }}
+                    style={{ height: 180 }}
                     theme="dark"
                   />
                 </CardContent>
@@ -399,7 +399,7 @@ export default function TrendsPage() {
                         },
                       ],
                     }}
-                    style={{ height: 220, cursor: 'pointer' }}
+                    style={{ height: 200, cursor: 'pointer' }}
                     theme="dark"
                     onEvents={{
                       click: (params: any) => {

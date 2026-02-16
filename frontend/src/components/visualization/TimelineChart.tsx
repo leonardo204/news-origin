@@ -45,8 +45,8 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
   let lastExplosionShown = -1
 
   return (
-    <div className="max-h-[600px] overflow-y-auto px-2 py-4">
-      <div className="relative ml-4 border-l-2 border-border pl-6">
+    <div className="max-h-[600px] overflow-y-auto px-1 py-4 sm:px-2">
+      <div className="relative ml-2 border-l-2 border-border pl-4 sm:ml-4 sm:pl-6">
         {sorted.map((item) => {
           const inExplosion = isInExplosion(item.published_at)
           const stage = item.lifecycle_stage as LifecycleStage
@@ -69,7 +69,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
             <div key={item.article_id}>
               {/* Explosion zone marker */}
               {showExplosionMarker && (
-                <div className="relative -ml-[31px] mb-3 flex items-center gap-2">
+                <div className="relative -ml-[21px] mb-3 flex items-center gap-2 sm:-ml-[31px]">
                   <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500/20 ring-2 ring-red-500/40">
                     <Zap className="h-3 w-3 text-red-400" />
                   </div>
@@ -82,12 +82,12 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
               {/* Timeline item */}
               <div
                 className={`group relative mb-4 ${
-                  inExplosion ? 'rounded-lg bg-red-500/[0.04] px-3 py-2 -mx-3' : ''
+                  inExplosion ? 'rounded-lg bg-red-500/[0.04] px-2 py-2 -mx-2 sm:px-3 sm:-mx-3' : ''
                 }`}
               >
                 {/* Dot on the timeline line */}
                 <div
-                  className="absolute -left-[31px] top-2 h-3 w-3 rounded-full border-2"
+                  className="absolute -left-[21px] top-2 h-3 w-3 rounded-full border-2 sm:-left-[31px]"
                   style={{
                     borderColor: color,
                     backgroundColor: item.is_origin ? color : 'transparent',
@@ -140,7 +140,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
         })}
 
         {/* End marker */}
-        <div className="relative -ml-[29px] flex items-center gap-2 pt-1">
+        <div className="relative -ml-[19px] flex items-center gap-2 pt-1 sm:-ml-[29px]">
           <div className="h-2 w-2 rounded-full bg-muted-foreground/40" />
           <span className="text-xs text-muted-foreground">타임라인 끝</span>
         </div>

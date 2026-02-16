@@ -57,11 +57,11 @@ function ConfirmSingleArticle({
 }) {
   return (
     <Card className="mt-6 max-w-2xl">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 space-y-2">
-            <h3 className="font-semibold leading-tight">{article.title}</h3>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+      <CardContent className="p-3 sm:p-4">
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold leading-tight sm:text-base">{article.title}</h3>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:gap-3">
               {article.publisher && (
                 <span className="flex items-center gap-1">
                   <Building2 className="h-3 w-3" />
@@ -91,7 +91,7 @@ function ConfirmSingleArticle({
             )}
           </div>
           {showConfirmButton && (
-            <Button onClick={onConfirm} className="shrink-0" variant={isFailed ? 'destructive' : 'default'}>
+            <Button onClick={onConfirm} className="w-full sm:w-auto" variant={isFailed ? 'destructive' : 'default'}>
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
               {isFailed ? '다시 시도' : '추적 시작'}
             </Button>

@@ -119,8 +119,8 @@ export default function SearchBar() {
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(false), 150)}
-            placeholder="뉴스 URL을 붙여넣거나 기사 제목을 입력하세요..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="뉴스 URL 또는 기사 제목 입력..."
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             disabled={isSearching}
             aria-label="뉴스 기사 검색"
             autoComplete="off"
@@ -134,10 +134,10 @@ export default function SearchBar() {
             {isSearching ? searchingText : '추적'}
           </Button>
         </div>
-        <p className={`mt-2 text-center text-xs text-muted-foreground transition-all duration-300 ${
+        <p className={`mt-2 text-center text-[11px] text-muted-foreground transition-all duration-300 sm:text-xs ${
           focused || searchQuery ? 'max-h-6 opacity-100' : 'max-h-0 overflow-hidden opacity-0'
         }`}>
-          URL을 입력하면 해당 기사를 기원점으로 추적합니다. 제목을 입력하면 관련 기사를 먼저 검색합니다.
+          URL → 기원점 추적 · 제목 → 관련 기사 검색
         </p>
       </form>
 

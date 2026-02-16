@@ -41,7 +41,7 @@ export default function HomePage() {
       <div className={`flex flex-col items-center gap-6 transition-all duration-500 ${isInSearchFlow ? 'py-6' : 'py-8'}`}>
         <div className="flex items-center gap-3">
           <Newspaper className={`text-lifecycle-origin transition-all duration-500 ${isInSearchFlow ? 'h-7 w-7' : 'h-10 w-10'}`} />
-          <h1 className={`font-bold tracking-tight transition-all duration-500 ${isInSearchFlow ? 'text-2xl' : 'text-4xl'}`}>
+          <h1 className={`font-bold tracking-tight transition-all duration-500 ${isInSearchFlow ? 'text-xl sm:text-2xl' : 'text-3xl sm:text-4xl'}`}>
             News <span className="text-lifecycle-origin">Origin</span>
           </h1>
         </div>

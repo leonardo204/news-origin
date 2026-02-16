@@ -235,8 +235,8 @@ export default function TimelinePage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
       {/* Top bar */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="flex-1">
+      <div className="mb-6 space-y-3">
+        <div>
           <Link
             to="/"
             onClick={() => useTrackingStore.getState().reset()}
@@ -245,8 +245,8 @@ export default function TimelinePage() {
             <ArrowLeft className="h-3 w-3" />
             홈
           </Link>
-          <h1 className="text-xl font-bold leading-tight">{origin_article.title}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <h1 className="text-lg font-bold leading-tight sm:text-xl">{origin_article.title}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:gap-3 sm:text-sm">
             {origin_article.publisher && (
               <span className="flex items-center gap-1">
                 <Building2 className="h-3.5 w-3.5" />
@@ -282,7 +282,7 @@ export default function TimelinePage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Live tracking button - only show for instant results */}
           {timeline.tracking_type !== 'live' && !isLiveTracking && (
             <Button
@@ -312,7 +312,7 @@ export default function TimelinePage() {
             className="gap-1.5"
           >
             <Network className="h-3.5 w-3.5" />
-            전파 트리
+            <span className="hidden sm:inline">전파 트리</span>
           </Button>
           {/* Export dropdown */}
           <div className="relative" ref={exportRef}>
@@ -326,7 +326,7 @@ export default function TimelinePage() {
               aria-haspopup="menu"
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              내보내기
+              <span className="hidden sm:inline">내보내기</span>
             </Button>
             {showExport && (
               <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border bg-card p-1 shadow-lg" role="menu">
@@ -363,12 +363,12 @@ export default function TimelinePage() {
             {copied ? (
               <>
                 <Check className="h-3.5 w-3.5 text-green-400" />
-                복사됨
+                <span className="hidden sm:inline">복사됨</span>
               </>
             ) : (
               <>
                 <Share2 className="h-3.5 w-3.5" />
-                공유
+                <span className="hidden sm:inline">공유</span>
               </>
             )}
           </Button>
@@ -412,11 +412,11 @@ export default function TimelinePage() {
       {showGraph && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background">
           {/* Overlay header */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between border-b border-border px-3 py-3 sm:px-4">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Network className="h-5 w-5 text-lifecycle-origin" />
               <h2 className="text-sm font-semibold">전파 트리</h2>
-              <span className="text-xs text-muted-foreground">
+              <span className="hidden text-xs text-muted-foreground sm:inline">
                 {graph.nodes.length}개 노드 · {graph.edges.length}개 연결
               </span>
             </div>
@@ -430,8 +430,8 @@ export default function TimelinePage() {
               className="gap-1.5"
             >
               <X className="h-3.5 w-3.5" />
-              닫기
-              <kbd className="ml-1 rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground">ESC</kbd>
+              <span className="hidden sm:inline">닫기</span>
+              <kbd className="ml-1 hidden rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground sm:inline">ESC</kbd>
             </Button>
           </div>
           {/* Graph content */}
