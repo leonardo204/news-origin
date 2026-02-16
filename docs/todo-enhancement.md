@@ -28,15 +28,17 @@
 
 ---
 
+## 참고: 현재 임베딩 아키텍처
+
+> CLAUDE.md에는 `paraphrase-multilingual-mpnet-base-v2 (768차원)` 로컬 모델로 기재되어 있으나,
+> v0.2.0 마이그레이션으로 **Azure OpenAI text-embedding-3-large (1024차원)** API 방식으로 전환 완료.
+> 로컬 모델 제거로 Celery Worker 메모리 ~1GB 절감됨. CLAUDE.md 업데이트 필요.
+
+---
+
 ## 1. Backend 고도화
 
 ### P0 - 즉시
-
-- [ ] **코사인 유사도 계산 최적화**
-  - 파일: `backend/app/core/trend_clustering.py:47-54`
-  - 현재: 순수 Python `sum(a*b for a,b in zip(...))` 루프 → 768차원 벡터에서 느림
-  - 개선: `numpy` dot/norm 사용 시 10-50x 성능 향상
-  - 참고: 클러스터링에서 최대 500기사 × 100 유사도 = 50,000회 호출 가능
 
 - [ ] **캐시 무효화 하드코딩 제거**
   - 파일: `backend/app/workers/tasks.py` (39회 `cache_delete` 호출)
@@ -66,10 +68,18 @@
 
 - [ ] **RSS 피드 수집 병렬화**
   - 파일: `backend/app/services/news_feed.py`
-  - 현재: 카테고리별 순차 수집 → 6개 카테고리 × 네트워크 지연
-  - 개선: `asyncio.gather()` 또는 `aiohttp` 병렬 요청
+  - 현재: 카테고리별 순차 `await` 루프 (이미 httpx async 사용)
+  - 개선: `asyncio.gather()`로 카테고리 피드 동시 요청 (이미 async 인프라 갖춤)
 
 ### P2 - 중간
+
+- [ ] **코사인 유사도 계산 최적화**
+  - 파일: `backend/app/core/trend_clustering.py:47-54`
+  - 현재: 순수 Python `sum(a*b for a,b in zip(...))` 루프 → 1024차원 벡터에서 느림
+  - 개선: `numpy` dot/norm 사용 시 10-50x 성능 향상
+  - 트레이드오프: numpy 추가 시 Docker 이미지 ~50MB, 런타임 ~20MB 증가
+  - 참고: 클러스터링에서 최대 500기사 × 100 유사도 = 50,000회 호출 가능
+  - 대안: 프로파일링으로 실제 병목 확인 후 결정
 
 - [ ] **Article JSONB 인덱스 추가**
   - 파일: `backend/app/models/article.py`
@@ -88,7 +98,7 @@
 ### P3 - 낮음
 
 - [ ] **1회성 마이그레이션 태스크 정리**
-  - 파일: `backend/app/workers/tasks.py:919-1096`
+  - 파일: `backend/app/workers/tasks.py:919-1095`
   - 현재: `migrate_article_categories`, `reembed_all_articles`가 여전히 등록됨
   - 개선: 완료 확인 후 코드 제거 또는 별도 스크립트로 분리
 
@@ -110,12 +120,12 @@
     - G6 lazy load 확인 (이미 적용됨, 번들 분석 필요)
     - `vite-plugin-visualizer`로 번들 분석 대시보드 추가
 
-- [ ] **에러 바운더리 & 사용자 에러 메시지**
-  - 현재: API 실패 시 빈 화면 또는 generic 에러
+- [ ] **에러 바운더리 강화 & API 에러 처리 고도화**
+  - 현재: ErrorBoundary 컴포넌트 존재 (`frontend/src/components/ui/ErrorBoundary.tsx`), App.tsx 루트에 적용됨
   - 개선:
-    - React Error Boundary 최상위 적용
-    - API 에러별 한국어 메시지 매핑 (네트워크, 서버, 타임아웃)
-    - 재시도 버튼 제공
+    - API 에러별 한국어 메시지 매핑 (네트워크 끊김, 서버 500, 타임아웃, 429 등)
+    - 페이지별 세분화된 ErrorBoundary (차트 실패 시 차트만 fallback)
+    - API 호출 실패 시 자동 재시도 (exponential backoff)
 
 ### P1 - 높음
 
@@ -191,7 +201,13 @@
 
 - [ ] **HTTPS/SSL 적용**
   - 현재: HTTP only (포트 10880)
-  - 개선: Let's Encrypt + certbot auto-renewal, Nginx SSL 설정
+  - 전제: 도메인 확보 + DNS A 레코드 설정 필요
+  - 개선:
+    - Let's Encrypt certbot (standalone 또는 webroot 방식)
+    - Nginx SSL 설정 (`ssl_certificate`, `ssl_protocols TLSv1.2 TLSv1.3`)
+    - HTTP→HTTPS 301 리다이렉트
+    - certbot auto-renewal cron (매월 갱신)
+    - 도메인 미확보 시: 자체 서명 인증서로 전환 가능
 
 - [ ] **Celery 태스크 모니터링**
   - 현재: 로그 기반 모니터링만 존재
@@ -367,10 +383,14 @@
 
 ## 구현 로드맵 (권장)
 
-### Phase 1: 안정성 강화 (1-2주)
-- P0 백엔드: 코사인 유사도 최적화, 캐시 무효화 통합, 동시실행 방지
-- P0 인프라: DB 백업, HTTPS, Celery 모니터링
-- P0 프론트엔드: 에러 바운더리, 번들 최적화
+### Phase 1: 안정성 강화 (2-3주)
+- P0 백엔드: 캐시 무효화 통합, Celery 동시실행 방지
+- P0 인프라: DB 백업 자동화, Celery 모니터링 (Flower)
+- P0 프론트엔드: 에러 바운더리 강화, 번들 최적화
+
+### Phase 1.5: 보안 기반 (1-2주)
+- P0 인프라: 도메인 확보 → HTTPS/SSL 설정 (DNS 전파 대기 포함)
+- P1 인프라: Rate limiting 적용
 
 ### Phase 2: 사용자 경험 개선 (2-4주)
 - P1 프론트엔드: 전파 트리 대량 노드, 모바일 UX, 트렌드 필터
