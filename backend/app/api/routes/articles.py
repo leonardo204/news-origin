@@ -8,9 +8,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
+import uuid as _uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from uuid import UUID
@@ -22,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.core.limiter import limiter
 from app.models.article import Article
-from app.models.timeline import TrackingRequest
+from app.models.timeline import TrackingRequest, TimelineEntry
 from app.models.search_log import SearchLog
 from app.schemas.article import ArticleResponse
 from app.schemas.timeline import (
@@ -209,6 +211,97 @@ async def track_article(
         return TrackResponse(input_type="title", candidates=candidates)
 
 
+async def _run_instant_sync(
+    db: AsyncSession, tracking: TrackingRequest, article: Article,
+) -> ConfirmResponse | None:
+    """
+    동기 즉시 추적 - 이미 임베딩이 있는 기사를 Qdrant에서 직접 검색.
+    Celery 디스패치 + 폴링 오버헤드를 제거하여 응답 시간 대폭 단축.
+    성공 시 ConfirmResponse(status="completed") 반환, 실패 시 None 반환 (Celery fallback).
+    """
+    from app.services.vector_store import retrieve_vectors
+    from app.core.analyzer import find_similar_articles
+    from app.core.timeline import build_timeline
+
+    # 1. Qdrant에서 기존 임베딩 벡터 조회 (~50ms)
+    point_id = str(article.qdrant_point_id)
+    vectors = await asyncio.to_thread(
+        retrieve_vectors, [point_id]
+    )
+    origin_embedding = vectors.get(point_id)
+    if not origin_embedding:
+        return None  # 벡터 조회 실패 → Celery fallback
+
+    # 2. Qdrant 유사 기사 검색 (~200ms)
+    qdrant_results = await asyncio.to_thread(
+        find_similar_articles, origin_embedding, str(article.id)
+    )
+
+    # 3. DB에서 유사 기사 정보 로드
+    article_ids = [
+        r["payload"].get("article_id")
+        for r in qdrant_results
+        if r.get("payload") and r["payload"].get("article_id")
+    ]
+    similar_articles = []
+    if article_ids:
+        result = await db.execute(
+            select(Article).where(Article.id.in_(article_ids))
+        )
+        db_articles = {str(a.id): a for a in result.scalars().all()}
+        for qr in qdrant_results:
+            aid = qr["payload"].get("article_id")
+            if aid and aid in db_articles:
+                a = db_articles[aid]
+                similar_articles.append({
+                    "id": aid,
+                    "title": a.title,
+                    "published_at": a.published_at,
+                    "publisher": a.publisher,
+                    "score": qr["score"],
+                    "category": qr["category"],
+                    "embedding": None,
+                })
+
+    # 4. 타임라인 구성
+    input_data = {
+        "id": str(article.id),
+        "title": article.title,
+        "published_at": article.published_at,
+    }
+    timeline_entries, true_origin_id = build_timeline(input_data, similar_articles)
+
+    # 5. origin_article_id 업데이트
+    if str(tracking.origin_article_id) != true_origin_id:
+        tracking.origin_article_id = _uuid.UUID(true_origin_id)
+
+    # 6. 타임라인 엔트리 DB 저장
+    seen = set()
+    for entry_data in timeline_entries:
+        aid = entry_data["article_id"]
+        if aid in seen:
+            continue
+        seen.add(aid)
+        db.add(TimelineEntry(tracking_id=str(tracking.id), **entry_data))
+
+    tracking.status = "completed"
+    tracking.progress = 100
+    tracking.total_articles = len(similar_articles)
+    tracking.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    logger.info(
+        f"Instant sync completed: tracking_id={tracking.id}, "
+        f"articles={len(similar_articles)}"
+    )
+    return ConfirmResponse(
+        tracking_id=tracking.id,
+        status="completed",
+        tracking_type="instant",
+        message=f"분석 완료! {len(similar_articles)}개 유사 기사를 발견했습니다.",
+    )
+
+
 @router.post(
     "/confirm",
     response_model=ConfirmResponse,
@@ -256,20 +349,38 @@ async def confirm_article(
             "app.workers.tasks.analyze_article_propagation",
             args=[str(tracking.id), str(article.id)],
         )
-        message = "Live 추적을 시작합니다. 실시간 크롤링으로 정확한 데이터를 수집합니다."
-    else:
-        logger.info(f"Starting INSTANT analysis: tracking_id={tracking.id}")
-        _get_celery_app().send_task(
-            "app.workers.tasks.analyze_article_instant",
-            args=[str(tracking.id), str(article.id)],
+        return ConfirmResponse(
+            tracking_id=tracking.id,
+            status="processing",
+            tracking_type="live",
+            message="Live 추적을 시작합니다. 실시간 크롤링으로 정확한 데이터를 수집합니다.",
         )
-        message = "즉시 분석을 시작합니다. 기존 데이터에서 빠르게 결과를 제공합니다."
 
+    # Instant tracking: try synchronous fast path if article already has embedding
+    if article.qdrant_point_id:
+        try:
+            result = await _run_instant_sync(db, tracking, article)
+            if result:
+                return result
+        except Exception as e:
+            logger.warning(f"Sync instant failed, falling back to Celery: {e}")
+            # Rollback partial changes then reset tracking status for Celery retry
+            await db.rollback()
+            tracking.status = "processing"
+            tracking.progress = 0
+            await db.commit()
+
+    # Fallback: dispatch to Celery (no embedding or sync path failed)
+    logger.info(f"Starting INSTANT analysis via Celery: tracking_id={tracking.id}")
+    _get_celery_app().send_task(
+        "app.workers.tasks.analyze_article_instant",
+        args=[str(tracking.id), str(article.id)],
+    )
     return ConfirmResponse(
         tracking_id=tracking.id,
         status="processing",
-        tracking_type=tracking_type,
-        message=message,
+        tracking_type="instant",
+        message="즉시 분석을 시작합니다. 기존 데이터에서 빠르게 결과를 제공합니다.",
     )
 
 

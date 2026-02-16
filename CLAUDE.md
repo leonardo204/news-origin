@@ -100,7 +100,11 @@ make docker-down      # 인프라 중지
 ### 1단계: 즉시 추적 (Instant)
 - 사용자가 기사 확인 후 `confirm` 시 기본 동작
 - 기존 DB/Qdrant 데이터에서 벡터 유사도 검색 (크롤링 없음)
-- Celery 태스크: `analyze_article_instant` (soft_time_limit=120s)
+- **동기 빠른 경로** (v1.1.1): 이미 임베딩이 있는 기사(`qdrant_point_id` 존재)는 API 핸들러에서 직접 처리
+  - `_run_instant_sync()` in `articles.py`: Qdrant 벡터 조회 → 유사 검색 → DB 로드 → 타임라인 구성 → 응답
+  - Celery 디스패치 + 폴링 오버헤드 제거 (3-10s → ~1s)
+  - 실패 시 자동으로 Celery 비동기 fallback
+- Celery 태스크 (fallback): `analyze_article_instant` (soft_time_limit=120s)
 - 파이프라인: 원본 기사 로드 → NER 키워드 추출 → 임베딩 생성/재사용 → Qdrant 검색 → 타임라인 구성
 
 ### 2단계: Live 추적

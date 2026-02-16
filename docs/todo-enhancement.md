@@ -478,3 +478,4 @@
 | ThemeToggle 아이콘 전용 | `ThemeToggle.tsx` | 텍스트 라벨 제거, padding 최적화 |
 | 카테고리 분포 패널 제거 | `Header.tsx` | 트렌드 페이지 다이어그램으로 대체 |
 | 시간대별 수집량 차트 제거 | `TrendsPage.tsx` | 불필요 UI 정리 |
+| 즉시 추적 동기화 최적화 | `articles.py`, `tasks.py`, `useTrackingStore.ts` | Celery 비동기 → API 동기 처리, Qdrant 벡터 재사용 (3-10s → ~1s) |

@@ -454,12 +454,18 @@ async def _run_instant_pipeline(task, tracking_id: str, article_id: str):
             tracking.progress = 20
             await db.commit()
 
-            # 3. 원본 기사 임베딩 생성 (없으면)
+            # 3. 원본 기사 임베딩 조회 또는 생성
             origin_kw = origin_meta.get("keywords_data", {})
             if origin.qdrant_point_id:
-                # 이미 임베딩이 있으면 텍스트에서 재생성 (검색용)
-                text = get_article_text(origin.title, origin.content)
-                origin_embedding = create_embedding(text)
+                # 이미 임베딩이 있으면 Qdrant에서 기존 벡터 조회 (Azure API 호출 불필요)
+                from app.services.vector_store import retrieve_vectors
+                _point_id = str(origin.qdrant_point_id)
+                vectors = retrieve_vectors([_point_id])
+                origin_embedding = vectors.get(_point_id)
+                if not origin_embedding:
+                    # Qdrant 조회 실패 시 Azure API로 재생성
+                    text = get_article_text(origin.title, origin.content)
+                    origin_embedding = create_embedding(text)
             else:
                 point_id, origin_embedding = analyze_article(
                     article_id=str(origin.id),

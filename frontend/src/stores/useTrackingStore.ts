@@ -108,20 +108,40 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
   confirmArticle: async (articleId) => {
     try {
       const result = await api.confirmTracking({ article_id: articleId })
-      set({
-        trackingId: result.tracking_id,
-        trackingStatus: {
-          tracking_id: result.tracking_id,
-          status: 'pending',
-          progress: 0,
-          total_articles: 0,
-          tracking_type: result.tracking_type || 'instant',
-          message: result.message,
-        },
-        isPolling: true,
-      })
-      toast.info('기존 데이터에서 빠른 분석을 시작합니다.')
-      get().pollStatus()
+
+      if (result.status === 'completed') {
+        // Instant tracking completed synchronously — skip polling
+        set({
+          trackingId: result.tracking_id,
+          trackingStatus: {
+            tracking_id: result.tracking_id,
+            status: 'completed',
+            progress: 100,
+            total_articles: 0,
+            tracking_type: result.tracking_type || 'instant',
+            message: result.message,
+          },
+          isPolling: false,
+        })
+        toast.success(result.message || '분석 완료!')
+        get().loadTimeline(result.tracking_id)
+      } else {
+        // Async tracking — start polling
+        set({
+          trackingId: result.tracking_id,
+          trackingStatus: {
+            tracking_id: result.tracking_id,
+            status: 'pending',
+            progress: 0,
+            total_articles: 0,
+            tracking_type: result.tracking_type || 'instant',
+            message: result.message,
+          },
+          isPolling: true,
+        })
+        toast.info(result.message || '분석을 시작합니다.')
+        get().pollStatus()
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : '추적 시작 중 오류가 발생했습니다.'
       set({ searchError: message })
