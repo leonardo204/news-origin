@@ -36,15 +36,26 @@ async def ensure_collection():
     """
     Qdrant 컬렉션 존재 확인 및 생성
 
-    [BUSINESS LOGIC - DO NOT MODIFY]
-    Cosine distance 사용 - sentence-transformers 임베딩에 최적
-    768 dimensions = paraphrase-multilingual-mpnet-base-v2 모델 출력 차원
+    [BUSINESS LOGIC]
+    Cosine distance 사용 - Azure OpenAI text-embedding-3-large 임베딩에 최적
+    1024 dimensions = text-embedding-3-large (dimensions=1024로 축소)
+    차원 불일치 시 컬렉션 재생성 (마이그레이션 스크립트에서 처리)
     """
     client = get_qdrant_client()
     collection_name = settings.qdrant_collection
 
     try:
-        client.get_collection(collection_name)
+        info = client.get_collection(collection_name)
+        # 차원 불일치 확인
+        current_dim = info.config.params.vectors.size
+        if current_dim != settings.embedding_dimension:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Qdrant collection dimension mismatch: "
+                f"current={current_dim}, expected={settings.embedding_dimension}. "
+                f"Run migration script to recreate collection."
+            )
     except (UnexpectedResponse, Exception):
         client.create_collection(
             collection_name=collection_name,
@@ -122,7 +133,7 @@ def search_similar(
     유사 기사 벡터 검색
 
     Args:
-        embedding: 쿼리 벡터 (768-dim)
+        embedding: 쿼리 벡터 (1024-dim, text-embedding-3-large)
         limit: 최대 결과 수
         score_threshold: 최소 유사도 점수
         filter_conditions: Qdrant 필터 조건

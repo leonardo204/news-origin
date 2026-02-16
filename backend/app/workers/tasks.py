@@ -11,6 +11,7 @@
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -87,6 +88,7 @@ async def _run_fetch_trending():
     from app.services.embedding import create_embeddings_batch, get_article_text
     from app.services.vector_store import upsert_embedding
     from app.services.news_feed import fetch_all_category_feeds, fetch_all_publisher_feeds
+    from app.services.keyword_extractor import extract_keywords_batch
     from app.workers.beat_schedule import (
         CATEGORY_FEEDS, PUBLISHER_FEEDS, CRAWL_BATCH_SIZE, MAX_ARTICLES_PER_RUN,
         FEED_LIMIT_PER_CATEGORY, PUBLISHER_FEED_LIMIT,
@@ -153,6 +155,16 @@ async def _run_fetch_trending():
             await set_crawl_status("idle")
             return {"status": "ok", "fetched": len(feed_urls), "crawled": 0, "embedded": 0}
 
+        # 3.5. NER 키워드 추출
+        await set_crawl_status("extracting", f"{len(crawled)}건 키워드 추출중")
+        crawled_titles = [a.get("title", "") for a in crawled]
+        keywords_batch = extract_keywords_batch(crawled_titles)
+        for article_data, kw_data in zip(crawled, keywords_batch):
+            meta = article_data.get("metadata_", {}) or {}
+            meta["keywords_data"] = kw_data
+            article_data["metadata_"] = meta
+        logger.info(f"Extracted keywords for {len(crawled)} articles")
+
         # 4. DB 저장 + 임베딩 생성
         articles_to_embed = []
         new_articles_count = 0
@@ -215,16 +227,30 @@ async def _run_fetch_trending():
                 embeddings = create_embeddings_batch(texts)
 
                 for article, embedding in zip(articles_to_embed, embeddings):
+                    article_meta = article.metadata_ or {}
+                    kw_data = article_meta.get("keywords_data", {})
                     payload = {
                         "title": article.title,
                         "publisher": article.publisher,
                         "published_at": str(article.published_at) if article.published_at else None,
+                        "keywords": kw_data.get("keywords", []),
                     }
                     point_id = upsert_embedding(str(article.id), embedding, payload)
                     article.qdrant_point_id = point_id
 
                 await db.commit()
                 logger.info(f"Embedded {len(articles_to_embed)} articles")
+
+            # 5.5. 샘플링 품질 평가 (비용 절감)
+            try:
+                from app.services.evaluator import evaluate_batch_sample
+                eval_articles = [
+                    {"title": a.title, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
+                    for a in articles_to_embed[:20]
+                ]
+                evaluate_batch_sample(eval_articles, sample_size=5)
+            except Exception as e:
+                logger.warning(f"Sampling evaluation skipped: {e}")
 
         # 6. 상태 초기화 + 캐시 무효화 + SSE 이벤트 발행
         await set_crawl_status("idle")
@@ -414,6 +440,7 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
     from app.services.news_search import search_news
     from app.services.embedding import create_embeddings_batch, get_article_text
     from app.services.vector_store import upsert_embedding
+    from app.services.keyword_extractor import extract_keywords
 
     worker_engine, session_factory = _create_worker_engine()
     tracking = None
@@ -450,13 +477,23 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                 except Exception as e:
                     logger.warning(f"Background crawl for origin failed (continuing): {e}")
 
-            # 2. 원본 기사 임베딩 생성
+            # 1.5. 원본 기사 NER 키워드 추출
+            origin_meta = dict(origin.metadata_ or {})
+            if "keywords_data" not in origin_meta:
+                kw_data = extract_keywords(origin.title)
+                origin_meta["keywords_data"] = kw_data
+                origin.metadata_ = origin_meta
+                await db.commit()
+
+            # 2. 원본 기사 임베딩 생성 (NER 키워드 포함)
+            origin_kw = origin_meta.get("keywords_data", {})
             point_id, origin_embedding = analyze_article(
                 article_id=str(origin.id),
                 title=origin.title,
                 content=origin.content,
                 publisher=origin.publisher,
                 published_at=str(origin.published_at) if origin.published_at else None,
+                keywords=origin_kw.get("keywords", []),
             )
             origin.qdrant_point_id = point_id
             tracking.progress = 20
@@ -539,8 +576,16 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                 if not article.qdrant_point_id:
                     articles_needing_embed.append(article)
 
-            # 배치 임베딩 (임베딩 없는 기사만)
+            # 배치 임베딩 (임베딩 없는 기사만) + NER 키워드 추출
             if articles_needing_embed:
+                # NER 키워드 추출 (아직 없는 기사만)
+                for a in articles_needing_embed:
+                    a_meta = dict(a.metadata_ or {})
+                    if "keywords_data" not in a_meta:
+                        kw_data = extract_keywords(a.title)
+                        a_meta["keywords_data"] = kw_data
+                        a.metadata_ = a_meta
+
                 texts = [
                     get_article_text(a.title, a.content)
                     for a in articles_needing_embed
@@ -548,10 +593,13 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                 embeddings = create_embeddings_batch(texts)
                 embed_map = {}
                 for article, embedding in zip(articles_needing_embed, embeddings):
+                    article_meta = article.metadata_ or {}
+                    kw_data = article_meta.get("keywords_data", {})
                     payload = {
                         "title": article.title,
                         "publisher": article.publisher,
                         "published_at": str(article.published_at) if article.published_at else None,
+                        "keywords": kw_data.get("keywords", []),
                     }
                     pt_id = upsert_embedding(str(article.id), embedding, payload)
                     article.qdrant_point_id = pt_id
@@ -687,6 +735,111 @@ def migrate_article_categories(self):
         return {"status": "error", "error": str(e)[:200]}
     finally:
         loop.close()
+
+
+@celery_app.task(bind=True, soft_time_limit=1800, time_limit=1860)
+def reembed_all_articles(self):
+    """
+    전체 기사 임베딩 재생성 (1회성 마이그레이션)
+
+    get_article_text() 변경 후 기존 기사 임베딩을 새 방식으로 재생성
+    - 제목 3x 가중치 적용
+    - 본문 윈도우 500→300자 축소
+    - Qdrant 벡터 in-place 업데이트
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        result = loop.run_until_complete(_run_reembed_all())
+        logger.warning(f"Re-embedding completed: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Re-embedding failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+    finally:
+        loop.close()
+
+
+async def _run_reembed_all():
+    """전체 기사 NER 키워드 추출 + 임베딩 재생성 파이프라인"""
+    from sqlalchemy import select
+    from app.models.article import Article
+    from app.services.embedding import create_embeddings_batch, get_article_text
+    from app.services.keyword_extractor import extract_keywords
+    from app.services.vector_store import get_qdrant_client
+    from app.config import get_settings
+    from qdrant_client import models
+
+    settings = get_settings()
+    worker_engine, session_factory = _create_worker_engine()
+    BATCH = 16  # Azure API 배치 크기에 맞춤
+
+    try:
+        async with session_factory() as db:
+            # 모든 기사 대상 (NER 재추출 + 임베딩 재생성)
+            result = await db.execute(select(Article))
+            articles = result.scalars().all()
+
+            if not articles:
+                return {"status": "ok", "reembedded": 0}
+
+            client = get_qdrant_client()
+            total = len(articles)
+            updated = 0
+
+            for i in range(0, total, BATCH):
+                batch = articles[i:i + BATCH]
+
+                # NER 키워드 추출 + 메타데이터 업데이트
+                for article in batch:
+                    meta = dict(article.metadata_ or {})
+                    kw_data = extract_keywords(article.title)
+                    meta["keywords_data"] = kw_data
+                    article.metadata_ = meta
+
+                texts = [get_article_text(a.title, a.content) for a in batch]
+                embeddings = create_embeddings_batch(texts)
+
+                points = []
+                for article, embedding in zip(batch, embeddings):
+                    article_meta = article.metadata_ or {}
+                    kw_data = article_meta.get("keywords_data", {})
+                    points.append(models.PointStruct(
+                        id=str(article.qdrant_point_id) if article.qdrant_point_id else str(uuid.uuid4()),
+                        vector=embedding,
+                        payload={
+                            "article_id": str(article.id),
+                            "title": article.title,
+                            "publisher": article.publisher,
+                            "published_at": str(article.published_at) if article.published_at else None,
+                            "keywords": kw_data.get("keywords", []),
+                        },
+                    ))
+                    # qdrant_point_id가 없었던 기사에 할당
+                    if not article.qdrant_point_id:
+                        article.qdrant_point_id = points[-1].id
+
+                client.upsert(
+                    collection_name=settings.qdrant_collection,
+                    points=points,
+                )
+                await db.commit()
+                updated += len(batch)
+                logger.info(f"Re-embedded {updated}/{total} articles")
+
+            # 캐시 무효화
+            from app.services.cache import cache_delete
+            await cache_delete("trends:article-clusters:24h:1")
+            await cache_delete("trends:article-clusters:24h:2")
+            await cache_delete("trends:article-clusters:7d:1")
+            await cache_delete("trends:article-clusters:7d:2")
+            await cache_delete("trends:article-clusters:30d:1")
+            await cache_delete("trends:article-clusters:30d:2")
+
+            return {"status": "ok", "reembedded": updated, "total": total}
+
+    finally:
+        await worker_engine.dispose()
 
 
 async def _run_category_migration():

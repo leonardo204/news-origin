@@ -42,9 +42,23 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:16379/0"
     celery_broker_url: str = "redis://localhost:16379/1"
 
-    # Embedding
-    embedding_model: str = "paraphrase-multilingual-mpnet-base-v2"
-    embedding_dimension: int = 768
+    # Embedding (Azure OpenAI text-embedding-3-large)
+    embedding_model: str = "text-embedding-3-large"
+    embedding_dimension: int = 1024
+    azure_openai_embedding_endpoint: str = ""
+    azure_openai_embedding_api_key: str = ""
+    azure_openai_embedding_deployment_name: str = "text-embedding-3-large"
+    azure_openai_embedding_api_version: str = "2024-12-01-preview"
+
+    # Azure OpenAI GPT (평가용)
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_model_name: str = "gpt-5"
+    azure_openai_api_version: str = "2025-01-01-preview"
+
+    # BERT NER (키워드 추출용)
+    bert_model_name: str = "klue/bert-base"
+    bert_ner_model_path: str = ""  # fine-tuned 모델 경로 (비어있으면 기본 모델)
 
     # News APIs
     gnews_api_key: str = ""

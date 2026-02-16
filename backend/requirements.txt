@@ -24,11 +24,13 @@ newspaper4k>=0.9.3
 httpx>=0.26.0
 googlenewsdecoder>=0.1.2
 
-# NLP / Embeddings
-sentence-transformers>=2.3.0
+# NLP / BERT NER
+transformers>=4.36.0
+# torch는 Dockerfile에서 CPU 전용으로 설치 (--index-url)
 scikit-learn>=1.4.0
 datasketch>=1.6.4
 kiwipiepy>=0.17.0
+seqeval>=1.2.2
 
 # Rate Limiting
 slowapi>=0.1.9

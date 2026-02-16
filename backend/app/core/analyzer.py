@@ -37,6 +37,7 @@ def analyze_article(
     content: Optional[str] = None,
     publisher: Optional[str] = None,
     published_at: Optional[str] = None,
+    keywords: Optional[list[str]] = None,
 ) -> tuple[str, list[float]]:
     """
     기사 분석: 임베딩 생성 → Qdrant 저장
@@ -46,11 +47,12 @@ def analyze_article(
     text = get_article_text(title, content)
     embedding = create_embedding(text)
 
-    # Qdrant에 저장
+    # Qdrant에 저장 (NER 키워드 포함)
     payload = {
         "title": title,
         "publisher": publisher,
         "published_at": published_at,
+        "keywords": keywords or [],
     }
     point_id = upsert_embedding(article_id, embedding, payload)
 
