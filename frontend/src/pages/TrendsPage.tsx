@@ -151,8 +151,6 @@ export default function TrendsPage() {
 
   const hasActiveFilters = selectedCategories.length > 0 || selectedPublisher !== null
 
-  // Legacy support for pie chart click
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [categoryFilterExpanded, setCategoryFilterExpanded] = useState(false)
 
   // Comparison state
@@ -187,7 +185,6 @@ export default function TrendsPage() {
 
   // View toggle / period change clears all filters + expanded state
   const handleSetTrendView = useCallback((view: 'overall' | 'category' | 'compare') => {
-    setSelectedCategory(null)
     setTrendView(view)
     if (view === 'compare') {
       loadComparison()
@@ -195,7 +192,6 @@ export default function TrendsPage() {
   }, [setTrendView])
 
   const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
-    setSelectedCategory(null)
     setPeriod(p)
     if (trendView === 'compare') {
       loadComparison()
@@ -397,22 +393,6 @@ export default function TrendsPage() {
                     </button>
                   </div>
                 </div>
-                {selectedCategory && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <span
-                      className={`rounded px-2 py-0.5 text-xs font-medium ${CATEGORY_BG[selectedCategory] || 'bg-muted text-muted-foreground'}`}
-                    >
-                      {CATEGORY_LABELS[selectedCategory] || selectedCategory}
-                    </span>
-                    <span className="text-xs text-muted-foreground">필터 적용중</span>
-                    <button
-                      onClick={() => setSelectedCategory(null)}
-                      className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
               </CardHeader>
               <CardContent>
                 {!articleTrends || filteredClusters.length === 0 ? (
@@ -537,7 +517,7 @@ export default function TrendsPage() {
                               value: count,
                               itemStyle: {
                                 color: CATEGORY_COLORS[cat] || '#6b7280',
-                                opacity: selectedCategory && selectedCategory !== cat ? 0.3 : 1,
+                                opacity: selectedCategories.length > 0 && !selectedCategories.includes(cat) ? 0.3 : 1,
                               },
                             }),
                           ),
@@ -552,9 +532,8 @@ export default function TrendsPage() {
                           ([, label]) => label === params.name,
                         )?.[0]
                         if (catKey) {
-                          const isDeselect = selectedCategory === catKey
-                          setSelectedCategory(isDeselect ? null : catKey)
-                          if (!isDeselect && trendView !== 'overall') {
+                          toggleCategory(catKey)
+                          if (trendView !== 'overall') {
                             setTrendView('overall')
                           }
                         }
