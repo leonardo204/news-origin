@@ -46,7 +46,7 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
 
   return (
     <div
-      className="max-h-[400px] sm:max-h-[600px] overflow-y-auto px-1 py-4 sm:px-2"
+      className="max-h-[400px] sm:max-h-[600px] overflow-x-hidden overflow-y-auto px-1 py-4 sm:px-2"
       role="img"
       aria-label={`${items.length}개 기사의 타임라인. ${explosions.length}개의 폭발 구간 포함.`}
       style={{ touchAction: 'pan-y' }}

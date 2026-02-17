@@ -173,7 +173,7 @@ export default function TimelinePage() {
 
   if (isLoadingTimeline) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-6">
         <div className="mb-6">
           <Skeleton className="mb-2 h-3 w-12" />
           <Skeleton className="mb-3 h-7 w-2/3" />
@@ -240,7 +240,7 @@ export default function TimelinePage() {
   const { origin_article, graph, lifecycle, explosions } = timeline
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6">
+    <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-6">
       {/* Top bar */}
       <div className="mb-6 space-y-3">
         <div>
