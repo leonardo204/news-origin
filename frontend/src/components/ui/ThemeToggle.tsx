@@ -22,7 +22,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={cycle}
-      className="flex items-center justify-center rounded-md border border-border px-2 py-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      className="flex items-center justify-center rounded-md border border-border px-1.5 py-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:px-2"
       aria-label={`테마: ${current.label}`}
       title={`현재: ${current.label} 모드`}
     >

@@ -101,10 +101,10 @@ export default function SearchBar() {
     <div className="w-full max-w-2xl">
       <form onSubmit={handleSubmit}>
         <div
-          className={`flex items-center gap-2 rounded-xl border bg-gray-100/50 px-4 py-3 transition-all dark:bg-gray-900/50 ${
+          className={`flex items-center gap-2 rounded-xl border bg-gray-100/50 px-4 py-3 transition-colors duration-200 dark:bg-gray-900/50 ${
             focused
               ? 'border-lifecycle-origin shadow-lg shadow-lifecycle-origin/10'
-              : 'border-border'
+              : 'border-border shadow-none'
           }`}
         >
           {isUrl ? (
@@ -120,7 +120,7 @@ export default function SearchBar() {
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(false), 150)}
             placeholder="뉴스 URL 또는 기사 제목 입력..."
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm"
             disabled={isSearching}
             aria-label="뉴스 기사 검색"
             autoComplete="off"

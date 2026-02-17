@@ -110,21 +110,50 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
       const result = await api.confirmTracking({ article_id: articleId })
 
       if (result.status === 'completed') {
-        // Instant tracking completed synchronously — skip polling
+        // Instant tracking completed synchronously
+        // Animate through stages so user sees each step (UX)
+        const trackingId = result.tracking_id
+        const trackingType = result.tracking_type || 'instant'
+        const message = result.message
+
+        // Start with progress=0 to show first stage as active
         set({
-          trackingId: result.tracking_id,
+          trackingId,
           trackingStatus: {
-            tracking_id: result.tracking_id,
-            status: 'completed',
-            progress: 100,
+            tracking_id: trackingId,
+            status: 'processing',
+            progress: 0,
             total_articles: 0,
-            tracking_type: result.tracking_type || 'instant',
-            message: result.message,
+            tracking_type: trackingType,
+            message,
           },
-          isPolling: false,
+          isPolling: true,
         })
-        toast.success(result.message || '분석 완료!')
-        get().loadTimeline(result.tracking_id)
+
+        // Step through each stage milestone
+        const milestones = [20, 40, 60, 80, 100]
+        for (const progress of milestones) {
+          await new Promise((r) => setTimeout(r, 400))
+          // Bail out if tracking was reset or status changed during animation
+          const current = get()
+          if (current.trackingId !== trackingId || current.trackingStatus?.status !== 'processing') return
+          set({
+            trackingStatus: {
+              tracking_id: trackingId,
+              status: progress < 100 ? 'processing' : 'completed',
+              progress,
+              total_articles: 0,
+              tracking_type: trackingType,
+              message,
+            },
+          })
+        }
+
+        // Animation done — verify state still valid before finalizing
+        if (get().trackingId !== trackingId) return
+        set({ isPolling: false })
+        toast.success(message || '분석 완료!')
+        get().loadTimeline(trackingId)
       } else {
         // Async tracking — start polling
         set({

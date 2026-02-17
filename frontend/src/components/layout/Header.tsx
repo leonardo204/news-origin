@@ -113,22 +113,22 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-white/80 backdrop-blur-sm dark:bg-gray-950/80" role="banner">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-        <a href="/" onClick={handleLogoClick} className="flex items-center gap-2 text-lg font-bold" aria-label="News Origin 홈으로 이동">
+        <a href="/" onClick={handleLogoClick} className="flex shrink-0 items-center gap-1.5 text-base font-bold whitespace-nowrap sm:gap-2 sm:text-lg" aria-label="News Origin 홈으로 이동">
           <Newspaper className="h-5 w-5 text-lifecycle-origin" aria-hidden="true" />
           <span>
             News <span className="text-lifecycle-origin">Origin</span>
           </span>
         </a>
 
-        <div className="relative flex items-center gap-1">
-          <nav className="flex items-center gap-1" aria-label="주요 내비게이션">
+        <div className="relative flex min-w-0 items-center gap-0.5 whitespace-nowrap sm:gap-1">
+          <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="주요 내비게이션">
             {navItems.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
                 to={to}
                 onClick={to === '/' ? handleHomeClick : undefined}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+                  'flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
                   location.pathname === to
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
@@ -141,7 +141,7 @@ export default function Header() {
             ))}
           </nav>
 
-          <div className="ml-1 h-5 w-px bg-border" />
+          <div className="ml-0.5 hidden h-5 w-px bg-border sm:ml-1 sm:block" />
 
           <ThemeToggle />
 
@@ -149,7 +149,7 @@ export default function Header() {
             ref={buttonRef}
             onClick={() => setPanelOpen((v) => !v)}
             className={cn(
-              'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
+              'flex items-center gap-1 rounded-md px-1.5 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-2.5',
               panelOpen
                 ? 'bg-secondary text-foreground'
                 : 'text-muted-foreground hover:text-foreground',
@@ -166,7 +166,7 @@ export default function Header() {
             <span className="flex items-center gap-1.5" aria-label={`SSE 상태: ${SSE_STATUS_LABELS[sseStatus]?.label || '연결됨'}`}>
               <span className={`h-2 w-2 rounded-full ${SSE_STATUS_LABELS[sseStatus]?.dotClass || 'bg-emerald-400'}`} />
               {sseStatus !== 'connected' && (
-                <span className="text-xs text-muted-foreground">{SSE_STATUS_LABELS[sseStatus]?.label}</span>
+                <span className="hidden text-xs text-muted-foreground sm:inline">{SSE_STATUS_LABELS[sseStatus]?.label}</span>
               )}
             </span>
           </button>
