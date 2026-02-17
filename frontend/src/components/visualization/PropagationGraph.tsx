@@ -217,7 +217,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
       },
       layout: {
         type: 'dagre',
-        rankdir: 'TB',
+        rankdir: 'BT',
         nodesep: isMobile ? 25 : 40,
         ranksep: isMobile ? 55 : 75,
       },
