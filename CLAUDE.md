@@ -85,8 +85,9 @@ make docker-down      # 인프라 중지
 2. Google News RSS 6개 카테고리 (headlines, politics, economy, society, tech, entertainment)
 3. 카테고리당 최대 15건, 실행당 최대 50건
 4. DB 중복 체크 → 본문 크롤링 → **BERT NER 키워드 추출** → **Azure 임베딩 생성** → PostgreSQL + Qdrant 저장
-5. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
-6. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
+5. **임베딩 실패 시 DB 미저장 정책**: 임베딩 없는 기사는 벡터 검색/클러스터링이 불가하므로 DB에 저장하지 않음 (tasks.py v0.8.0)
+6. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
+7. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
 
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS

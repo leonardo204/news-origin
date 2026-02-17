@@ -1,6 +1,6 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.7.0
+# Version: 0.8.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
@@ -9,6 +9,7 @@
 #   - 0.5.0: 3단 카테고리 분류 + 기존 기사 카테고리 마이그레이션
 #   - 0.6.0: 2단계 추적 - 즉시 추적(Qdrant only) + Live 추적(full pipeline)
 #   - 0.7.0: 캐시 무효화 통합, distributed lock, run_async 헬퍼
+#   - 0.8.0: 임베딩 실패 기사 DB 미저장 정책 - 임베딩 없는 기사는 검색/클러스터링 불가하므로 저장하지 않음
 """
 
 import asyncio
@@ -239,6 +240,8 @@ async def _run_fetch_trending():
             await db.commit()
 
             # 5. 배치 임베딩 생성 + Qdrant 저장
+            # [정책] 임베딩 실패 기사는 DB에서 삭제 — 임베딩 없는 기사는
+            # 벡터 검색/클러스터링이 불가하여 서비스에서 활용할 수 없음
             if articles_to_embed:
                 await set_crawl_status("embedding", f"{len(articles_to_embed)}건 임베딩 생성중")
                 texts = [
@@ -248,9 +251,11 @@ async def _run_fetch_trending():
                 embeddings = create_embeddings_batch(texts)
 
                 embedded_count = 0
+                failed_articles = []
                 for article, embedding in zip(articles_to_embed, embeddings):
                     if embedding is None:
-                        logger.warning(f"Skipping article {article.id}: embedding generation failed")
+                        logger.warning(f"Embedding failed, will delete article {article.id}: {article.title[:50]}")
+                        failed_articles.append(article)
                         continue
                     article_meta = article.metadata_ or {}
                     kw_data = article_meta.get("keywords_data", {})
@@ -264,7 +269,13 @@ async def _run_fetch_trending():
                     article.qdrant_point_id = point_id
                     embedded_count += 1
 
+                # 임베딩 실패 기사 DB에서 삭제
+                for article in failed_articles:
+                    await db.delete(article)
+
                 await db.commit()
+                if failed_articles:
+                    logger.warning(f"Deleted {len(failed_articles)} articles with failed embeddings")
                 logger.info(f"Embedded {embedded_count}/{len(articles_to_embed)} articles")
 
             # 5.5. 샘플링 품질 평가 (비용 절감)
@@ -783,6 +794,7 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                     articles_needing_embed.append(article)
 
             # 배치 임베딩 (임베딩 없는 기사만) + NER 키워드 추출
+            # [정책] 임베딩 실패 기사는 DB에서 삭제 — 벡터 검색 불가 기사 미보존
             if articles_needing_embed:
                 # NER 키워드 추출 (아직 없는 기사만)
                 for a in articles_needing_embed:
@@ -798,9 +810,12 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                 ]
                 embeddings = create_embeddings_batch(texts)
                 embed_map = {}
+                failed_ids = set()
                 for article, embedding in zip(articles_needing_embed, embeddings):
                     if embedding is None:
-                        logger.warning(f"Skipping article {article.id}: embedding generation failed")
+                        logger.warning(f"Embedding failed, will delete article {article.id}: {article.title[:50]}")
+                        failed_ids.add(str(article.id))
+                        await db.delete(article)
                         continue
                     article_meta = article.metadata_ or {}
                     kw_data = article_meta.get("keywords_data", {})
@@ -814,12 +829,17 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                     article.qdrant_point_id = pt_id
                     embed_map[str(article.id)] = embedding
 
+                # 임베딩 실패 기사를 similar_articles에서도 제거
+                if failed_ids:
+                    similar_articles = [sa for sa in similar_articles if sa["id"] not in failed_ids]
+                    logger.warning(f"Deleted {len(failed_ids)} articles with failed embeddings")
+
                 # similar_articles에 임베딩 매핑
                 for sa in similar_articles:
                     if sa["id"] in embed_map:
                         sa["embedding"] = embed_map[sa["id"]]
 
-                logger.info(f"Batch embedded {len(articles_needing_embed)} articles")
+                logger.info(f"Batch embedded {len(articles_needing_embed) - len(failed_ids)}/{len(articles_needing_embed)} articles")
 
             tracking.progress = 75
             await db.commit()
