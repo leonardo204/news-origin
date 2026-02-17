@@ -95,7 +95,21 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
         published_at: candidate.published_at,
       })
       if (result.article) {
-        set({ searchResult: result, isSearching: false, selectedCandidateUrl: null })
+        // Set optimistic trackingStatus so TrackingProgress shows immediately
+        set({
+          searchResult: result,
+          isSearching: false,
+          selectedCandidateUrl: null,
+          trackingStatus: {
+            tracking_id: '',
+            status: 'processing',
+            progress: 0,
+            total_articles: 0,
+            tracking_type: 'instant',
+            message: '추적을 준비하고 있습니다...',
+          },
+          isPolling: true,
+        })
         // Auto-confirm: start tracking immediately
         get().confirmArticle(result.article.id)
       } else {

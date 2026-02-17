@@ -216,15 +216,16 @@ export default function TrendsPage() {
     }
   }, [period])
 
-  const handleTrack = async (article: ClusterArticle) => {
+  const handleTrack = (article: ClusterArticle) => {
     useTrackingStore.getState().reset()
-    await useTrackingStore.getState().selectCandidate({
+    // Navigate immediately for instant feedback, then start tracking in background
+    navigate('/')
+    useTrackingStore.getState().selectCandidate({
       url: article.url,
       title: article.title,
       publisher: article.publisher ?? undefined,
       published_at: article.published_at ?? undefined,
     })
-    navigate('/')
   }
 
   return (
