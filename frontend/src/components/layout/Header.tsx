@@ -17,16 +17,20 @@ export default function Header() {
 
   const { stats, crawlStatus, sseStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus, setSseStatus } = useTrendStore()
 
-  // SSE with auto-reconnect (stats loaded on-demand when panel opens)
+  // SSE with auto-reconnect (stats loaded on-demand when panel opens + SSE events)
   useEffect(() => {
+    loadCrawlStatus()
+
     let es: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = 1000
     let unmounted = false
+    let isFirstConnect = true
 
     function connect() {
       if (unmounted) return
-      setSseStatus('reconnecting')
+      if (!isFirstConnect) setSseStatus('reconnecting')
+      isFirstConnect = false
       es = new EventSource('/api/trends/events')
       retryDelay = 1000 // reset on successful connection attempt
 
@@ -113,7 +117,7 @@ export default function Header() {
         <a href="/" onClick={handleLogoClick} className="flex shrink-0 items-center gap-1 text-sm font-bold whitespace-nowrap sm:gap-2 sm:text-lg" aria-label="News Origin 홈으로 이동">
           <Newspaper className="h-4 w-4 text-lifecycle-origin sm:h-5 sm:w-5" aria-hidden="true" />
           <span>
-            N.<span className="text-lifecycle-origin">O</span><span className="hidden sm:inline">rigin</span>
+            News <span className="text-lifecycle-origin">Origin</span>
           </span>
         </a>
 
