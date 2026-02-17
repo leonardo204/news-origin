@@ -337,6 +337,7 @@ async def confirm_article(
         input_text=article.title,
         input_type="url",
         origin_article_id=article.id,
+        input_article_id=article.id,
         tracking_type=tracking_type,
         status="processing",
     )
@@ -419,6 +420,7 @@ async def live_track(
         input_text=original_tracking.input_text,
         input_type=original_tracking.input_type,
         origin_article_id=original_tracking.origin_article_id,
+        input_article_id=original_tracking.input_article_id,
         tracking_type="live",
         status="processing",
     )

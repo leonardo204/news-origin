@@ -82,6 +82,7 @@ export interface GraphNode {
   similarity_category: SimilarityCategory
   lifecycle_stage: LifecycleStage
   is_origin: boolean
+  is_user_selected: boolean
   url: string
 }
 
@@ -102,6 +103,7 @@ export interface TimelineItem {
   lifecycle_stage: LifecycleStage
   url: string | null
   is_origin: boolean
+  is_user_selected: boolean
 }
 
 export interface DensityPoint {
@@ -130,6 +132,7 @@ export interface TimelineResponse {
   tracking_id: string
   tracking_type: 'instant' | 'live'
   origin_article: Article
+  input_article_id: string | null
   graph: {
     nodes: GraphNode[]
     edges: GraphEdge[]

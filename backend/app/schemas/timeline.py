@@ -79,6 +79,7 @@ class GraphNode(BaseModel):
     similarity_category: str | None = None
     lifecycle_stage: str | None = None
     is_origin: bool = False
+    is_user_selected: bool = False
     url: str | None = None
 
 
@@ -108,6 +109,7 @@ class TimelineItem(BaseModel):
     lifecycle_stage: str | None = None
     url: str | None = None
     is_origin: bool = False
+    is_user_selected: bool = False
 
 
 class DensityPoint(BaseModel):
@@ -139,6 +141,7 @@ class TimelineResponse(BaseModel):
     tracking_id: UUID
     tracking_type: str = "instant"  # 'instant' | 'live'
     origin_article: ArticleResponse
+    input_article_id: str | None = None  # 사용자 원래 선택 기사 ID
     graph: GraphData = GraphData()
     timeline: list[TimelineItem] = []
     density: list[DensityPoint] = []

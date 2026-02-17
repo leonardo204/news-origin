@@ -13,6 +13,7 @@ const mockItems: TimelineItem[] = [
     lifecycle_stage: 'origin',
     url: 'https://example.com/1',
     is_origin: true,
+    is_user_selected: false,
   },
   {
     article_id: '2',
@@ -23,6 +24,7 @@ const mockItems: TimelineItem[] = [
     lifecycle_stage: 'spread',
     url: 'https://example.com/2',
     is_origin: false,
+    is_user_selected: true,
   },
   {
     article_id: '3',
@@ -33,6 +35,7 @@ const mockItems: TimelineItem[] = [
     lifecycle_stage: 'explosion',
     url: null,
     is_origin: false,
+    is_user_selected: false,
   },
 ]
 
@@ -116,6 +119,7 @@ describe('ArticleList', () => {
         lifecycle_stage: 'origin',
         url: null,
         is_origin: true,
+        is_user_selected: false,
       },
     ]
     render(<ArticleList items={items} />)

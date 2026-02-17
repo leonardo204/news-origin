@@ -145,7 +145,13 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
           },
           lineWidth: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin ? 2.5 : 1.5
+            if (nd.is_origin) return 2.5
+            if (nd.is_user_selected) return 2.5
+            return 1.5
+          },
+          lineDash: (d: Record<string, unknown>) => {
+            const nd = d.data as GraphNode
+            return nd.is_user_selected && !nd.is_origin ? [6, 3] : undefined
           },
           shadowColor: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
@@ -164,8 +170,9 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
             if (nd.is_origin) {
               return `★ ${publisher}\n${truncate(nd.title, titleLen)}`
             }
+            const prefix = nd.is_user_selected ? '◎ ' : ''
             const score = Math.round(nd.similarity_score * 100)
-            return `${publisher} · ${score}%\n${truncate(nd.title, titleLen)}`
+            return `${prefix}${publisher} · ${score}%\n${truncate(nd.title, titleLen)}`
           },
           labelFill: isDark ? '#e5e7eb' : '#1f2937',
           labelFontSize: (d: Record<string, unknown>) => {
@@ -371,6 +378,18 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
               <div className="flex items-center gap-2">
                 <span className="inline-block h-0.5 w-5 rounded border-t-2 border-dashed border-gray-400" />
                 <span className="text-[11px] text-foreground/70">관련 (52-65%)</span>
+              </div>
+            </div>
+            <div className="my-2 border-t border-border/50" />
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">노드</p>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px]">★</span>
+                <span className="text-[11px] text-foreground/70">기원 기사</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px]">◎</span>
+                <span className="text-[11px] text-foreground/70">내가 선택한 기사</span>
               </div>
             </div>
           </div>

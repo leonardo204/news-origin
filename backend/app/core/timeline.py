@@ -113,14 +113,15 @@ def _find_true_origin(
     input_id = input_article["id"]
     input_time = input_article.get("published_at")
 
-    # 기원 후보: 입력 기사 + same/derivative 유사 기사 (published_at 필수)
+    # 기원 후보: 입력 기사 + 유사 기사 (isolated 제외, published_at 필수)
+    # related(50-75%)도 기원 후보에 포함 — 짧은 속보가 심층 분석과 유사도 낮을 수 있음
     candidates = []
     if input_time:
         candidates.append({"time": input_time, "id": input_id, "score": 1.0})
 
     for a in similar_articles:
         cat = a.get("category", "isolated")
-        if cat in ("same", "derivative") and a.get("published_at"):
+        if cat != "isolated" and a.get("published_at"):
             candidates.append({
                 "time": a["published_at"],
                 "id": a["id"],
@@ -148,11 +149,13 @@ def _find_true_origin(
         else:
             remaining.append(a)
 
-    # 입력 기사를 나머지 목록에 추가 (score는 기원과의 대칭 유사도)
+    # 입력 기사를 나머지 목록에 추가 (score는 기원과의 유사도, category는 실제 관계)
+    origin_score = true_origin_article.get("score", 1.0)
+    origin_cat = true_origin_article.get("category", "same")
     remaining.append({
         **input_article,
-        "score": true_origin_article.get("score", 1.0),
-        "category": "same",
+        "score": origin_score,
+        "category": origin_cat,
     })
 
     return true_origin_article, remaining

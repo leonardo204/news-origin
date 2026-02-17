@@ -131,6 +131,9 @@ async def get_timeline(
     if not origin_article:
         origin_article = ArticleResponse.model_validate(entries[0][1])
 
+    # 사용자 원래 선택 기사 ID
+    input_article_id = str(tracking.input_article_id) if tracking.input_article_id else None
+
     # Graph, Timeline 구성
     nodes = []
     edges = []
@@ -143,6 +146,7 @@ async def get_timeline(
             continue
 
         # Node
+        is_user_sel = (input_article_id is not None and str(article.id) == input_article_id)
         nodes.append(GraphNode(
             id=str(article.id),
             title=article.title,
@@ -152,6 +156,7 @@ async def get_timeline(
             similarity_category=entry.similarity_category,
             lifecycle_stage=entry.lifecycle_stage,
             is_origin=entry.is_origin,
+            is_user_selected=is_user_sel,
             url=article.url,
         ))
 
@@ -175,6 +180,7 @@ async def get_timeline(
             lifecycle_stage=entry.lifecycle_stage,
             url=article.url,
             is_origin=entry.is_origin,
+            is_user_selected=is_user_sel,
         ))
 
         # Stage count (skip isolated)
@@ -194,6 +200,7 @@ async def get_timeline(
         tracking_id=tracking_id,
         tracking_type=tracking.tracking_type or "instant",
         origin_article=origin_article,
+        input_article_id=input_article_id,
         graph=GraphData(nodes=nodes, edges=edges),
         timeline=timeline_items,
         density=density,
