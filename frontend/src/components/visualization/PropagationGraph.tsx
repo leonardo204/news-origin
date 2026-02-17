@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
-import { ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, Minimize2, Info } from 'lucide-react'
 import { Graph } from '@antv/g6'
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, truncate } from '@/lib/utils'
 import type { GraphNode, GraphEdge, LifecycleStage } from '@/types'
@@ -18,7 +18,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [showLegend, setShowLegend] = useState(true)
+  const [showLegend, setShowLegend] = useState(false)
   const [showAllNodes, setShowAllNodes] = useState(false)
 
   // Limit nodes to top 50 by similarity_score when count exceeds 50
@@ -26,7 +26,6 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   const hasExcessNodes = nodes.length > NODE_LIMIT
   const limitedNodes = useMemo(() => {
     if (!hasExcessNodes || showAllNodes) return nodes
-    // Always include origin node + top 49 by similarity_score
     const origin = nodes.find(n => n.is_origin)
     const nonOrigin = nodes.filter(n => !n.is_origin)
       .sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0))
@@ -54,7 +53,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     [onNodeClick],
   )
 
-  // ESC to exit fullscreen — must be before any early return
+  // ESC to exit fullscreen
   useEffect(() => {
     if (!isFullscreen) return
     function handleEsc(e: KeyboardEvent) {
@@ -86,10 +85,12 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     }, 100)
   }, [])
 
+  // Detect dark mode
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
   useEffect(() => {
     if (!containerRef.current || limitedNodes.length === 0) return
 
-    // Clean up previous graph
     if (graphRef.current) {
       graphRef.current.destroy()
       graphRef.current = null
@@ -100,6 +101,9 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     const container = containerRef.current
     const width = container.offsetWidth
     const height = Math.max(550, container.offsetHeight)
+
+    // Detect mobile
+    const isMobile = width < 640
 
     const graphData = {
       nodes: limitedNodes.map((node) => ({
@@ -119,20 +123,21 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
       width,
       height,
       autoFit: 'view',
-      padding: [40, 40, 40, 40],
+      padding: [50, 50, 50, 50],
       data: graphData,
       node: {
         type: 'rect',
         style: {
           size: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin ? [160, 48] : [140, 40]
+            if (nd.is_origin) return isMobile ? [200, 56] : [260, 64]
+            return isMobile ? [170, 48] : [220, 56]
           },
-          radius: 8,
+          radius: 10,
           fill: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
             const color = LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
-            return color + '20' // 12% opacity fill
+            return nd.is_origin ? color + '30' : color + '18'
           },
           stroke: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
@@ -144,30 +149,34 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
           },
           shadowColor: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            if (nd.is_origin) return 'rgba(34, 197, 94, 0.3)'
-            if (nd.lifecycle_stage === 'explosion') return 'rgba(239, 68, 68, 0.2)'
+            if (nd.is_origin) return 'rgba(34, 197, 94, 0.35)'
+            if (nd.lifecycle_stage === 'explosion') return 'rgba(239, 68, 68, 0.25)'
             return 'transparent'
           },
           shadowBlur: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin || nd.lifecycle_stage === 'explosion' ? 10 : 0
+            return nd.is_origin ? 14 : nd.lifecycle_stage === 'explosion' ? 10 : 0
           },
           labelText: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            const publisher = nd.publisher || (nd.url ? new URL(nd.url).hostname.replace('www.', '') : '알 수 없음')
-            if (nd.is_origin) return `[기원] ${publisher}`
-            return `${publisher}\n${truncate(nd.title, 16)}`
+            const publisher = nd.publisher || '알 수 없음'
+            const titleLen = isMobile ? 18 : 28
+            if (nd.is_origin) {
+              return `★ ${publisher}\n${truncate(nd.title, titleLen)}`
+            }
+            const score = Math.round(nd.similarity_score * 100)
+            return `${publisher} · ${score}%\n${truncate(nd.title, titleLen)}`
           },
-          labelFill: '#e5e7eb',
+          labelFill: isDark ? '#e5e7eb' : '#1f2937',
           labelFontSize: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
-            return nd.is_origin ? 11 : 10
+            return nd.is_origin ? 12 : 11
           },
           labelFontWeight: (d: Record<string, unknown>) => {
             const nd = d.data as GraphNode
             return nd.is_origin ? 'bold' : 'normal'
           },
-          labelLineHeight: 14,
+          labelLineHeight: 16,
           labelPlacement: 'center',
           cursor: 'pointer',
         },
@@ -179,28 +188,38 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
             const ed = d.data as GraphEdge
             if (ed.similarity_category === 'same') return '#22c55e'
             if (ed.similarity_category === 'derivative') return '#3b82f6'
-            return '#4b5563'
+            return isDark ? '#6b7280' : '#9ca3af'
           },
           lineWidth: (d: Record<string, unknown>) => {
             const ed = d.data as GraphEdge
             if (ed.similarity_category === 'same') return 2.5
-            if (ed.similarity_category === 'derivative') return 1.5
+            if (ed.similarity_category === 'derivative') return 2
             return 1
           },
           lineDash: (d: Record<string, unknown>) => {
             const ed = d.data as GraphEdge
-            return ed.similarity_category === 'related' ? [4, 4] : undefined
+            return ed.similarity_category === 'related' ? [5, 5] : undefined
           },
           endArrow: true,
-          endArrowSize: 6,
-          opacity: 0.7,
+          endArrowSize: 7,
+          opacity: 0.65,
+          labelText: (d: Record<string, unknown>) => {
+            const ed = d.data as GraphEdge
+            return `${Math.round(ed.similarity_score * 100)}%`
+          },
+          labelFill: isDark ? '#9ca3af' : '#6b7280',
+          labelFontSize: 9,
+          labelBackgroundFill: isDark ? '#111827' : '#f9fafb',
+          labelBackgroundRadius: 4,
+          labelBackgroundOpacity: 0.85,
+          labelPadding: [2, 4],
         },
       },
       layout: {
         type: 'dagre',
         rankdir: 'TB',
-        nodesep: 30,
-        ranksep: 60,
+        nodesep: isMobile ? 25 : 40,
+        ranksep: isMobile ? 55 : 75,
       },
       behaviors: [
         'zoom-canvas',
@@ -209,23 +228,18 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
       ],
     })
 
-    // Set ref BEFORE render so cleanup can always find it
     graphRef.current = graph
 
-    // Click handler
     graph.on('node:click', (evt) => {
       const nodeId = (evt as { target?: { id?: string } })?.target?.id
       if (nodeId) handleNodeClick(nodeId)
     })
 
-    // Defer render to next frame so React StrictMode cleanup can cancel it
     const rafId = requestAnimationFrame(() => {
       if (!destroyedRef.current && graphRef.current) {
         const renderPromise = graph.render()
         if (renderPromise && typeof renderPromise.catch === 'function') {
-          renderPromise.catch(() => {
-            // Graph was destroyed before render completed — safe to ignore
-          })
+          renderPromise.catch(() => {})
         }
       }
     })
@@ -248,12 +262,12 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
         try {
           graphRef.current.destroy()
         } catch {
-          // Already destroyed — safe to ignore
+          // Already destroyed
         }
         graphRef.current = null
       }
     }
-  }, [limitedNodes, limitedEdges, handleNodeClick])
+  }, [limitedNodes, limitedEdges, handleNodeClick, isDark])
 
   if (nodes.length === 0) {
     return (
@@ -264,7 +278,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-4 sm:p-6 md:p-8' : ''}`}>
+    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-2 sm:p-4 md:p-6' : ''}`}>
       {/* Node limit warning */}
       {hasExcessNodes && (
         <div className="mb-3 flex flex-col gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -275,7 +289,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
                 노드가 {nodes.length}개로 많습니다
               </p>
               <p className="mt-0.5 text-xs text-yellow-400/80">
-                성능 보호를 위해 {showAllNodes ? '전체' : `상위 ${NODE_LIMIT}개`} 노드를 표시 중입니다
+                {showAllNodes ? '전체' : `상위 ${NODE_LIMIT}개`} 노드 표시 중
                 {!showAllNodes && ` (${nodes.length - NODE_LIMIT}개 숨김)`}
               </p>
             </div>
@@ -283,7 +297,6 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
           <button
             onClick={() => setShowAllNodes(!showAllNodes)}
             className="shrink-0 rounded-md border border-yellow-500/40 bg-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-400 transition-colors hover:bg-yellow-500/30"
-            aria-label={showAllNodes ? '상위 50개만 보기' : '모두 표시'}
           >
             {showAllNodes ? '축소 모드' : '모두 표시'}
           </button>
@@ -292,87 +305,82 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
 
       <div
         ref={containerRef}
-        className={`w-full rounded-lg border border-border bg-gray-100/30 dark:bg-gray-900/30 ${
+        className={`w-full rounded-xl border border-border bg-gray-50/50 dark:bg-gray-900/40 ${
           isFullscreen ? 'h-full' : className || 'h-[400px] sm:h-[600px]'
         }`}
         style={{ touchAction: 'none' }}
       />
 
-      {/* Zoom controls */}
-      <div className="absolute right-3 top-3 flex flex-col gap-1">
-        <button
-          onClick={handleZoomIn}
-          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
-          aria-label="확대"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleZoomOut}
-          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
-          aria-label="축소"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleFitView}
-          className="rounded-md bg-gray-100/80 p-1.5 text-xs text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
-          aria-label="전체보기"
-        >
-          FIT
-        </button>
-        <button
-          onClick={toggleFullscreen}
-          className="rounded-md bg-gray-100/80 p-1.5 text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
-          aria-label={isFullscreen ? '전체화면 종료' : '전체화면'}
-        >
-          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-        </button>
+      {/* Controls */}
+      <div className="absolute right-2 top-2 flex flex-col gap-1 sm:right-3 sm:top-3">
+        {([
+          { action: handleZoomIn, icon: <ZoomIn className="h-4 w-4" />, label: '확대' },
+          { action: handleZoomOut, icon: <ZoomOut className="h-4 w-4" />, label: '축소' },
+          { action: handleFitView, icon: <span className="text-[10px] font-bold">FIT</span>, label: '전체보기' },
+          { action: toggleFullscreen, icon: isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />, label: isFullscreen ? '축소' : '전체화면' },
+        ] as const).map((ctrl, i) => (
+          <button
+            key={i}
+            onClick={ctrl.action}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-white/90 text-gray-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-foreground dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            aria-label={ctrl.label}
+          >
+            {ctrl.icon}
+          </button>
+        ))}
       </div>
 
-      {/* Legend (collapsible) */}
-      <div className="absolute bottom-3 left-3">
+      {/* Legend toggle */}
+      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3">
         <button
           onClick={() => setShowLegend(!showLegend)}
-          className="mb-1 rounded-md bg-gray-100/80 px-2 py-1 text-[10px] text-gray-600 backdrop-blur-sm hover:text-foreground dark:bg-gray-900/80 dark:text-gray-400"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-white/90 text-gray-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-foreground dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-800"
+          aria-label="범례"
         >
-          {showLegend ? '범례 숨기기' : '범례'}
+          <Info className="h-4 w-4" />
         </button>
         {showLegend && (
-          <div className="flex flex-wrap gap-2 rounded-lg bg-gray-100/80 p-2 backdrop-blur-sm dark:bg-gray-900/80">
-            {(['origin', 'spread', 'explosion', 'sustained', 'fadeout'] as LifecycleStage[]).map(
-              (stage) => (
-                <div key={stage} className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: LIFECYCLE_COLORS[stage] }}
-                  />
-                  <span className="text-[10px] text-gray-600 dark:text-gray-400">
-                    {LIFECYCLE_LABELS[stage]}
-                  </span>
-                </div>
-              ),
-            )}
-            <div className="ml-2 flex items-center gap-1">
-              <span className="inline-block h-px w-4 bg-green-500" />
-              <span className="text-[10px] text-gray-600 dark:text-gray-400">동일</span>
+          <div className="mt-1.5 min-w-[180px] rounded-lg border border-border/50 bg-white/95 p-2.5 shadow-lg backdrop-blur-sm dark:bg-gray-800/95">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">라이프사이클</p>
+            <div className="space-y-1">
+              {(['origin', 'spread', 'explosion', 'sustained', 'fadeout'] as LifecycleStage[]).map(
+                (stage) => (
+                  <div key={stage} className="flex items-center gap-2">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                      style={{ backgroundColor: LIFECYCLE_COLORS[stage] }}
+                    />
+                    <span className="text-[11px] text-foreground/70">
+                      {LIFECYCLE_LABELS[stage]}
+                    </span>
+                  </div>
+                ),
+              )}
             </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block h-px w-4 bg-blue-500" />
-              <span className="text-[10px] text-gray-600 dark:text-gray-400">파생</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="inline-block h-px w-4 border-t border-dashed border-gray-500" />
-              <span className="text-[10px] text-gray-600 dark:text-gray-400">관련</span>
+            <div className="my-2 border-t border-border/50" />
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">유사도</p>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-0.5 w-5 rounded bg-green-500" />
+                <span className="text-[11px] text-foreground/70">동일 (80%+)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-0.5 w-5 rounded bg-blue-500" />
+                <span className="text-[11px] text-foreground/70">파생 (65-80%)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-0.5 w-5 rounded border-t-2 border-dashed border-gray-400" />
+                <span className="text-[11px] text-foreground/70">관련 (52-65%)</span>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* ESC to exit fullscreen */}
+      {/* Fullscreen indicator */}
       {isFullscreen && (
-        <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-md bg-gray-100/80 px-3 py-1 text-xs text-gray-600 backdrop-blur-sm dark:bg-gray-900/80 dark:text-gray-400">
-          ESC 또는 버튼으로 전체화면 종료
+        <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-lg border border-border/50 bg-white/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm dark:bg-gray-800/90">
+          ESC로 전체화면 종료
         </div>
       )}
     </div>

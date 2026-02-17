@@ -424,44 +424,47 @@ export default function TimelinePage() {
 
       {/* Fullscreen graph overlay */}
       {showGraph && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background">
-          {/* Overlay header */}
-          <div className="flex items-center justify-between border-b border-border px-3 py-3 sm:px-4">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Network className="h-5 w-5 text-lifecycle-origin" />
-              <h2 className="text-sm font-semibold">전파 트리</h2>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
-                {graph.nodes.length}개 노드 · {graph.edges.length}개 연결
-              </span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          {/* Modal: full-screen on mobile, centered on desktop */}
+          <div className="flex h-full w-full flex-col bg-background sm:h-[90vh] sm:max-h-[900px] sm:w-[92vw] sm:max-w-[1200px] sm:rounded-2xl sm:border sm:border-border sm:shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border px-3 py-3 sm:px-5">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <Network className="h-5 w-5 text-lifecycle-origin" />
+                <h2 className="text-sm font-semibold sm:text-base">전파 트리</h2>
+                <span className="text-xs text-muted-foreground">
+                  {graph.nodes.length}개 노드 · {graph.edges.length}개 연결
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowGraph(false)
+                  setSelectedNode(null)
+                }}
+                className="gap-1.5"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">닫기</span>
+                <kbd className="ml-1 hidden rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground sm:inline">ESC</kbd>
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setShowGraph(false)
-                setSelectedNode(null)
-              }}
-              className="gap-1.5"
-            >
-              <X className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">닫기</span>
-              <kbd className="ml-1 hidden rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground sm:inline">ESC</kbd>
-            </Button>
-          </div>
-          {/* Graph content */}
-          <div className="relative flex-1">
-            <Suspense fallback={<ChartFallback />}>
-              <PropagationGraph
-                nodes={graph.nodes}
-                edges={graph.edges}
-                onNodeClick={(node) => setSelectedNode(node)}
-                className="h-full"
-              />
-              <ArticleDetailPanel
-                node={selectedNode}
-                onClose={() => setSelectedNode(null)}
-              />
-            </Suspense>
+            {/* Graph content */}
+            <div className="relative flex-1 overflow-hidden">
+              <Suspense fallback={<ChartFallback />}>
+                <PropagationGraph
+                  nodes={graph.nodes}
+                  edges={graph.edges}
+                  onNodeClick={(node) => setSelectedNode(node)}
+                  className="h-full"
+                />
+                <ArticleDetailPanel
+                  node={selectedNode}
+                  onClose={() => setSelectedNode(null)}
+                />
+              </Suspense>
+            </div>
           </div>
         </div>
       )}
