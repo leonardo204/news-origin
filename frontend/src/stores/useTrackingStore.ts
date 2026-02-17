@@ -126,23 +126,30 @@ export const useTrackingStore = create<TrackingState>((set, get) => ({
       const result = await api.confirmTracking({ article_id: articleId })
 
       if (result.status === 'completed') {
-        // Instant tracking completed synchronously — navigate immediately
+        // Instant tracking completed synchronously — animate through stages
         const trackingId = result.tracking_id
         const trackingType = result.tracking_type || 'instant'
         const message = result.message
 
-        set({
-          trackingId,
-          trackingStatus: {
-            tracking_id: trackingId,
-            status: 'completed',
-            progress: 100,
-            total_articles: 0,
-            tracking_type: trackingType,
-            message,
-          },
-          isPolling: false,
-        })
+        // Animate progress through each stage so user sees honest progression
+        const stages = [20, 40, 60, 80, 100]
+        for (const progress of stages) {
+          set({
+            trackingId,
+            trackingStatus: {
+              tracking_id: trackingId,
+              status: progress < 100 ? 'processing' : 'completed',
+              progress,
+              total_articles: 0,
+              tracking_type: trackingType,
+              message: progress < 100 ? message : message,
+            },
+            isPolling: progress < 100,
+          })
+          if (progress < 100) {
+            await new Promise((r) => setTimeout(r, 150))
+          }
+        }
         toast.success(message || '분석 완료!')
         get().loadTimeline(trackingId)
       } else {
