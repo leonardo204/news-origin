@@ -182,8 +182,8 @@ export default function ArticleList({ items }: ArticleListProps) {
                     }`}
                     onClick={item.url ? undefined : (e) => e.preventDefault()}
                   >
-                    {item.is_origin && <span className="shrink-0 text-xs" title="기원 기사">★</span>}
-                    {item.is_user_selected && !item.is_origin && <span className="shrink-0 text-xs text-blue-500" title="내가 선택한 기사">◎</span>}
+                    {item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none" title="기원 기사">★</span>}
+                    {item.is_user_selected && !item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none text-blue-500" title="내가 선택한 기사">◎</span>}
                     <span className="truncate">{item.title}</span>
                     {item.url && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 [a:hover_&]:opacity-100" />}
                   </a>
@@ -251,10 +251,10 @@ export default function ArticleList({ items }: ArticleListProps) {
                     }`}
                     onClick={item.url ? undefined : (e) => e.preventDefault()}
                   >
-                    <p className="pr-8 text-sm font-medium leading-snug">
-                      {item.is_origin && <span className="mr-1" title="기원 기사">★</span>}
-                      {item.is_user_selected && !item.is_origin && <span className="mr-1 text-blue-500" title="내가 선택한 기사">◎</span>}
-                      {item.title}
+                    <p className="flex items-start gap-1 pr-8 text-sm font-medium leading-snug">
+                      {item.is_origin && <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none" title="기원 기사">★</span>}
+                      {item.is_user_selected && !item.is_origin && <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none text-blue-500" title="내가 선택한 기사">◎</span>}
+                      <span>{item.title}</span>
                     </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       {item.publisher && (
