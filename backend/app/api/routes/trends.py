@@ -159,34 +159,34 @@ async def get_stats_overview(
     except Exception as e:
         logger.warning(f"Cache get failed: {e}")
 
-    # Query database
-    tracking_count = await db.execute(select(func.count(TrackingRequest.id)))
-    article_count = await db.execute(select(func.count(Article.id)))
-
-    # Only count trackings that started within last 15 minutes as active
+    # Query database — combined into fewer queries for efficiency
     stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
-    active_count = await db.execute(
-        select(func.count(TrackingRequest.id)).where(
-            TrackingRequest.status == "processing",
-            TrackingRequest.created_at >= stale_cutoff,
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    # Single query for all article counts + last_crawl
+    article_stats = await db.execute(
+        select(
+            func.count(Article.id).label("total"),
+            func.count(Article.id).filter(Article.qdrant_point_id.isnot(None)).label("embedded"),
+            func.count(Article.id).filter(Article.created_at >= since_24h).label("recent"),
+            func.max(Article.created_at).label("last_crawl"),
         )
     )
+    a_row = article_stats.one()
 
-    # 임베딩 완료 기사 수
-    embedded_count = await db.execute(
-        select(func.count(Article.id)).where(Article.qdrant_point_id.isnot(None))
+    # Single query for tracking counts
+    tracking_stats = await db.execute(
+        select(
+            func.count(TrackingRequest.id).label("total"),
+            func.count(TrackingRequest.id).filter(
+                TrackingRequest.status == "processing",
+                TrackingRequest.created_at >= stale_cutoff,
+            ).label("active"),
+        )
     )
+    t_row = tracking_stats.one()
 
-    # 최근 24시간 수집 기사 수
-    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
-    recent_count = await db.execute(
-        select(func.count(Article.id)).where(Article.created_at >= since_24h)
-    )
-
-    # 마지막 수집 시각
-    last_crawl = await db.execute(select(func.max(Article.created_at)))
-
-    # 카테고리별 기사 수
+    # Category distribution
     category_col = Article.metadata_["category"].astext
     category_result = await db.execute(
         select(category_col, func.count(Article.id))
@@ -196,12 +196,12 @@ async def get_stats_overview(
     category_counts = {row[0]: row[1] for row in category_result.all()}
 
     stats = StatsOverview(
-        total_trackings=tracking_count.scalar() or 0,
-        total_articles=article_count.scalar() or 0,
-        active_trackings=active_count.scalar() or 0,
-        embedded_articles=embedded_count.scalar() or 0,
-        recent_articles_24h=recent_count.scalar() or 0,
-        last_crawl_at=last_crawl.scalar(),
+        total_trackings=t_row.total or 0,
+        total_articles=a_row.total or 0,
+        active_trackings=t_row.active or 0,
+        embedded_articles=a_row.embedded or 0,
+        recent_articles_24h=a_row.recent or 0,
+        last_crawl_at=a_row.last_crawl,
         category_counts=category_counts,
     )
 

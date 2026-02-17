@@ -17,11 +17,8 @@ export default function Header() {
 
   const { stats, crawlStatus, sseStatus, isLoading, loadStats, loadCrawlStatus, updateCrawlStatus, setSseStatus } = useTrendStore()
 
-  // Load stats + crawl status on mount + SSE with auto-reconnect
+  // SSE with auto-reconnect (stats loaded on-demand when panel opens)
   useEffect(() => {
-    loadStats()
-    loadCrawlStatus()
-
     let es: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = 1000
@@ -112,30 +109,30 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-white/80 backdrop-blur-sm dark:bg-gray-950/80" role="banner">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-        <a href="/" onClick={handleLogoClick} className="flex shrink-0 items-center gap-1.5 text-base font-bold whitespace-nowrap sm:gap-2 sm:text-lg" aria-label="News Origin 홈으로 이동">
-          <Newspaper className="h-5 w-5 text-lifecycle-origin" aria-hidden="true" />
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-2 sm:px-4">
+        <a href="/" onClick={handleLogoClick} className="flex shrink-0 items-center gap-1 text-sm font-bold whitespace-nowrap sm:gap-2 sm:text-lg" aria-label="News Origin 홈으로 이동">
+          <Newspaper className="h-4 w-4 text-lifecycle-origin sm:h-5 sm:w-5" aria-hidden="true" />
           <span>
-            News <span className="text-lifecycle-origin">Origin</span>
+            N.<span className="text-lifecycle-origin">O</span><span className="hidden sm:inline">rigin</span>
           </span>
         </a>
 
-        <div className="relative flex min-w-0 items-center gap-0.5 whitespace-nowrap sm:gap-1">
-          <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="주요 내비게이션">
+        <div className="relative flex min-w-0 flex-nowrap items-center gap-0 whitespace-nowrap sm:gap-1">
+          <nav className="flex items-center gap-0 sm:gap-1" aria-label="주요 내비게이션">
             {navItems.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
                 to={to}
                 onClick={to === '/' ? handleHomeClick : undefined}
                 className={cn(
-                  'flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-3',
+                  'flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs transition-colors sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm',
                   location.pathname === to
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
                 aria-current={location.pathname === to ? 'page' : undefined}
               >
-                <Icon className="h-4 w-4" aria-hidden="true" />
+                <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
                 {label}
               </Link>
             ))}
@@ -149,7 +146,7 @@ export default function Header() {
             ref={buttonRef}
             onClick={() => setPanelOpen((v) => !v)}
             className={cn(
-              'flex items-center gap-1 rounded-md px-1.5 py-1.5 text-sm transition-colors sm:gap-1.5 sm:px-2.5',
+              'flex items-center gap-0.5 rounded-md px-1 py-1 text-xs transition-colors sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-sm',
               panelOpen
                 ? 'bg-secondary text-foreground'
                 : 'text-muted-foreground hover:text-foreground',
@@ -158,13 +155,13 @@ export default function Header() {
             aria-expanded={panelOpen}
           >
             {crawlStatus.phase !== 'idle' ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin sm:h-4 sm:w-4" aria-hidden="true" />
             ) : (
-              <BarChart3 className="h-4 w-4" aria-hidden="true" />
+              <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
             )}
             <span className="hidden sm:inline">현황</span>
-            <span className="flex items-center gap-1.5" aria-label={`SSE 상태: ${SSE_STATUS_LABELS[sseStatus]?.label || '연결됨'}`}>
-              <span className={`h-2 w-2 rounded-full ${SSE_STATUS_LABELS[sseStatus]?.dotClass || 'bg-emerald-400'}`} />
+            <span className="flex items-center gap-1" aria-label={`SSE 상태: ${SSE_STATUS_LABELS[sseStatus]?.label || '연결됨'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2 ${SSE_STATUS_LABELS[sseStatus]?.dotClass || 'bg-emerald-400'}`} />
               {sseStatus !== 'connected' && (
                 <span className="hidden text-xs text-muted-foreground sm:inline">{SSE_STATUS_LABELS[sseStatus]?.label}</span>
               )}
