@@ -778,33 +778,43 @@ function TopicClusterCard({
             </button>
           )}
           <div className="space-y-0.5">
-            {cluster.articles.map((article) => (
-              <a
-                key={article.id}
-                href={article.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-start gap-2 rounded-md px-2 py-2 transition-colors hover:bg-secondary/30 active:bg-secondary/50"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] sm:text-sm leading-snug text-foreground/90">
-                    {article.title}
-                  </p>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground">
-                    {article.publisher && <span>{article.publisher}</span>}
-                    {article.published_at && (
-                      <span>{formatRelativeTime(article.published_at)}</span>
+            {cluster.articles.map((article) => {
+              const isRep = article.cluster_reason === '대표 기사'
+              return (
+                <a
+                  key={article.id}
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-start gap-2 rounded-md px-2 py-2 transition-colors hover:bg-secondary/30 active:bg-secondary/50 ${isRep ? 'bg-lifecycle-origin/5' : ''}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      {isRep && (
+                        <span className="shrink-0 rounded bg-lifecycle-origin/15 px-1.5 py-0.5 text-[10px] font-semibold text-lifecycle-origin">
+                          대표
+                        </span>
+                      )}
+                      <p className="text-[13px] sm:text-sm leading-snug text-foreground/90">
+                        {article.title}
+                      </p>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground">
+                      {article.publisher && <span>{article.publisher}</span>}
+                      {article.published_at && (
+                        <span>{formatRelativeTime(article.published_at)}</span>
+                      )}
+                    </div>
+                    {!isRep && article.cluster_reason && (
+                      <p className="mt-0.5 text-[10px] sm:text-[11px] text-lifecycle-spread/80">
+                        {article.cluster_reason}
+                      </p>
                     )}
                   </div>
-                  {article.cluster_reason && (
-                    <p className="mt-0.5 text-[10px] sm:text-[11px] text-lifecycle-spread/80">
-                      {article.cluster_reason}
-                    </p>
-                  )}
-                </div>
-                <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-              </a>
-            ))}
+                  <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                </a>
+              )
+            })}
           </div>
         </div>
       )}
