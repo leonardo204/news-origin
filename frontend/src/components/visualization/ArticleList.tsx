@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { ArrowUp, ArrowDown, Filter, X, ExternalLink } from 'lucide-react'
+import { ArrowUp, ArrowDown, Filter, X, ExternalLink, ArrowLeftRight } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import BookmarkButton from '@/components/ui/BookmarkButton'
+import ArticleCompare from '@/components/article/ArticleCompare'
 import { LIFECYCLE_LABELS } from '@/lib/utils'
 import type { TimelineItem, LifecycleStage } from '@/types'
 
@@ -23,6 +24,9 @@ export default function ArticleList({ items }: ArticleListProps) {
   const [sortField, setSortField] = useState<SortField>('published_at')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [showFilter, setShowFilter] = useState(false)
+  const [compareItem, setCompareItem] = useState<TimelineItem | null>(null)
+
+  const originItem = useMemo(() => items.find((i) => i.is_origin) ?? null, [items])
 
   const hasFilter = activeStages.size > 0
 
@@ -147,7 +151,7 @@ export default function ArticleList({ items }: ArticleListProps) {
         <div className="hidden sm:block">
           <div className="space-y-1">
             {/* Sortable header */}
-            <div className="grid grid-cols-[1fr_100px_80px_80px_32px] gap-2 px-2 pb-2 text-xs font-medium text-muted-foreground">
+            <div className="grid grid-cols-[1fr_100px_80px_80px_32px_32px] gap-2 px-2 pb-2 text-xs font-medium text-muted-foreground">
               <button className="text-left hover:text-foreground" onClick={() => handleSort('title')}>
                 제목<SortIcon field="title" />
               </button>
@@ -161,6 +165,7 @@ export default function ArticleList({ items }: ArticleListProps) {
                 유사도<SortIcon field="similarity_score" />
               </button>
               <span></span>
+              <span></span>
             </div>
 
             {filtered.length === 0 ? (
@@ -171,7 +176,7 @@ export default function ArticleList({ items }: ArticleListProps) {
               filtered.map((item) => (
                 <div
                   key={item.article_id}
-                  className="grid grid-cols-[1fr_100px_80px_80px_32px] items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-secondary/30"
+                  className="grid grid-cols-[1fr_100px_80px_80px_32px_32px] items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-secondary/30"
                 >
                   <a
                     href={item.url || undefined}
@@ -209,6 +214,18 @@ export default function ArticleList({ items }: ArticleListProps) {
                       size="sm"
                       className="justify-self-center"
                     />
+                  )}
+                  {!item.is_origin && originItem ? (
+                    <button
+                      onClick={() => setCompareItem(item)}
+                      className="justify-self-center rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      title="기원 기사와 비교"
+                      aria-label="비교"
+                    >
+                      <ArrowLeftRight className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <span />
                   )}
                 </div>
               ))
@@ -271,8 +288,18 @@ export default function ArticleList({ items }: ArticleListProps) {
                       {item.url && <ExternalLink className="h-3 w-3 text-muted-foreground/50" />}
                     </div>
                   </a>
-                  {item.url && (
-                    <div className="absolute right-2 top-2">
+                  <div className="absolute right-2 top-2 flex items-center gap-1">
+                    {!item.is_origin && originItem && (
+                      <button
+                        onClick={() => setCompareItem(item)}
+                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        title="기원 기사와 비교"
+                        aria-label="비교"
+                      >
+                        <ArrowLeftRight className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {item.url && (
                       <BookmarkButton
                         articleId={item.article_id}
                         title={item.title}
@@ -280,14 +307,23 @@ export default function ArticleList({ items }: ArticleListProps) {
                         url={item.url}
                         size="sm"
                       />
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       </CardContent>
+
+      {/* Compare modal */}
+      {compareItem && originItem && (
+        <ArticleCompare
+          item1={originItem}
+          item2={compareItem}
+          onClose={() => setCompareItem(null)}
+        />
+      )}
     </Card>
   )
 }

@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback } from 'react'
 import {
   ReactFlow,
   Background,
+  MiniMap,
+  Controls,
   Position,
   Handle,
   MarkerType,
@@ -314,6 +316,21 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
         nodesConnectable={false}
       >
         <Background gap={28} size={1} color={isDark ? '#374151' : '#e5e7eb'} />
+        {nodes.length > 10 && (
+          <MiniMap
+            nodeColor={(n) => (n.style?.background as string) || '#6b7280'}
+            maskColor={isDark ? 'rgba(0,0,0,0.6)' : 'rgba(240,240,240,0.7)'}
+            pannable
+            zoomable
+            position="bottom-right"
+            style={{ borderRadius: 12 }}
+          />
+        )}
+        <Controls
+          position="top-right"
+          showInteractive={false}
+          style={{ borderRadius: 12 }}
+        />
       </ReactFlow>
 
       {/* Legend toggle */}

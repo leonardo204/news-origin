@@ -1,6 +1,6 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.8.0
+# Version: 0.9.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
@@ -10,6 +10,7 @@
 #   - 0.6.0: 2단계 추적 - 즉시 추적(Qdrant only) + Live 추적(full pipeline)
 #   - 0.7.0: 캐시 무효화 통합, distributed lock, run_async 헬퍼
 #   - 0.8.0: 임베딩 실패 기사 DB 미저장 정책 - 임베딩 없는 기사는 검색/클러스터링 불가하므로 저장하지 않음
+#   - 0.9.0: 임베딩 실패 재시도 큐, 워커 메모리 모니터링, 캐시 워밍 폴백 강화
 """
 
 import asyncio
@@ -92,6 +93,18 @@ def fetch_trending_news(self):
         logger.warning("fetch_trending_news started")
         result = loop.run_until_complete(_run_fetch_trending())
         logger.warning(f"fetch_trending_news completed: {result}")
+        try:
+            from app.services.webhook import send_webhook
+            crawled_count = result.get("crawled", 0)
+            embedded_count = result.get("embedded", 0)
+            failed_count = crawled_count - embedded_count if crawled_count > embedded_count else 0
+            send_webhook(
+                title="크롤링 완료",
+                description=f"{crawled_count}건 수집, {failed_count}건 임베딩 실패",
+                color=0x2ECC71,
+            )
+        except Exception as _we:
+            logger.warning(f"Webhook call failed (non-critical): {_we}")
         return result
     except SoftTimeLimitExceeded:
         logger.error("fetch_trending_news timed out")
@@ -247,10 +260,11 @@ async def _run_fetch_trending():
             # 5. 배치 임베딩 생성 + Qdrant 저장
             # [정책] 임베딩 실패 기사는 DB에서 삭제 — 임베딩 없는 기사는
             # 벡터 검색/클러스터링이 불가하여 서비스에서 활용할 수 없음
+            embedded_count = 0
             if articles_to_embed:
                 await set_crawl_status("embedding", f"{len(articles_to_embed)}건 임베딩 생성중")
                 texts = [
-                    get_article_text(a.title, a.content)
+                    get_article_text(a.title)
                     for a in articles_to_embed
                 ]
                 embeddings = create_embeddings_batch(texts)
@@ -274,13 +288,28 @@ async def _run_fetch_trending():
                     article.qdrant_point_id = point_id
                     embedded_count += 1
 
-                # 임베딩 실패 기사 DB에서 삭제
+                # 임베딩 실패 기사 DB에서 삭제 + 재시도 큐에 추가
+                from app.services.cache import get_redis
+                redis_client = await get_redis()
                 for article in failed_articles:
                     await db.delete(article)
+                    # 재시도 큐에 기사 정보 저장 (최대 3회 재시도)
+                    if redis_client:
+                        import json as _json
+                        retry_payload = _json.dumps({
+                            "title": article.title,
+                            "url": article.url,
+                            "publisher": article.publisher,
+                            "published_at": str(article.published_at) if article.published_at else None,
+                            "content": article.content,
+                            "metadata_": article.metadata_ or {},
+                            "retry_count": 0,
+                        }, default=str)
+                        await redis_client.rpush("embedding:retry_queue", retry_payload)
 
                 await db.commit()
                 if failed_articles:
-                    logger.warning(f"Deleted {len(failed_articles)} articles with failed embeddings")
+                    logger.warning(f"Deleted {len(failed_articles)} articles with failed embeddings; pushed {len(failed_articles)} to retry queue")
                 logger.info(f"Embedded {embedded_count}/{len(articles_to_embed)} articles")
 
             # 5.5. 샘플링 품질 평가 (비용 절감)
@@ -302,6 +331,7 @@ async def _run_fetch_trending():
         # 트렌드 캐시 워밍: 3개 기간 미리 계산하여 Redis에 저장
         # 사용자 요청 시 즉시 응답 가능 (on-demand 계산 48초 → 캐시 <10ms)
         from app.core.trend_clustering import build_article_clusters
+        warm_success_count = 0
         async with session_factory() as warm_db:
             for period in ("24h", "7d", "30d"):
                 try:
@@ -309,8 +339,12 @@ async def _run_fetch_trending():
                     cache_key = f"trends:article-clusters:{period}:1"
                     await cache_set(cache_key, result.model_dump(), ttl=3600)
                     logger.info(f"Trend cache warmed: {period}")
+                    warm_success_count += 1
                 except Exception as e:
                     logger.warning(f"Trend cache warming failed for {period}: {e}")
+        if warm_success_count == 0:
+            logger.warning("All cache warming periods failed — setting cache:warm_failed flag")
+            await cache_set("cache:warm_failed", 1, ttl=1800)
 
         await publish_event("stats_updated", {
             "type": "crawl_complete",
@@ -322,7 +356,7 @@ async def _run_fetch_trending():
             "status": "ok",
             "fetched": len(feed_urls),
             "crawled": len(crawled),
-            "embedded": len(articles_to_embed),
+            "embedded": embedded_count,
             "from_publishers": len(publisher_articles),
         }
 
@@ -412,7 +446,19 @@ async def _run_cleanup():
             await db.commit()
 
             logger.info(f"Cleaned up {len(to_delete_ids)} old articles")
-            return {"status": "ok", "deleted": len(to_delete_ids), "deleted_logs": deleted_logs}
+            result = {"status": "ok", "deleted": len(to_delete_ids), "deleted_logs": deleted_logs}
+
+            try:
+                from app.services.webhook import send_webhook
+                send_webhook(
+                    title="정리 완료",
+                    description=f"{len(to_delete_ids)}건 삭제",
+                    color=0xE67E22,
+                )
+            except Exception as _we:
+                logger.warning(f"Webhook call failed (non-critical): {_we}")
+
+            return result
 
     finally:
         await worker_engine.dispose()
@@ -494,7 +540,7 @@ async def _run_instant_pipeline(task, tracking_id: str, article_id: str):
                 origin_embedding = vectors.get(_point_id)
                 if not origin_embedding:
                     # Qdrant 조회 실패 시 Azure API로 재생성
-                    text = get_article_text(origin.title, origin.content)
+                    text = get_article_text(origin.title)
                     origin_embedding = create_embedding(text)
             else:
                 point_id, origin_embedding = analyze_article(
@@ -824,7 +870,7 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
                         a.metadata_ = a_meta
 
                 texts = [
-                    get_article_text(a.title, a.content)
+                    get_article_text(a.title)
                     for a in articles_needing_embed
                 ]
                 embeddings = create_embeddings_batch(texts)
@@ -925,6 +971,16 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
             await db.commit()
             logger.info(f"Live pipeline completed: tracking_id={tracking_id}, articles={len(similar_articles)}")
 
+            try:
+                from app.services.webhook import send_webhook
+                send_webhook(
+                    title="Live 추적 완료",
+                    description=f"Live 추적 완료: {origin.title}",
+                    color=0x3498DB,
+                )
+            except Exception as _we:
+                logger.warning(f"Webhook call failed (non-critical): {_we}")
+
     except SoftTimeLimitExceeded:
         raise  # Let the outer handler deal with it
 
@@ -949,170 +1005,177 @@ async def _run_pipeline(task, tracking_id: str, article_id: str):
         await worker_engine.dispose()
 
 
-# ── Category Migration Task ──
+# ── Embedding Retry Queue ──
 
 
-@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
-def migrate_article_categories(self):
+@celery_app.task(bind=True, soft_time_limit=120, time_limit=150)
+def retry_failed_embeddings(self):
     """
-    기존 기사 카테고리 마이그레이션 (1회성)
+    임베딩 실패 기사 재시도 태스크
 
-    metadata["category"]가 없는 기사에 대해:
-    1순위: feed_category (headlines 제외)
-    2순위: 제목 키워드 매칭
-    3순위: feed_category (headlines 포함)
+    Redis embedding:retry_queue에서 최대 10건 팝 → 임베딩 재시도 → DB+Qdrant 저장
+    3회 이상 실패 시 폐기. Celery Beat에 의해 15분마다 실행
     """
     try:
-        result = run_async(_run_category_migration())
-        logger.warning(f"Category migration completed: {result}")
-        return result
+        return run_async(_run_retry_embeddings())
     except Exception as e:
-        logger.error(f"Category migration failed: {e}", exc_info=True)
+        logger.error(f"retry_failed_embeddings failed: {e}", exc_info=True)
         return {"status": "error", "error": str(e)[:200]}
 
 
-@celery_app.task(bind=True, soft_time_limit=1800, time_limit=1860)
-def reembed_all_articles(self):
-    """
-    전체 기사 임베딩 재생성 (1회성 마이그레이션)
-
-    get_article_text() 변경 후 기존 기사 임베딩을 새 방식으로 재생성
-    - 제목 3x 가중치 적용
-    - 본문 윈도우 500→300자 축소
-    - Qdrant 벡터 in-place 업데이트
-    """
-    try:
-        result = run_async(_run_reembed_all())
-        logger.warning(f"Re-embedding completed: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"Re-embedding failed: {e}", exc_info=True)
-        return {"status": "error", "error": str(e)[:200]}
-
-
-async def _run_reembed_all():
-    """전체 기사 NER 키워드 추출 + 임베딩 재생성 파이프라인"""
-    from sqlalchemy import select
-    from app.models.article import Article
+async def _run_retry_embeddings():
+    """임베딩 재시도 파이프라인"""
+    import json
+    from app.services.cache import get_redis
     from app.services.embedding import create_embeddings_batch, get_article_text
-    from app.services.keyword_extractor import extract_keywords
-    from app.services.vector_store import get_qdrant_client
-    from app.config import get_settings
-    from qdrant_client import models
-
-    settings = get_settings()
-    worker_engine, session_factory = _create_worker_engine()
-    BATCH = 16  # Azure API 배치 크기에 맞춤
-
-    try:
-        async with session_factory() as db:
-            # 모든 기사 대상 (NER 재추출 + 임베딩 재생성)
-            result = await db.execute(select(Article))
-            articles = result.scalars().all()
-
-            if not articles:
-                return {"status": "ok", "reembedded": 0}
-
-            client = get_qdrant_client()
-            total = len(articles)
-            updated = 0
-
-            for i in range(0, total, BATCH):
-                batch = articles[i:i + BATCH]
-
-                # NER 키워드 추출 + 메타데이터 업데이트
-                for article in batch:
-                    meta = dict(article.metadata_ or {})
-                    kw_data = extract_keywords(article.title)
-                    meta["keywords_data"] = kw_data
-                    article.metadata_ = meta
-
-                texts = [get_article_text(a.title, a.content) for a in batch]
-                embeddings = create_embeddings_batch(texts)
-
-                points = []
-                for article, embedding in zip(batch, embeddings):
-                    if embedding is None:
-                        logger.warning(f"Skipping re-embed for article {article.id}: embedding failed")
-                        continue
-                    article_meta = article.metadata_ or {}
-                    kw_data = article_meta.get("keywords_data", {})
-                    point_id = str(article.qdrant_point_id) if article.qdrant_point_id else str(uuid.uuid4())
-                    points.append(models.PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload={
-                            "article_id": str(article.id),
-                            "title": article.title,
-                            "publisher": article.publisher,
-                            "published_at": str(article.published_at) if article.published_at else None,
-                            "keywords": kw_data.get("keywords", []),
-                        },
-                    ))
-                    # qdrant_point_id가 없었던 기사에 할당
-                    if not article.qdrant_point_id:
-                        article.qdrant_point_id = point_id
-
-                client.upsert(
-                    collection_name=settings.qdrant_collection,
-                    points=points,
-                )
-                await db.commit()
-                updated += len(batch)
-                logger.info(f"Re-embedded {updated}/{total} articles")
-
-            # 캐시 무효화
-            from app.services.cache import invalidate_all_trend_caches
-            await invalidate_all_trend_caches()
-
-            return {"status": "ok", "reembedded": updated, "total": total}
-
-    finally:
-        await worker_engine.dispose()
-
-
-async def _run_category_migration():
-    """기존 기사 카테고리 일괄 분류"""
-    from sqlalchemy import select
+    from app.services.vector_store import upsert_embedding
     from app.models.article import Article
-    from app.services.category import resolve_category
+    from app.services.keyword_extractor import extract_keywords
+
+    redis_client = await get_redis()
+    if not redis_client:
+        return {"status": "skip", "reason": "redis_unavailable"}
+
+    queue_len = await redis_client.llen("embedding:retry_queue")
+    if queue_len == 0:
+        return {"status": "ok", "retried": 0, "queue_remaining": 0}
+
+    MAX_BATCH = 10
+    MAX_RETRY_COUNT = 3
+    items = []
+    for _ in range(min(MAX_BATCH, queue_len)):
+        raw = await redis_client.lpop("embedding:retry_queue")
+        if not raw:
+            break
+        try:
+            items.append(json.loads(raw))
+        except json.JSONDecodeError:
+            logger.warning("Invalid retry queue item, discarding")
+
+    if not items:
+        return {"status": "ok", "retried": 0, "queue_remaining": 0}
+
+    texts = [get_article_text(item["title"]) for item in items]
+    embeddings = create_embeddings_batch(texts)
 
     worker_engine, session_factory = _create_worker_engine()
+    succeeded = 0
+    re_queued = 0
+    discarded = 0
+
     try:
         async with session_factory() as db:
-            # category가 없는 기사 전체 조회
-            result = await db.execute(select(Article).limit(5000))
-            articles = [
-                a for a in result.scalars().all()
-                if not (a.metadata_ or {}).get("category")
-            ]
+            from sqlalchemy import select
+            for item, embedding in zip(items, embeddings):
+                retry_count = item.get("retry_count", 0)
 
-            if not articles:
-                return {"status": "ok", "migrated": 0, "message": "No articles to migrate"}
+                if embedding is None:
+                    if retry_count + 1 >= MAX_RETRY_COUNT:
+                        discarded += 1
+                        logger.warning(f"Discarding article after {MAX_RETRY_COUNT} retries: {item['title'][:50]}")
+                    else:
+                        item["retry_count"] = retry_count + 1
+                        await redis_client.rpush("embedding:retry_queue", json.dumps(item, default=str))
+                        re_queued += 1
+                    continue
 
-            migrated = 0
-            for article in articles:
-                meta = dict(article.metadata_ or {})
-                feed_cat = meta.get("feed_category")
-                resolved = resolve_category(
-                    source_category=None,
-                    feed_category=feed_cat,
-                    title=article.title,
+                result = await db.execute(
+                    select(Article).where(Article.url == item["url"])
                 )
+                existing = result.scalar_one_or_none()
+                if existing and existing.qdrant_point_id:
+                    succeeded += 1
+                    continue
 
-                if resolved:
-                    meta["category"] = resolved
+                if existing:
+                    article = existing
+                else:
+                    # published_at를 datetime으로 복원 (Redis JSON 직렬화 시 문자열로 변환됨)
+                    pub_at_raw = item.get("published_at")
+                    pub_at = None
+                    if pub_at_raw:
+                        try:
+                            from datetime import datetime as _dt
+                            pub_at = _dt.fromisoformat(pub_at_raw)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Failed to parse published_at: {pub_at_raw}")
+                    article = Article(
+                        title=item["title"],
+                        url=item["url"],
+                        publisher=item.get("publisher"),
+                        published_at=pub_at,
+                        content=item.get("content"),
+                        metadata_=item.get("metadata_", {}),
+                    )
+                    db.add(article)
+                    await db.flush()
+
+                meta = dict(article.metadata_ or {})
+                if "keywords_data" not in meta:
+                    meta["keywords_data"] = extract_keywords(article.title)
                     article.metadata_ = meta
-                    migrated += 1
+
+                kw_data = meta.get("keywords_data", {})
+                payload = {
+                    "title": article.title,
+                    "publisher": article.publisher,
+                    "published_at": str(article.published_at) if article.published_at else None,
+                    "keywords": kw_data.get("keywords", []),
+                }
+                point_id = upsert_embedding(str(article.id), embedding, payload)
+                article.qdrant_point_id = point_id
+                succeeded += 1
 
             await db.commit()
-            logger.info(f"Migrated {migrated} / {len(articles)} articles")
-
-            # 캐시 무효화
-            from app.services.cache import invalidate_all_trend_caches
-            await invalidate_all_trend_caches()
-
-            return {"status": "ok", "migrated": migrated, "total": len(articles)}
-
     finally:
         await worker_engine.dispose()
+
+    remaining = await redis_client.llen("embedding:retry_queue")
+    logger.info(f"Retry embeddings: {succeeded} succeeded, {re_queued} re-queued, {discarded} discarded, {remaining} remaining")
+    return {"status": "ok", "retried": succeeded, "re_queued": re_queued, "discarded": discarded, "queue_remaining": remaining}
+
+
+# ── Worker Memory Monitoring ──
+
+
+@celery_app.task(bind=True, soft_time_limit=30, time_limit=45)
+def check_worker_memory(self):
+    """
+    Celery Worker 메모리 모니터링 태스크
+
+    psutil로 현재 프로세스 RSS 확인 → 800MB 경고, 950MB 위험
+    Celery Beat에 의해 5분마다 실행
+    """
+    import os
+
+    try:
+        import psutil
+    except ImportError:
+        logger.warning("psutil not installed, skipping memory check")
+        return {"status": "skip", "reason": "psutil_not_installed"}
+
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    rss_mb = mem_info.rss / (1024 * 1024)
+
+    WARN_THRESHOLD_MB = 800
+    CRITICAL_THRESHOLD_MB = 950
+
+    status = "ok"
+    if rss_mb >= CRITICAL_THRESHOLD_MB:
+        status = "critical"
+        logger.error(f"Worker memory CRITICAL: {rss_mb:.0f}MB (threshold: {CRITICAL_THRESHOLD_MB}MB)")
+        try:
+            from app.services.webhook import send_webhook
+            send_webhook(
+                title="Worker 메모리 위험",
+                description=f"RSS: {rss_mb:.0f}MB / {CRITICAL_THRESHOLD_MB}MB 임계치 초과",
+                color=0xE74C3C,
+            )
+        except Exception:
+            pass
+    elif rss_mb >= WARN_THRESHOLD_MB:
+        status = "warning"
+        logger.warning(f"Worker memory WARNING: {rss_mb:.0f}MB (threshold: {WARN_THRESHOLD_MB}MB)")
+
+    return {"status": status, "rss_mb": round(rss_mb, 1), "pid": os.getpid()}

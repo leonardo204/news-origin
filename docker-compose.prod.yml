@@ -3,6 +3,11 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: newsorigin-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-newsorigin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newsorigin}
@@ -20,6 +25,11 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: newsorigin-qdrant
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - qdrant_data:/qdrant/storage
       - ./docker/qdrant/config.yaml:/qdrant/config/production.yaml:ro
@@ -35,6 +45,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: newsorigin-redis
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - redis_data:/data
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -52,6 +67,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - QDRANT_HOST=qdrant
@@ -96,6 +116,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-celery
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: celery -A app.workers.celery_app worker --loglevel=info --pool=solo
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
@@ -140,6 +165,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-celery-beat
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: >
       sh -c "rm -f /tmp/celerybeat-schedule.db /tmp/celerybeat-schedule.dir /tmp/celerybeat-schedule.bak /tmp/celerybeat-schedule &&
              celery -A app.workers.celery_app beat --loglevel=info"
@@ -167,6 +197,11 @@ services:
   flower:
     image: mher/flower:2.0
     container_name: newsorigin-flower
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: celery --broker=redis://redis:6379/1 flower --port=5555 --url_prefix=flower
     ports:
       - "15555:5555"
@@ -200,6 +235,11 @@ services:
   nginx:
     image: nginx:alpine
     container_name: newsorigin-nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "${PORT:-10880}:80"
     volumes:

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/Card'
 import Layout from '@/components/layout/Layout'
 import HomePage from '@/pages/HomePage'
 import NotFoundPage from '@/pages/NotFoundPage'
+import NetworkStatus from '@/components/ui/NetworkStatus'
 
 // Lazy-load heavy pages (contain ECharts / G6)
 const TimelinePage = lazy(() => import('@/pages/TimelinePage'))
@@ -57,7 +58,9 @@ function TrendsPageFallback() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
+    <>
+      <NetworkStatus />
+      <ErrorBoundary>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
@@ -81,5 +84,6 @@ export default function App() {
         </Route>
       </Routes>
     </ErrorBoundary>
+    </>
   )
 }

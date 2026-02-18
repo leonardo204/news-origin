@@ -1,9 +1,10 @@
 """
 # beat_schedule.py - Celery Beat Schedule Configuration
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: 주기적 백그라운드 뉴스 크롤링 스케줄
 # Changes:
 #   - 0.1.0: fetch_trending_news (30분), cleanup_old_articles (매일 03:00)
+#   - 0.2.0: retry_failed_embeddings (15분), check_worker_memory (5분)
 """
 
 from celery.schedules import crontab
@@ -46,5 +47,13 @@ beat_schedule = {
     "cleanup-old-articles-daily": {
         "task": "app.workers.tasks.cleanup_old_articles",
         "schedule": crontab(hour=3, minute=0),  # 매일 03:00 KST
+    },
+    "retry-failed-embeddings-every-15min": {
+        "task": "app.workers.tasks.retry_failed_embeddings",
+        "schedule": crontab(minute="*/15"),
+    },
+    "check-worker-memory-every-5min": {
+        "task": "app.workers.tasks.check_worker_memory",
+        "schedule": crontab(minute="*/5"),
     },
 }

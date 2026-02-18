@@ -5,7 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="뉴스 기사의 최초 출처를 추적하고 전파 과정을 시각화하는 서비스" />
-    <meta name="theme-color" content="#030712" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="manifest" href="/manifest.json" />
 
     <!-- Open Graph tags -->
     <meta property="og:title" content="News Origin - 뉴스 기원 추적" />
@@ -24,5 +25,12 @@
   <body class="min-h-screen antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {})
+        })
+      }
+    </script>
   </body>
 </html>

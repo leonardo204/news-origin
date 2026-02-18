@@ -8,8 +8,6 @@
 #            로컬 모델 제거 → 메모리 ~1GB 절감
 """
 
-from typing import Optional
-
 from app.config import get_settings
 from app.services.azure_openai import create_embedding_sync, create_embeddings_batch_sync
 
@@ -31,13 +29,12 @@ def create_embeddings_batch(texts: list[str]) -> list[list[float]]:
     return create_embeddings_batch_sync(texts)
 
 
-def get_article_text(title: str, content: Optional[str] = None) -> str:
+def get_article_text(title: str) -> str:
     """
     기사 임베딩용 텍스트 구성
 
     [BUSINESS LOGIC]
     제목만 사용하여 토픽 시그널 극대화
     본문 보일러플레이트(네비게이션, 광고, 쿠키 등)로 인한 유사도 과대평가 완전 제거
-    - content 파라미터는 하위 호환성을 위해 유지하되 사용하지 않음
     """
     return title

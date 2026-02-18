@@ -16,6 +16,7 @@ import {
   Filter,
   ArrowUpRight,
   ArrowDownRight,
+  ArrowLeftRight,
   Sparkles,
 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
@@ -23,6 +24,7 @@ import echarts from '@/lib/echarts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
+import ArticleCompare from '@/components/ArticleCompare'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
@@ -158,6 +160,9 @@ export default function TrendsPage() {
   const [isLoadingComparison, setIsLoadingComparison] = useState(false)
   const [comparisonError, setComparisonError] = useState<string | null>(null)
 
+  // Article compare modal state
+  const [compareCluster, setCompareCluster] = useState<TopicCluster | null>(null)
+
   // Scroll to expanded cluster (e.g. when coming from HomePage)
   useEffect(() => {
     if (!expandedClusterId) return
@@ -191,12 +196,27 @@ export default function TrendsPage() {
     }
   }, [setTrendView])
 
+  // Sync period from URL on mount
+  const urlPeriod = searchParams.get('period') as '24h' | '7d' | '30d' | null
+  useEffect(() => {
+    if (urlPeriod && ['24h', '7d', '30d'].includes(urlPeriod) && urlPeriod !== period) {
+      setPeriod(urlPeriod)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
     setPeriod(p)
+    const params = new URLSearchParams(searchParams)
+    if (p !== '24h') {
+      params.set('period', p)
+    } else {
+      params.delete('period')
+    }
+    setSearchParams(params)
     if (trendView === 'compare') {
       loadComparison()
     }
-  }, [setPeriod, trendView])
+  }, [setPeriod, trendView, searchParams, setSearchParams])
 
   const loadComparison = useCallback(async () => {
     setIsLoadingComparison(true)
@@ -431,6 +451,7 @@ export default function TrendsPage() {
                         isExpanded={expandedClusterId === cluster.cluster_id}
                         onToggle={() => toggleCluster(cluster.cluster_id)}
                         onTrack={handleTrack}
+                        onCompare={setCompareCluster}
                       />
                     ))}
                   </div>
@@ -460,6 +481,7 @@ export default function TrendsPage() {
                               isExpanded={expandedClusterId === cluster.cluster_id}
                               onToggle={() => toggleCluster(cluster.cluster_id)}
                               onTrack={handleTrack}
+                              onCompare={setCompareCluster}
                             />
                           ))}
                         </div>
@@ -627,6 +649,13 @@ export default function TrendsPage() {
           </div>
         </div>
       )}
+
+      {compareCluster && (
+        <ArticleCompare
+          articles={compareCluster.articles}
+          onClose={() => setCompareCluster(null)}
+        />
+      )}
     </div>
   )
 }
@@ -639,12 +668,14 @@ function TopicClusterCard({
   isExpanded,
   onToggle,
   onTrack,
+  onCompare,
 }: {
   cluster: TopicCluster
   rank: number
   isExpanded: boolean
   onToggle: () => void
   onTrack: (article: ClusterArticle) => void
+  onCompare: (cluster: TopicCluster) => void
 }) {
   const isHot = cluster.growth_rate >= 2 || cluster.article_count >= 5
 
@@ -719,11 +750,23 @@ function TopicClusterCard({
               e.stopPropagation()
               onTrack(cluster.representative_article)
             }}
-            className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-4 py-2.5 text-sm font-medium text-lifecycle-origin transition-colors hover:bg-lifecycle-origin/20 active:scale-[0.98]"
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-lifecycle-origin/30 bg-lifecycle-origin/10 px-4 py-2.5 text-sm font-medium text-lifecycle-origin transition-colors hover:bg-lifecycle-origin/20 active:scale-[0.98]"
           >
             <Newspaper className="h-4 w-4" />
             이 토픽의 대표 기사 추적 시작
           </button>
+          {cluster.articles.length >= 2 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onCompare(cluster)
+              }}
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-lifecycle-spread/30 bg-lifecycle-spread/10 px-4 py-2.5 text-sm font-medium text-lifecycle-spread transition-colors hover:bg-lifecycle-spread/20 active:scale-[0.98]"
+            >
+              <ArrowLeftRight className="h-4 w-4" />
+              기사 비교
+            </button>
+          )}
           <div className="space-y-0.5">
             {cluster.articles.map((article) => (
               <a

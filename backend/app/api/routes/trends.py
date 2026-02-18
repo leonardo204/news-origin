@@ -23,7 +23,7 @@ from app.models.timeline import TrackingRequest
 from app.models.search_log import SearchLog
 from app.schemas.search import (
     TrendItem, PopularSearch, StatsOverview,
-    ArticleTrendsResponse, RecentArticleItem,
+    ArticleTrendsResponse, RecentArticleItem, PaginatedRecentArticles,
 )
 from app.services.cache import cache_get, cache_set, cache_delete, get_redis
 
@@ -237,7 +237,16 @@ async def get_article_trends(
         logger.warning(f"Cache get failed: {e}")
 
     from app.core.trend_clustering import build_article_clusters
-    result = await build_article_clusters(db, period, min_cluster_size)
+    try:
+        result = await build_article_clusters(db, period, min_cluster_size)
+    except Exception as e:
+        logger.error(f"build_article_clusters failed for {period}: {e}")
+        # 캐시 워밍 실패 시 빈 결과 반환 (48초 타임아웃 방지)
+        from datetime import datetime, timezone
+        return ArticleTrendsResponse(
+            clusters=[], total_articles=0, total_clusters=0,
+            period=period, generated_at=datetime.now(timezone.utc),
+        )
 
     try:
         await cache_set(cache_key, result.model_dump(), ttl=1800)  # 30 minutes
@@ -249,17 +258,18 @@ async def get_article_trends(
 
 @router.get(
     "/recent-articles",
-    response_model=list[RecentArticleItem],
+    response_model=PaginatedRecentArticles,
     summary="최근 수집 기사 피드",
-    description="최근 수집된 기사 목록을 반환합니다. 카테고리 필터 가능.",
+    description="최근 수집된 기사 목록을 반환합니다. 카테고리 필터 및 offset/limit 페이지네이션 가능.",
 )
 async def get_recent_articles(
+    offset: int = Query(0, ge=0, description="건너뛸 기사 수"),
     limit: int = Query(30, ge=1, le=100),
     category: str | None = Query(None, description="카테고리 필터"),
     db: AsyncSession = Depends(get_session),
 ):
-    """최근 수집 기사 피드"""
-    cache_key = f"trends:recent-articles:{limit}:{category or 'all'}"
+    """최근 수집 기사 피드 (페이지네이션)"""
+    cache_key = f"trends:recent-articles:{offset}:{limit}:{category or 'all'}"
 
     try:
         cached = await cache_get(cache_key)
@@ -269,6 +279,15 @@ async def get_recent_articles(
         logger.warning(f"Cache get failed: {e}")
 
     category_col = Article.metadata_["category"].astext
+
+    # Count query
+    count_query = select(func.count(Article.id))
+    if category:
+        count_query = count_query.where(category_col == category)
+    count_result = await db.execute(count_query)
+    total = count_result.scalar() or 0
+
+    # Data query with offset/limit
     query = (
         select(
             Article.id,
@@ -280,6 +299,7 @@ async def get_recent_articles(
             category_col.label("feed_category"),
         )
         .order_by(Article.created_at.desc())
+        .offset(offset)
         .limit(limit)
     )
 
@@ -287,7 +307,7 @@ async def get_recent_articles(
         query = query.where(category_col == category)
 
     result = await db.execute(query)
-    articles = [
+    items = [
         RecentArticleItem(
             id=str(row.id),
             title=row.title,
@@ -300,13 +320,19 @@ async def get_recent_articles(
         for row in result.all()
     ]
 
+    response = PaginatedRecentArticles(
+        items=items,
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
     try:
-        articles_dict = [item.model_dump() for item in articles]
-        await cache_set(cache_key, articles_dict, ttl=600)  # 10 minutes
+        await cache_set(cache_key, response.model_dump(), ttl=600)  # 10 minutes
     except Exception as e:
         logger.warning(f"Cache set failed: {e}")
 
-    return articles
+    return response
 
 
 @router.get(
@@ -380,8 +406,16 @@ async def compare_trends(
 
     from app.core.trend_clustering import build_article_clusters
 
-    trends_a = await build_article_clusters(db, period=period_a)
-    trends_b = await build_article_clusters(db, period=period_b)
+    try:
+        trends_a = await build_article_clusters(db, period=period_a)
+        trends_b = await build_article_clusters(db, period=period_b)
+    except Exception as e:
+        logger.error(f"Compare clustering failed: {e}")
+        return {
+            "period_a": period_a, "period_b": period_b,
+            "summary": {"total_a": 0, "total_b": 0, "clusters_a": 0, "clusters_b": 0},
+            "category_changes": {}, "new_topics": [], "growing_topics": [],
+        }
 
     # 1. 카테고리별 변화량
     category_changes = {}

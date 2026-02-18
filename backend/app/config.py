@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     background_crawl_enabled: bool = True
     article_retention_days: int = 90
 
+    # Webhook
+    webhook_url: str = ""  # Discord/Slack webhook URL
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

@@ -110,7 +110,7 @@ async def main():
                 article.metadata_ = meta
 
             # Azure 임베딩 생성
-            texts = [get_article_text(a.title, a.content) for a in batch]
+            texts = [get_article_text(a.title) for a in batch]
             try:
                 embeddings = create_embeddings_batch(texts)
             except Exception as e:

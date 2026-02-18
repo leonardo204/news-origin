@@ -1,7 +1,9 @@
 """
 # search.py - Search & Trends Pydantic Schemas
-# Version: 0.2.0
+# Version: 0.3.0
 # Description: 검색, 트렌드, 통계 관련 스키마 (프론트엔드 타입과 일치)
+# Changes:
+#   - 0.3.0: PaginatedRecentArticles 스키마 추가 (recent-articles 페이지네이션)
 """
 from __future__ import annotations
 
@@ -84,3 +86,11 @@ class RecentArticleItem(BaseModel):
     created_at: datetime
     url: str
     category: str | None = None
+
+
+class PaginatedRecentArticles(BaseModel):
+    """페이지네이션된 최근 수집 기사 응답"""
+    items: list[RecentArticleItem]
+    total: int
+    offset: int
+    limit: int

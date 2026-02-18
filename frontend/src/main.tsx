@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import Toaster from './components/ui/Toaster'
+import { initWebVitals } from '@/lib/web-vitals'
 import './styles/globals.css'
 
 // Apply theme before render to prevent flash
@@ -21,3 +22,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </React.StrictMode>,
 )
+
+initWebVitals()

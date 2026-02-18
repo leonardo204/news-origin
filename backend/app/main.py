@@ -1,10 +1,11 @@
 """
 # main.py - FastAPI Application Entrypoint
-# Version: 0.4.0
+# Version: 0.5.0
 # Description: 앱 초기화, 미들웨어, 에러 핸들링, DB 초기화
 # Changes:
 #   - 0.3.0: 구조화된 JSON 로깅 적용, 요청 ID 트레이싱
 #   - 0.4.0: RFC 7807 Problem Details 에러 응답 표준화
+#   - 0.5.0: /api/health/embeddings 임베딩 품질 모니터링 엔드포인트 추가
 """
 
 import logging
@@ -131,6 +132,83 @@ app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(timeline.router, prefix="/api/timeline", tags=["timeline"])
 app.include_router(trends.router, prefix="/api/trends", tags=["trends"])
+
+
+@app.get("/api/health/embeddings", tags=["health"])
+async def health_embeddings():
+    """임베딩 품질 통계 (DB vs Qdrant 정합성 확인, 5분 캐시)"""
+    cache_key = "health:embeddings"
+
+    try:
+        from app.services.cache import cache_get, cache_set
+        cached = await cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception:
+        pass
+
+    result: dict = {}
+
+    # DB 통계
+    try:
+        from app.models.base import async_session_factory
+        from app.models.article import Article as ArticleModel
+        from sqlalchemy import select, func
+
+        async with async_session_factory() as session:
+            row = await session.execute(
+                select(
+                    func.count(ArticleModel.id).label("total"),
+                    func.count(ArticleModel.qdrant_point_id).label("embedded"),
+                )
+            )
+            stats = row.one()
+            total_articles = stats.total or 0
+            embedded_articles = stats.embedded or 0
+    except Exception as e:
+        logger.warning(f"Embedding health DB query failed: {e}")
+        total_articles = -1
+        embedded_articles = -1
+
+    embedding_rate = (
+        round(embedded_articles / total_articles * 100, 1)
+        if total_articles > 0 else 0.0
+    )
+
+    # Qdrant 컬렉션 벡터 수
+    qdrant_count = -1
+    try:
+        from app.services.vector_store import get_qdrant_client
+        from app.config import get_settings as _get_settings
+        client = get_qdrant_client()
+        if client is not None:
+            _settings = _get_settings()
+            info = client.get_collection(_settings.qdrant_collection)
+            qdrant_count = info.vectors_count if info.vectors_count is not None else 0
+    except Exception as e:
+        logger.warning(f"Embedding health Qdrant query failed: {e}")
+
+    mismatch = (
+        qdrant_count != embedded_articles
+        if qdrant_count >= 0 and embedded_articles >= 0
+        else None
+    )
+
+    result = {
+        "total_articles": total_articles,
+        "embedded_articles": embedded_articles,
+        "embedding_rate": embedding_rate,
+        "qdrant_collection_count": qdrant_count,
+        "mismatch": mismatch,
+    }
+
+    try:
+        from app.services.cache import cache_set
+        await cache_set(cache_key, result, ttl=300)  # 5 minutes
+    except Exception:
+        pass
+
+    return result
 
 
 @app.get("/api/health", tags=["health"])

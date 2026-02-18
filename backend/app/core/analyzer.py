@@ -44,7 +44,7 @@ def analyze_article(
 
     Returns: (qdrant_point_id, embedding)
     """
-    text = get_article_text(title, content)
+    text = get_article_text(title)
     embedding = create_embedding(text)
 
     # Qdrant에 저장 (NER 키워드 포함)
