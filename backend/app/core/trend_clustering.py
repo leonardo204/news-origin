@@ -82,7 +82,7 @@ def _collect_publisher_names(articles: list[dict]) -> set[str]:
         title = a.get("title", "")
         if " - " in title:
             suffix = title.rsplit(" - ", 1)[-1].strip()
-            if 2 <= len(suffix) <= 20:
+            if 2 <= len(suffix) <= 15:
                 suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
     return {s for s, c in suffix_counts.items() if c >= 2}
 
