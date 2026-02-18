@@ -84,7 +84,7 @@ make docker-down      # 인프라 중지
 1. Celery Beat → `fetch_trending_news` (30분 간격)
 2. Google News RSS 6개 카테고리 (headlines, politics, economy, society, tech, entertainment)
 3. 카테고리당 최대 15건, 실행당 최대 50건
-4. DB 중복 체크 → 본문 크롤링 → **BERT NER 키워드 추출** → **Azure 임베딩 생성** → PostgreSQL + Qdrant 저장
+4. DB 중복 체크 → 본문 크롤링 → **BERT NER 키워드 추출** (제목에서 언론사 접미사 자동 제거) → **Azure 임베딩 생성** → PostgreSQL + Qdrant 저장
 5. **임베딩 실패 시 DB 미저장 정책**: 임베딩 없는 기사는 벡터 검색/클러스터링이 불가하므로 DB에 저장하지 않음 (tasks.py v0.8.0)
 6. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
 7. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
@@ -93,6 +93,9 @@ make docker-down      # 인프라 중지
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
 - **임베딩 유사도 게이트**: cosine_sim >= 0.52 (CLUSTER_MERGE_EMB_THRESHOLD)
 - **키워드 오버랩 게이트**: 정확 일치 또는 부분 문자열 매칭 (한국어 엔터티 변형 대응)
+- **언론사명 키워드 제외**: Google News RSS 제목의 언론사 접미사(" - 매일경제" 등)를 키워드에서 자동 필터링
+  - `keyword_extractor.py`: NER 추출 전 제목에서 언론사 접미사 제거 (`_strip_publisher_suffix`)
+  - `trend_clustering.py`: 클러스터링 시 기사 집합에서 언론사명 수집 → 키워드 매칭/사유 생성에서 제외 (`_collect_publisher_names`, `_filter_keywords_data`)
 - **최대 컴포넌트 제한**: MAX_COMPONENT_ARTICLES = 30 (메가 클러스터 방지)
 - **마이그레이션**: `python -m scripts.migrate_embeddings` (관계 초기화 + 재임베딩)
 

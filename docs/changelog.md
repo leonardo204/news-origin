@@ -6,6 +6,24 @@
 
 ## 2026-02-18
 
+### fix: 클러스터 키워드에서 언론사명 제외 — 품질 개선
+- **문제**: Google News RSS 제목에 포함된 언론사명(" - 매일경제" 등)이 NER 키워드로 추출되어 클러스터 사유에 "매일경제" 같은 무의미한 키워드가 표시됨
+- **수정 파일**:
+  - `backend/app/core/trend_clustering.py`: 클러스터링 시 언론사명 자동 수집(`_collect_publisher_names`) → 키워드 매칭/사유 생성에서 제외(`_filter_keywords_data`)
+  - `backend/app/services/keyword_extractor.py`: NER 추출 전 제목에서 언론사 접미사 제거(`_strip_publisher_suffix`)
+- 기존 DB 기사(언론사명 포함 키워드)와 신규 기사(제거됨) 모두 대응
+
+### fix: Zod 스키마에 cluster_reason 필드 추가 — 뱃지 미표시 수정
+- **문제**: `ClusterArticleSchema`에 `cluster_reason` 필드가 없어 Zod `safeParse()`가 해당 필드를 strip → 프론트엔드에서 뱃지 미표시
+- **수정 파일**: `frontend/src/lib/schemas.ts`
+- `cluster_reason: z.string().nullable().optional()` 추가
+
+### feat: 클러스터 기사 목록 UI 개선 — 대표 뱃지 + 공통점 인라인
+- **수정 파일**: `frontend/src/pages/TrendsPage.tsx`
+- 대표 기사에 "대표" 뱃지, 사용자 선택 기사에 "선택" 뱃지 표시
+- `cluster_reason` 인라인 표시 (공통 키워드/유사도 사유)
+- 트렌드 페이지 이탈 시 선택 상태 초기화 (`useTrendStore.resetSelectedArticle`)
+
 ### feat: 전파트리 React Flow 마이그레이션 + 카드형 디자인
 - **변경**: `@antv/g6` → `@xyflow/react` (React Flow v12) + `@dagrejs/dagre` 전환
 - **수정 파일**: `frontend/src/components/visualization/PropagationGraph.tsx` (전면 재작성)
