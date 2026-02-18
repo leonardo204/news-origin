@@ -1,4 +1,4 @@
-const CACHE_NAME = 'newsorigin-v1'
+const CACHE_NAME = 'newsorigin-v2'
 const OFFLINE_URL = '/offline.html'
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/offline.html']
 
