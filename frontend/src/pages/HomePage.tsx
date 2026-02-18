@@ -115,7 +115,12 @@ export default function HomePage() {
                   key={cluster.cluster_id}
                   className="cursor-pointer overflow-hidden transition-all hover:border-lifecycle-origin/50 active:scale-[0.98]"
                   onClick={() => {
-                    useTrendStore.getState().toggleCluster(cluster.cluster_id)
+                    const store = useTrendStore.getState()
+                    // 기존 expanded 상태 초기화 후 새로 토글
+                    if (store.expandedClusterId) {
+                      store.toggleCluster(store.expandedClusterId)
+                    }
+                    store.toggleCluster(cluster.cluster_id)
                     navigate('/trends')
                   }}
                 >

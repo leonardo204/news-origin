@@ -179,6 +179,7 @@ export interface ClusterArticle {
   url: string
   category: string | null
   similarity_score: number
+  cluster_reason: string | null
 }
 
 export interface TopicCluster {

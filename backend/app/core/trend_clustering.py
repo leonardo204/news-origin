@@ -153,7 +153,7 @@ def _merge_similar_clusters(
                     queue.append(neighbor)
         components.append(component)
 
-    # 각 component의 클러스터들을 병합
+    # 각 component의 클러스터들을 병합 (reason 계산 포함)
     merged: list[dict] = []
     merge_count = 0
     for comp in components:
@@ -163,13 +163,36 @@ def _merge_similar_clusters(
 
         merge_count += len(comp) - 1
         base = clusters[comp[0]]
+        base_seed = base["members"][0]["article"]
+        base_vec = vectors.get(base_seed["qdrant_point_id"])
+        base_kws = _get_keyword_texts(base_seed.get("keywords_data", {}))
+
         all_members = list(base["members"])
         seen_ids = {m["article"]["id"] for m in all_members}
         for idx in comp[1:]:
             for m in clusters[idx]["members"]:
                 if m["article"]["id"] not in seen_ids:
+                    art = m["article"]
+                    # 병합 시 base seed 대비 유사도/reason 계산
+                    art_vec = vectors.get(art["qdrant_point_id"])
+                    if base_vec and art_vec:
+                        emb_sim = _cosine_similarity(base_vec, art_vec)
+                        art_kws = _get_keyword_texts(art.get("keywords_data", {}))
+                        common = base_kws & art_kws
+                        if not common:
+                            for a in base_kws:
+                                for b in art_kws:
+                                    if len(a) >= 2 and len(b) >= 2 and (a in b or b in a):
+                                        common.add(a if len(a) <= len(b) else b)
+                        kw_list = sorted(common)[:3]
+                        emb_pct = round(emb_sim * 100)
+                        if kw_list:
+                            reason = f"키워드 '{', '.join(kw_list)}' 공유 · 유사도 {emb_pct}%"
+                        else:
+                            reason = f"내용 유사도 {emb_pct}%"
+                        m = {**m, "score": round(emb_sim, 4), "reason": reason}
                     all_members.append(m)
-                    seen_ids.add(m["article"]["id"])
+                    seen_ids.add(art["id"])
         merged.append({
             "cluster_id": base["cluster_id"],
             "members": all_members,
@@ -310,7 +333,7 @@ async def build_article_clusters(
         similar = similar_map.get(aid, [])
 
         # 클러스터 멤버 수집 (가중치 복합 스코어링)
-        members = [{"article": article, "score": 1.0}]
+        members = [{"article": article, "score": 1.0, "reason": "대표 기사"}]
         clustered_ids.add(aid)
         seed_publisher = article.get("publisher", "")
         seed_keywords = article.get("keywords_data", {})
@@ -349,12 +372,32 @@ async def build_article_clusters(
                     continue
                 # 키워드 없이 높은 임베딩만으로 통과 (final_score = embedding만)
                 final_score = embedding_score
+
+                reason = f"내용 유사도 {round(embedding_score * 100)}%"
             elif final_score < CLUSTER_FINAL_THRESHOLD:
                 continue
+            else:
+                # 공통 키워드 추출
+                seed_kw_texts = _get_keyword_texts(seed_keywords)
+                hit_kw_texts = _get_keyword_texts(hit_keywords)
+                common = seed_kw_texts & hit_kw_texts
+                if not common:
+                    # 부분 매칭으로 겹친 경우
+                    for a in seed_kw_texts:
+                        for b in hit_kw_texts:
+                            if len(a) >= 2 and len(b) >= 2 and (a in b or b in a):
+                                common.add(a if len(a) <= len(b) else b)
+                kw_list = sorted(common)[:3]
+                emb_pct = round(embedding_score * 100)
+                if kw_list:
+                    reason = f"키워드 '{', '.join(kw_list)}' 공유 · 유사도 {emb_pct}%"
+                else:
+                    reason = f"내용 유사도 {emb_pct}%"
 
             members.append({
                 "article": hit_article,
                 "score": round(final_score, 4),
+                "reason": reason,
             })
             clustered_ids.add(hit_aid)
 
@@ -411,6 +454,7 @@ async def build_article_clusters(
                 url=m["article"]["url"],
                 category=m["article"]["category"],
                 similarity_score=round(m["score"], 3),
+                cluster_reason=m.get("reason"),
             )
             for m in sorted_members[:MAX_ARTICLES_PER_CLUSTER_RESPONSE]
         ]
@@ -467,6 +511,7 @@ async def build_article_clusters(
             id=rep["id"], title=rep["title"], publisher=rep["publisher"],
             published_at=rep["published_at"], created_at=rep["created_at"],
             url=rep["url"], category=rep["category"], similarity_score=1.0,
+            cluster_reason="대표 기사",
         )
         topic_clusters.append(TopicCluster(
             cluster_id=str(uuid.uuid4()), title=rep["title"],

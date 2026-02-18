@@ -48,6 +48,7 @@ class ClusterArticle(BaseModel):
     url: str
     category: str | None = None
     similarity_score: float = 1.0
+    cluster_reason: str | None = None
 
 
 class TopicCluster(BaseModel):

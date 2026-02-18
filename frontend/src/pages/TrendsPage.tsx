@@ -175,6 +175,16 @@ export default function TrendsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 페이지 이탈 시 expanded 클러스터 초기화
+  useEffect(() => {
+    return () => {
+      const state = useTrendStore.getState()
+      if (state.expandedClusterId) {
+        state.toggleCluster(state.expandedClusterId)
+      }
+    }
+  }, [])
+
   // Collapse expanded cluster on outside click
   useEffect(() => {
     if (!expandedClusterId) return
@@ -785,12 +795,12 @@ function TopicClusterCard({
                     {article.published_at && (
                       <span>{formatRelativeTime(article.published_at)}</span>
                     )}
-                    {article.similarity_score < 1 && (
-                      <span className="tabular-nums">
-                        유사도 {Math.round(article.similarity_score * 100)}%
-                      </span>
-                    )}
                   </div>
+                  {article.cluster_reason && (
+                    <p className="mt-0.5 text-[10px] sm:text-[11px] text-lifecycle-spread/80">
+                      {article.cluster_reason}
+                    </p>
+                  )}
                 </div>
                 <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
               </a>
