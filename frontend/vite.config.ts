@@ -43,7 +43,6 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-echarts': ['echarts', 'echarts-for-react'],
-          'vendor-g6': ['@antv/g6'],
         },
       },
     },

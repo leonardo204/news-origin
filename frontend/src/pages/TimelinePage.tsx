@@ -426,7 +426,7 @@ export default function TimelinePage() {
       {showGraph && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           {/* Modal: full-screen on mobile, centered on desktop */}
-          <div className="flex h-full w-full flex-col bg-background sm:h-[90vh] sm:max-h-[900px] sm:w-[92vw] sm:max-w-[1200px] sm:rounded-2xl sm:border sm:border-border sm:shadow-2xl">
+          <div className="flex h-full w-full flex-col bg-background sm:h-[95vh] sm:w-[97vw] sm:rounded-2xl sm:border sm:border-border sm:shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-3 py-3 sm:px-5">
               <div className="flex items-center gap-2 sm:gap-3">

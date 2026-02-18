@@ -1,6 +1,17 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
-import { ZoomIn, ZoomOut, Maximize2, Minimize2, Info } from 'lucide-react'
-import { Graph } from '@antv/g6'
+import { useState, useMemo, useCallback } from 'react'
+import {
+  ReactFlow,
+  Background,
+  Position,
+  Handle,
+  MarkerType,
+  type Node,
+  type Edge,
+  type NodeProps,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import dagre from '@dagrejs/dagre'
+import { Info } from 'lucide-react'
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, truncate } from '@/lib/utils'
 import type { GraphNode, GraphEdge, LifecycleStage } from '@/types'
 
@@ -11,23 +22,228 @@ interface PropagationGraphProps {
   className?: string
 }
 
+const NODE_LIMIT = 50
+const NODE_W = 300
+const NODE_H = 108
+const ORIGIN_W = 320
+const ORIGIN_H = 114
+const DAGRE_PAD = 28
+const MAX_COLS_PER_ROW = 4
+const COL_WIDTH = NODE_W + 180
+const ROW_GAP = 200
+
+/* ─── Helpers ─── */
+
+function getNodeColor(n: GraphNode): string {
+  if (n.is_origin) return '#22c55e'
+  return LIFECYCLE_COLORS[(n.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
+}
+
+function edgeColor(e: GraphEdge, isDark: boolean): string {
+  if (e.similarity_category === 'same') return '#22c55e'
+  if (e.similarity_category === 'derivative') return '#3b82f6'
+  return isDark ? '#6b7280' : '#9ca3af'
+}
+
+function edgeWidth(e: GraphEdge): number {
+  if (e.similarity_category === 'same') return 2.5
+  if (e.similarity_category === 'derivative') return 2
+  return 1
+}
+
+/* ─── Serpentine dagre layout ─── */
+
+function layoutGraph(graphNodes: GraphNode[], graphEdges: GraphEdge[], isDark: boolean) {
+  const g = new dagre.graphlib.Graph()
+  g.setDefaultEdgeLabel(() => ({}))
+  g.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 180 })
+
+  graphNodes.forEach((n) => {
+    const w = n.is_origin ? ORIGIN_W : NODE_W
+    const h = n.is_origin ? ORIGIN_H : NODE_H
+    g.setNode(n.id, { width: w + DAGRE_PAD, height: h + DAGRE_PAD })
+  })
+  graphEdges.forEach((e) => g.setEdge(e.source, e.target))
+  dagre.layout(g)
+
+  const dagrePos = new Map<string, { x: number; y: number }>()
+  graphNodes.forEach((n) => {
+    const p = g.node(n.id)
+    dagrePos.set(n.id, { x: p.x, y: p.y })
+  })
+
+  const allXs = [...new Set([...dagrePos.values()].map((p) => p.x))].sort((a, b) => a - b)
+  const xToCol = new Map<number, number>()
+  allXs.forEach((x, i) => xToCol.set(x, i))
+
+  const totalCols = allXs.length
+  const needsWrap = totalCols > MAX_COLS_PER_ROW
+
+  interface RowInfo { minY: number; maxY: number }
+  const rowMap = new Map<number, RowInfo>()
+
+  graphNodes.forEach((n) => {
+    const pos = dagrePos.get(n.id)!
+    const col = xToCol.get(pos.x) || 0
+    const rowIdx = needsWrap ? Math.floor(col / MAX_COLS_PER_ROW) : 0
+    const h = n.is_origin ? ORIGIN_H : NODE_H
+    const row = rowMap.get(rowIdx) || { minY: Infinity, maxY: -Infinity }
+    row.minY = Math.min(row.minY, pos.y - h / 2)
+    row.maxY = Math.max(row.maxY, pos.y + h / 2)
+    rowMap.set(rowIdx, row)
+  })
+
+  const rowOffsets = new Map<number, { yOffset: number; minY: number }>()
+  let cumulativeY = 0
+  const sortedRows = [...rowMap.keys()].sort((a, b) => a - b)
+  for (const rowIdx of sortedRows) {
+    const row = rowMap.get(rowIdx)!
+    rowOffsets.set(rowIdx, { yOffset: cumulativeY, minY: row.minY })
+    cumulativeY += row.maxY - row.minY + ROW_GAP
+  }
+
+  const nodes: Node[] = graphNodes.map((n) => {
+    const pos = dagrePos.get(n.id)!
+    const col = xToCol.get(pos.x) || 0
+    const w = n.is_origin ? ORIGIN_W : NODE_W
+    const h = n.is_origin ? ORIGIN_H : NODE_H
+    const color = getNodeColor(n)
+
+    let finalX: number
+    let finalY: number
+
+    if (needsWrap) {
+      const rowIdx = Math.floor(col / MAX_COLS_PER_ROW)
+      const colInRow = col % MAX_COLS_PER_ROW
+      const offsets = rowOffsets.get(rowIdx)!
+      finalX = colInRow * COL_WIDTH
+      finalY = (pos.y - offsets.minY) + offsets.yOffset
+    } else {
+      finalX = pos.x
+      finalY = pos.y
+    }
+
+    return {
+      id: n.id,
+      type: n.is_origin ? 'origin' : 'article',
+      position: { x: finalX - w / 2, y: finalY - h / 2 },
+      data: { ...n },
+      style: { background: color, width: w, height: h },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    }
+  })
+
+  const edges: Edge[] = graphEdges.map((e, i) => ({
+    id: `e-${i}`,
+    source: e.source,
+    target: e.target,
+    type: 'smoothstep',
+    animated: e.similarity_category === 'same',
+    style: {
+      stroke: edgeColor(e, isDark),
+      strokeWidth: edgeWidth(e),
+      strokeDasharray: e.similarity_category === 'related' ? '5 5' : undefined,
+      opacity: 0.7,
+    },
+    markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(e, isDark) },
+    label: `${Math.round(e.similarity_score * 100)}%`,
+    labelStyle: { fontSize: 11, fontWeight: 600, fill: isDark ? '#d1d5db' : '#4b5563' },
+    labelBgStyle: { fill: isDark ? '#1f2937' : '#ffffff', opacity: 0.9 },
+    labelBgPadding: [6, 8] as [number, number],
+    labelBgBorderRadius: 6,
+  }))
+
+  return { nodes, edges }
+}
+
+/* ─── Custom node components ─── */
+
+function OriginNode({ data }: NodeProps) {
+  const d = data as unknown as GraphNode
+  return (
+    <div
+      className="flex overflow-hidden rounded-xl bg-white shadow-lg dark:bg-gray-900"
+      style={{ width: ORIGIN_W, minHeight: ORIGIN_H, boxShadow: '0 4px 16px rgba(34,197,94,0.18)' }}
+    >
+      <div className="w-2 shrink-0 bg-lifecycle-origin" />
+      <div className="flex-1 px-4 py-3">
+        <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-lifecycle-origin" />
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-lifecycle-origin/15 px-2 py-0.5 text-xs font-bold text-lifecycle-origin">
+            ★ 기원
+          </span>
+          <span className="text-sm text-muted-foreground">{d.publisher || '알 수 없음'}</span>
+        </div>
+        <p className="mt-2 text-[15px] font-semibold leading-snug text-foreground">
+          {truncate(d.title, 50)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ArticleNode({ data }: NodeProps) {
+  const d = data as unknown as GraphNode
+  const color = LIFECYCLE_COLORS[(d.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
+  const label = LIFECYCLE_LABELS[(d.lifecycle_stage as LifecycleStage) || 'fadeout'] || ''
+  const score = Math.round(d.similarity_score * 100)
+
+  return (
+    <div
+      className="flex overflow-hidden rounded-xl bg-white dark:bg-gray-900"
+      style={{
+        width: NODE_W,
+        minHeight: NODE_H,
+        boxShadow: `0 2px 12px ${color}22`,
+        outline: d.is_user_selected ? `2px dashed ${color}` : undefined,
+        border: d.is_user_selected ? undefined : `1px solid ${color}35`,
+      }}
+    >
+      <div className="w-2 shrink-0" style={{ backgroundColor: color }} />
+      <div className="flex-1 px-4 py-3">
+        <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-2 !border-white !bg-gray-400 dark:!border-gray-900" />
+        <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-gray-400 dark:!border-gray-900" />
+        <div className="flex items-center gap-2">
+          {d.is_user_selected && (
+            <span className="inline-flex items-center rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-bold text-blue-500">◎</span>
+          )}
+          <span className="text-sm font-medium text-foreground/70">{d.publisher || '알 수 없음'}</span>
+          <span className="text-sm text-muted-foreground/50">·</span>
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold"
+            style={{ backgroundColor: color + '18', color }}
+          >
+            {score}%
+          </span>
+          {label && (
+            <span className="text-[11px] text-muted-foreground">{label}</span>
+          )}
+        </div>
+        <p className="mt-2 text-[15px] leading-snug text-foreground">
+          {truncate(d.title, 50)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+const nodeTypes = { origin: OriginNode, article: ArticleNode }
+
+/* ─── Main component ─── */
+
 export default function PropagationGraph({ nodes, edges, onNodeClick, className }: PropagationGraphProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const graphRef = useRef<Graph | null>(null)
-  const destroyedRef = useRef(false)
-  const nodesRef = useRef(nodes)
-  nodesRef.current = nodes
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [showLegend, setShowLegend] = useState(false)
   const [showAllNodes, setShowAllNodes] = useState(false)
 
-  // Limit nodes to top 50 by similarity_score when count exceeds 50
-  const NODE_LIMIT = 50
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
   const hasExcessNodes = nodes.length > NODE_LIMIT
   const limitedNodes = useMemo(() => {
     if (!hasExcessNodes || showAllNodes) return nodes
-    const origin = nodes.find(n => n.is_origin)
-    const nonOrigin = nodes.filter(n => !n.is_origin)
+    const origin = nodes.find((n) => n.is_origin)
+    const nonOrigin = nodes
+      .filter((n) => !n.is_origin)
       .sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0))
       .slice(0, NODE_LIMIT - (origin ? 1 : 0))
     return origin ? [origin, ...nonOrigin] : nonOrigin
@@ -35,246 +251,26 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
 
   const limitedEdges = useMemo(() => {
     if (!hasExcessNodes || showAllNodes) return edges
-    const nodeIds = new Set(limitedNodes.map(n => n.id))
-    return edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+    const nodeIds = new Set(limitedNodes.map((n) => n.id))
+    return edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
   }, [edges, limitedNodes, hasExcessNodes, showAllNodes])
 
+  const { nodes: rfNodes, edges: rfEdges } = useMemo(
+    () => layoutGraph(limitedNodes, limitedEdges, isDark),
+    [limitedNodes, limitedEdges, isDark],
+  )
+
   const handleNodeClick = useCallback(
-    (nodeId: string) => {
-      const node = nodesRef.current.find((n) => n.id === nodeId)
-      if (node) {
-        if (onNodeClick) {
-          onNodeClick(node)
-        } else {
-          window.open(node.url || '#', '_blank', 'noopener,noreferrer')
-        }
+    (_: React.MouseEvent, node: Node) => {
+      const graphNode = node.data as unknown as GraphNode
+      if (onNodeClick) {
+        onNodeClick(graphNode)
+      } else if (graphNode.url) {
+        window.open(graphNode.url, '_blank', 'noopener,noreferrer')
       }
     },
     [onNodeClick],
   )
-
-  // ESC to exit fullscreen
-  useEffect(() => {
-    if (!isFullscreen) return
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsFullscreen(false)
-    }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [isFullscreen])
-
-  const handleZoomIn = useCallback(() => {
-    if (graphRef.current) graphRef.current.zoomTo(1.3)
-  }, [])
-  const handleZoomOut = useCallback(() => {
-    if (graphRef.current) graphRef.current.zoomTo(0.7)
-  }, [])
-  const handleFitView = useCallback(() => {
-    if (graphRef.current) graphRef.current.fitView()
-  }, [])
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev)
-    setTimeout(() => {
-      if (graphRef.current && containerRef.current) {
-        graphRef.current.resize(
-          containerRef.current.offsetWidth,
-          containerRef.current.offsetHeight,
-        )
-        graphRef.current.fitView()
-      }
-    }, 100)
-  }, [])
-
-  // Detect dark mode
-  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-
-  useEffect(() => {
-    if (!containerRef.current || limitedNodes.length === 0) return
-
-    if (graphRef.current) {
-      graphRef.current.destroy()
-      graphRef.current = null
-    }
-
-    destroyedRef.current = false
-
-    const container = containerRef.current
-    const width = container.offsetWidth
-    const height = Math.max(550, container.offsetHeight)
-
-    // Detect mobile
-    const isMobile = width < 640
-
-    const graphData = {
-      nodes: limitedNodes.map((node) => ({
-        id: node.id,
-        data: { ...node },
-      })),
-      edges: limitedEdges.map((edge, i) => ({
-        id: `edge-${i}`,
-        source: edge.source,
-        target: edge.target,
-        data: { ...edge },
-      })),
-    }
-
-    const graph = new Graph({
-      container,
-      width,
-      height,
-      autoFit: 'view',
-      padding: [50, 50, 50, 50],
-      data: graphData,
-      node: {
-        type: 'rect',
-        style: {
-          size: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            if (nd.is_origin) return isMobile ? [200, 56] : [260, 64]
-            return isMobile ? [170, 48] : [220, 56]
-          },
-          radius: 10,
-          fill: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            const color = LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
-            return nd.is_origin ? color + '30' : color + '18'
-          },
-          stroke: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            return LIFECYCLE_COLORS[(nd.lifecycle_stage as LifecycleStage) || 'fadeout'] || '#6b7280'
-          },
-          lineWidth: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            if (nd.is_origin) return 2.5
-            if (nd.is_user_selected) return 2.5
-            return 1.5
-          },
-          lineDash: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            return nd.is_user_selected && !nd.is_origin ? [6, 3] : undefined
-          },
-          shadowColor: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            if (nd.is_origin) return 'rgba(34, 197, 94, 0.35)'
-            if (nd.lifecycle_stage === 'explosion') return 'rgba(239, 68, 68, 0.25)'
-            return 'transparent'
-          },
-          shadowBlur: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            return nd.is_origin ? 14 : nd.lifecycle_stage === 'explosion' ? 10 : 0
-          },
-          labelText: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            const publisher = nd.publisher || '알 수 없음'
-            const titleLen = isMobile ? 18 : 28
-            if (nd.is_origin) {
-              return `★ ${publisher}\n${truncate(nd.title, titleLen)}`
-            }
-            const prefix = nd.is_user_selected ? '◎ ' : ''
-            const score = Math.round(nd.similarity_score * 100)
-            return `${prefix}${publisher} · ${score}%\n${truncate(nd.title, titleLen)}`
-          },
-          labelFill: isDark ? '#e5e7eb' : '#1f2937',
-          labelFontSize: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            return nd.is_origin ? 12 : 11
-          },
-          labelFontWeight: (d: Record<string, unknown>) => {
-            const nd = d.data as GraphNode
-            return nd.is_origin ? 'bold' : 'normal'
-          },
-          labelLineHeight: 16,
-          labelPlacement: 'center',
-          cursor: 'pointer',
-        },
-      },
-      edge: {
-        type: 'cubic-vertical',
-        style: {
-          stroke: (d: Record<string, unknown>) => {
-            const ed = d.data as GraphEdge
-            if (ed.similarity_category === 'same') return '#22c55e'
-            if (ed.similarity_category === 'derivative') return '#3b82f6'
-            return isDark ? '#6b7280' : '#9ca3af'
-          },
-          lineWidth: (d: Record<string, unknown>) => {
-            const ed = d.data as GraphEdge
-            if (ed.similarity_category === 'same') return 2.5
-            if (ed.similarity_category === 'derivative') return 2
-            return 1
-          },
-          lineDash: (d: Record<string, unknown>) => {
-            const ed = d.data as GraphEdge
-            return ed.similarity_category === 'related' ? [5, 5] : undefined
-          },
-          endArrow: true,
-          endArrowSize: 7,
-          opacity: 0.65,
-          labelText: (d: Record<string, unknown>) => {
-            const ed = d.data as GraphEdge
-            return `${Math.round(ed.similarity_score * 100)}%`
-          },
-          labelFill: isDark ? '#9ca3af' : '#6b7280',
-          labelFontSize: 9,
-          labelBackgroundFill: isDark ? '#111827' : '#f9fafb',
-          labelBackgroundRadius: 4,
-          labelBackgroundOpacity: 0.85,
-          labelPadding: [2, 4],
-        },
-      },
-      layout: {
-        type: 'dagre',
-        rankdir: 'BT',
-        nodesep: isMobile ? 25 : 40,
-        ranksep: isMobile ? 55 : 75,
-      },
-      behaviors: [
-        'zoom-canvas',
-        'drag-canvas',
-        'drag-element',
-      ],
-    })
-
-    graphRef.current = graph
-
-    graph.on('node:click', (evt) => {
-      const nodeId = (evt as { target?: { id?: string } })?.target?.id
-      if (nodeId) handleNodeClick(nodeId)
-    })
-
-    const rafId = requestAnimationFrame(() => {
-      if (!destroyedRef.current && graphRef.current) {
-        const renderPromise = graph.render()
-        if (renderPromise && typeof renderPromise.catch === 'function') {
-          renderPromise.catch(() => {})
-        }
-      }
-    })
-
-    const handleResize = () => {
-      if (graphRef.current && containerRef.current && !destroyedRef.current) {
-        graphRef.current.resize(
-          containerRef.current.offsetWidth,
-          Math.max(550, containerRef.current.offsetHeight),
-        )
-      }
-    }
-    window.addEventListener('resize', handleResize)
-
-    return () => {
-      destroyedRef.current = true
-      cancelAnimationFrame(rafId)
-      window.removeEventListener('resize', handleResize)
-      if (graphRef.current) {
-        try {
-          graphRef.current.destroy()
-        } catch {
-          // Already destroyed
-        }
-        graphRef.current = null
-      }
-    }
-  }, [limitedNodes, limitedEdges, handleNodeClick, isDark])
 
   if (nodes.length === 0) {
     return (
@@ -285,123 +281,99 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background p-2 sm:p-4 md:p-6' : ''}`}>
+    <div className={`relative ${className || 'h-full'}`}>
       {/* Node limit warning */}
       {hasExcessNodes && (
-        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-2">
-            <span className="text-yellow-400">⚠️</span>
-            <div className="text-sm">
-              <p className="font-medium text-yellow-400">
-                노드가 {nodes.length}개로 많습니다
-              </p>
-              <p className="mt-0.5 text-xs text-yellow-400/80">
-                {showAllNodes ? '전체' : `상위 ${NODE_LIMIT}개`} 노드 표시 중
-                {!showAllNodes && ` (${nodes.length - NODE_LIMIT}개 숨김)`}
-              </p>
-            </div>
+        <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 backdrop-blur-sm">
+          <div className="text-xs">
+            <span className="font-medium text-yellow-400">
+              {showAllNodes ? '전체' : `상위 ${NODE_LIMIT}개`} / {nodes.length}개 노드
+            </span>
           </div>
           <button
             onClick={() => setShowAllNodes(!showAllNodes)}
-            className="shrink-0 rounded-md border border-yellow-500/40 bg-yellow-500/20 px-3 py-1.5 text-xs font-medium text-yellow-400 transition-colors hover:bg-yellow-500/30"
+            className="rounded-lg border border-yellow-500/40 bg-yellow-500/20 px-2.5 py-1 text-xs font-medium text-yellow-400 transition-colors hover:bg-yellow-500/30"
           >
-            {showAllNodes ? '축소 모드' : '모두 표시'}
+            {showAllNodes ? '축소' : '전체'}
           </button>
         </div>
       )}
 
-      <div
-        ref={containerRef}
-        className={`w-full rounded-xl border border-border bg-gray-50/50 dark:bg-gray-900/40 ${
-          isFullscreen ? 'h-full' : className || 'h-[400px] sm:h-[600px]'
-        }`}
-        style={{ touchAction: 'none' }}
-      />
-
-      {/* Controls */}
-      <div className="absolute right-2 top-2 flex flex-col gap-1 sm:right-3 sm:top-3">
-        {([
-          { action: handleZoomIn, icon: <ZoomIn className="h-4 w-4" />, label: '확대' },
-          { action: handleZoomOut, icon: <ZoomOut className="h-4 w-4" />, label: '축소' },
-          { action: handleFitView, icon: <span className="text-[10px] font-bold">FIT</span>, label: '전체보기' },
-          { action: toggleFullscreen, icon: isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />, label: isFullscreen ? '축소' : '전체화면' },
-        ] as const).map((ctrl, i) => (
-          <button
-            key={i}
-            onClick={ctrl.action}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-white/90 text-gray-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-foreground dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label={ctrl.label}
-          >
-            {ctrl.icon}
-          </button>
-        ))}
-      </div>
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={nodeTypes}
+        onNodeClick={handleNodeClick}
+        fitView
+        fitViewOptions={{ padding: 0.05, maxZoom: 0.8 }}
+        panOnScroll
+        minZoom={0.3}
+        maxZoom={1.5}
+        proOptions={{ hideAttribution: true }}
+        nodesDraggable
+        nodesConnectable={false}
+      >
+        <Background gap={28} size={1} color={isDark ? '#374151' : '#e5e7eb'} />
+      </ReactFlow>
 
       {/* Legend toggle */}
-      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3">
+      <div className="absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3">
         <button
           onClick={() => setShowLegend(!showLegend)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/50 bg-white/90 text-gray-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-foreground dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-800"
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/50 bg-white/90 text-gray-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-foreground dark:bg-gray-800/90 dark:text-gray-400 dark:hover:bg-gray-800"
           aria-label="범례"
         >
           <Info className="h-4 w-4" />
         </button>
         {showLegend && (
-          <div className="mt-1.5 min-w-[180px] rounded-lg border border-border/50 bg-white/95 p-2.5 shadow-lg backdrop-blur-sm dark:bg-gray-800/95">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">라이프사이클</p>
-            <div className="space-y-1">
+          <div className="mt-1.5 min-w-[200px] rounded-xl border border-border/50 bg-white/95 p-3 shadow-lg backdrop-blur-sm dark:bg-gray-800/95">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">라이프사이클</p>
+            <div className="space-y-1.5">
               {(['origin', 'spread', 'explosion', 'sustained', 'fadeout'] as LifecycleStage[]).map(
                 (stage) => (
-                  <div key={stage} className="flex items-center gap-2">
+                  <div key={stage} className="flex items-center gap-2.5">
                     <span
-                      className="inline-block h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                      className="inline-block h-3 w-3 rounded-full ring-1 ring-black/10"
                       style={{ backgroundColor: LIFECYCLE_COLORS[stage] }}
                     />
-                    <span className="text-[11px] text-foreground/70">
+                    <span className="text-xs text-foreground/70">
                       {LIFECYCLE_LABELS[stage]}
                     </span>
                   </div>
                 ),
               )}
             </div>
-            <div className="my-2 border-t border-border/50" />
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">유사도</p>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-0.5 w-5 rounded bg-green-500" />
-                <span className="text-[11px] text-foreground/70">동일 (80%+)</span>
+            <div className="my-2.5 border-t border-border/50" />
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">유사도</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2.5">
+                <span className="inline-block h-0.5 w-6 rounded bg-green-500" />
+                <span className="text-xs text-foreground/70">동일 (80%+)</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-0.5 w-5 rounded bg-blue-500" />
-                <span className="text-[11px] text-foreground/70">파생 (65-80%)</span>
+              <div className="flex items-center gap-2.5">
+                <span className="inline-block h-0.5 w-6 rounded bg-blue-500" />
+                <span className="text-xs text-foreground/70">파생 (65-80%)</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-0.5 w-5 rounded border-t-2 border-dashed border-gray-400" />
-                <span className="text-[11px] text-foreground/70">관련 (52-65%)</span>
+              <div className="flex items-center gap-2.5">
+                <span className="inline-block h-0.5 w-6 rounded border-t-2 border-dashed border-gray-400" />
+                <span className="text-xs text-foreground/70">관련 (52-65%)</span>
               </div>
             </div>
-            <div className="my-2 border-t border-border/50" />
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">노드</p>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px]">★</span>
-                <span className="text-[11px] text-foreground/70">기원 기사</span>
+            <div className="my-2.5 border-t border-border/50" />
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">노드</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs font-bold text-lifecycle-origin">★</span>
+                <span className="text-xs text-foreground/70">기원 기사</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px]">◎</span>
-                <span className="text-[11px] text-foreground/70">내가 선택한 기사</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs font-bold text-blue-500">◎</span>
+                <span className="text-xs text-foreground/70">내가 선택한 기사</span>
               </div>
             </div>
           </div>
         )}
       </div>
-
-      {/* Fullscreen indicator */}
-      {isFullscreen && (
-        <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded-lg border border-border/50 bg-white/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm dark:bg-gray-800/90">
-          ESC로 전체화면 종료
-        </div>
-      )}
     </div>
   )
 }

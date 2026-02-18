@@ -5,7 +5,7 @@
 
 ## Tech Stack
 - **Backend**: FastAPI + SQLAlchemy (async) + Alembic + Celery + Pydantic Settings
-- **Frontend**: React 19 + TypeScript + Vite + Zustand + Tailwind CSS + ECharts + @antv/g6
+- **Frontend**: React 19 + TypeScript + Vite + Zustand + Tailwind CSS + ECharts + React Flow (@xyflow/react)
 - **Infra**: PostgreSQL 15 + Qdrant (vector DB) + Redis 7 + Nginx
 - **Embedding**: Azure OpenAI `text-embedding-3-large` (1024차원, API 기반)
 - **NER**: `klue/bert-base` 기반 키워드 추출 (kiwipiepy 폴백)
@@ -164,7 +164,7 @@ make docker-down      # 인프라 중지
 
 ### Nginx 캐싱 구조
 - **proxy_cache**: trends API 4개 엔드포인트에 2~5분 TTL (nginx.prod.conf)
-- **Redis 캐시**: 동일 엔드포인트에 10~30분 TTL (trends.py), 크롤 완료 시 명시적 삭제
+- **Redis 캐시**: 동일 엔드포인트에 TTL 1시간 (trends.py), 크롤 완료 시 삭제 후 즉시 재계산 워밍
 - **이중 캐시**: Nginx(1ms 응답) → Redis(DB 쿼리 방지) 순서로 동작
 - 프론트엔드: Nginx에서 직접 서빙 (`frontend_dist` 볼륨), /assets/ 1년 캐시
 - 캐시 미적용: SSE(/api/trends/events), 쓰기 엔드포인트, 폴링
@@ -180,3 +180,20 @@ make docker-down      # 인프라 중지
 - Backend: Python async/await, SQLAlchemy 2.0 스타일
 - Frontend: 함수형 컴포넌트, Zustand 상태관리
 - 커밋 메시지: `type: 한국어 설명` (fix, feat, refactor, docs 등)
+
+## Deployment
+- 배포 스크립트: `./scripts/deploy.sh {frontend|backend|all|full}`
+- 상세 가이드: [docs/deployment.md](docs/deployment.md)
+
+## Documentation Rules
+- 모든 코드 변경 작업 완료 후, 관련 docs/ 문서를 찾아 업데이트할 것
+- 새 기능/버그 수정은 [docs/changelog.md](docs/changelog.md)에 기록
+- 배포 방법 변경 시 [docs/deployment.md](docs/deployment.md) 업데이트
+- CLAUDE.md 본문은 핵심 참조만 유지, 상세 내용은 docs/ 하위 문서로 분리
+
+## Linked Documents
+- [docs/deployment.md](docs/deployment.md) — 배포 가이드 (deploy.sh, Docker Compose)
+- [docs/changelog.md](docs/changelog.md) — 주요 변경 이력
+- [docs/implementation-plan.md](docs/implementation-plan.md) — 구현 계획 (v1.0.0)
+- [docs/infrastructure-p0-implementation.md](docs/infrastructure-p0-implementation.md) — 인프라 P0
+- [docs/todo-enhancement.md](docs/todo-enhancement.md) — 개선 로드맵

@@ -102,7 +102,7 @@ describe('useTrackingStore', () => {
   })
 
   it('reset clears poll timer', () => {
-    const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout')
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
 
     // Simulate active timer
     const timer = setTimeout(() => {}, 1000)

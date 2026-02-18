@@ -104,6 +104,10 @@ export default function Header() {
   const handleLogoClick = (e: React.MouseEvent) => {
     e.preventDefault()
     useTrackingStore.getState().reset()
+    loadStats()
+    loadCrawlStatus()
+    useTrendStore.getState().loadArticleTrends()
+    useTrendStore.getState().loadRecentArticles()
     navigate('/')
   }
 

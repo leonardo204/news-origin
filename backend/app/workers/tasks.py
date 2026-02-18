@@ -72,12 +72,16 @@ def fetch_trending_news(self):
         logger.warning("Background crawling is disabled")
         return {"status": "disabled"}
 
-    from app.services.cache import set_crawl_status, acquire_task_lock, release_task_lock
+    from app.services.cache import set_crawl_status, acquire_task_lock, release_task_lock, _reset_redis
 
     # 동시실행 방지 (distributed lock)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    lock_acquired = False
     try:
+        # 이전 이벤트 루프의 stale Redis 연결 제거 (재연결 실패 방지)
+        _reset_redis()
+
         lock_acquired = loop.run_until_complete(
             acquire_task_lock("fetch_trending_news", timeout=1800)
         )
@@ -98,7 +102,8 @@ def fetch_trending_news(self):
         loop.run_until_complete(set_crawl_status("idle"))
         return {"status": "error", "error": str(e)[:200]}
     finally:
-        loop.run_until_complete(release_task_lock("fetch_trending_news"))
+        if lock_acquired:
+            loop.run_until_complete(release_task_lock("fetch_trending_news"))
         loop.close()
 
 
@@ -289,10 +294,24 @@ async def _run_fetch_trending():
             except Exception as e:
                 logger.warning(f"Sampling evaluation skipped: {e}")
 
-        # 6. 상태 초기화 + 캐시 무효화 + SSE 이벤트 발행
+        # 6. 상태 초기화 + 캐시 무효화 + 트렌드 캐시 워밍 + SSE 이벤트 발행
         await set_crawl_status("idle")
-        from app.services.cache import invalidate_all_trend_caches, publish_event
+        from app.services.cache import invalidate_all_trend_caches, publish_event, cache_set
         await invalidate_all_trend_caches()
+
+        # 트렌드 캐시 워밍: 3개 기간 미리 계산하여 Redis에 저장
+        # 사용자 요청 시 즉시 응답 가능 (on-demand 계산 48초 → 캐시 <10ms)
+        from app.core.trend_clustering import build_article_clusters
+        async with session_factory() as warm_db:
+            for period in ("24h", "7d", "30d"):
+                try:
+                    result = await build_article_clusters(warm_db, period, min_cluster_size=1)
+                    cache_key = f"trends:article-clusters:{period}:1"
+                    await cache_set(cache_key, result.model_dump(), ttl=3600)
+                    logger.info(f"Trend cache warmed: {period}")
+                except Exception as e:
+                    logger.warning(f"Trend cache warming failed for {period}: {e}")
+
         await publish_event("stats_updated", {
             "type": "crawl_complete",
             "crawled": len(crawled),

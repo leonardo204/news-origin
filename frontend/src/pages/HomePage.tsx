@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, Clock, Flame, Users, TrendingDown } from 'lucide-react'
+import { Newspaper, TrendingUp, Clock, Flame, TrendingDown } from 'lucide-react'
 import SearchBar from '@/components/search/SearchBar'
 import ArticleConfirm from '@/components/search/ArticleConfirm'
 import TrackingProgress from '@/components/search/TrackingProgress'
@@ -11,7 +11,7 @@ import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatRelativeTime, truncate } from '@/lib/utils'
-import { CATEGORY_LABELS, CATEGORY_BG } from '@/lib/constants'
+import { CATEGORY_LABELS, CATEGORY_COLORS } from '@/lib/constants'
 import type { TopicCluster } from '@/types'
 
 export default function HomePage() {
@@ -23,7 +23,17 @@ export default function HomePage() {
   // Whether the user is in any step of the search/tracking flow
   const isInSearchFlow = isSearching || !!searchResult || !!trackingStatus
 
-  const clusters = articleTrends?.clusters ?? []
+  // 카테고리별 대표 1개 클러스터만 선택
+  const trendByCategory = useMemo(() => {
+    const clusters = articleTrends?.clusters ?? []
+    const seen = new Set<string>()
+    return clusters.filter((c) => {
+      const cat = c.categories[0]
+      if (!cat || seen.has(cat)) return false
+      seen.add(cat)
+      return true
+    })
+  }, [articleTrends])
 
   useEffect(() => {
     loadArticleTrends()
@@ -72,7 +82,7 @@ export default function HomePage() {
           </button>
         </div>
 
-        {isLoading && clusters.length === 0 ? (
+        {isLoading && trendByCategory.length === 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i}>
@@ -83,7 +93,7 @@ export default function HomePage() {
               </Card>
             ))}
           </div>
-        ) : !isLoading && clusters.length === 0 ? (
+        ) : !isLoading && trendByCategory.length === 0 ? (
           <EmptyState
             icon={<TrendingDown className="h-10 w-10" />}
             title="실시간 트렌드를 불러오지 못했습니다"
@@ -93,50 +103,49 @@ export default function HomePage() {
               onClick: () => loadArticleTrends(),
             }}
           />
-        ) : clusters.length > 0 ? (
+        ) : trendByCategory.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {clusters.slice(0, 9).map((cluster: TopicCluster, i: number) => {
+            {trendByCategory.map((cluster: TopicCluster) => {
               const primaryCat = cluster.categories[0]
               const isHot = cluster.growth_rate >= 2 || cluster.article_count >= 5
+              const catColor = CATEGORY_COLORS[primaryCat] || '#888'
+              const publisher = cluster.representative_article?.publisher
               return (
                 <Card
                   key={cluster.cluster_id}
-                  className="cursor-pointer transition-all hover:border-lifecycle-origin/50 active:scale-[0.98]"
+                  className="cursor-pointer overflow-hidden transition-all hover:border-lifecycle-origin/50 active:scale-[0.98]"
                   onClick={() => {
                     useTrendStore.getState().toggleCluster(cluster.cluster_id)
                     navigate('/trends')
                   }}
                 >
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="mb-1.5 flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-muted-foreground/60">
-                        {i + 1}
-                      </span>
-                      {primaryCat && (
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${CATEGORY_BG[primaryCat] || 'bg-muted text-muted-foreground'}`}
-                        >
-                          {CATEGORY_LABELS[primaryCat] || primaryCat}
+                  <CardContent className="flex p-0">
+                    <div className="w-1 shrink-0 rounded-l" style={{ backgroundColor: catColor }} />
+                    <div className="flex-1 p-3 sm:p-4">
+                      <div className="mb-1 flex items-center gap-1.5">
+                        {primaryCat && (
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {CATEGORY_LABELS[primaryCat] || primaryCat}
+                          </span>
+                        )}
+                        {isHot && <Flame className="h-3.5 w-3.5 text-lifecycle-explosion" />}
+                      </div>
+                      <h3 className="text-[15px] font-medium leading-snug">
+                        {truncate(cluster.title, 60)}
+                      </h3>
+                      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                        {publisher && (
+                          <span className="truncate font-medium">{publisher}</span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <Newspaper className="h-3 w-3" />
+                          {cluster.article_count}
                         </span>
-                      )}
-                      {isHot && <Flame className="h-3.5 w-3.5 text-lifecycle-explosion" />}
-                    </div>
-                    <h3 className="text-sm font-medium leading-snug">
-                      {truncate(cluster.title, 55)}
-                    </h3>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Newspaper className="h-3 w-3" />
-                        {cluster.article_count}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
-                        {cluster.publishers.length}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatRelativeTime(cluster.last_seen)}
-                      </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatRelativeTime(cluster.last_seen)}
+                        </span>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

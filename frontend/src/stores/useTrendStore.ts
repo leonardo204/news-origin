@@ -52,7 +52,7 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   trendView: 'overall',
 
   setPeriod: (period) => {
-    set({ period, isLoading: !get().articleTrends })
+    set({ period, articleTrends: null, isLoading: true })
     get().loadArticleTrends()
   },
 
