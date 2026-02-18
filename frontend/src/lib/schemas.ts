@@ -10,6 +10,7 @@ export const ClusterArticleSchema = z.object({
   url: z.string(),
   category: z.string().nullable(),
   similarity_score: z.number(),
+  cluster_reason: z.string().nullable().optional(),
 })
 
 export const TopicClusterSchema = z.object({
