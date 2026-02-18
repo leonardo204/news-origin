@@ -100,6 +100,21 @@ class KeywordExtractor:
         self._use_bert_ner = False
         logger.info("kiwipiepy morphological analyzer loaded as fallback")
 
+    @staticmethod
+    def _strip_publisher_suffix(title: str) -> str:
+        """제목 끝의 ' - 언론사명' 패턴 제거
+
+        Google News RSS 제목에 포함된 언론사명이 키워드로 추출되는 것을 방지.
+        예: "기사 제목 - 매일경제" → "기사 제목"
+        """
+        if " - " in title:
+            parts = title.rsplit(" - ", 1)
+            suffix = parts[-1].strip()
+            # 언론사명은 보통 2~15자, 특수문자 없음
+            if 2 <= len(suffix) <= 15 and not any(c in suffix for c in ".,!?;:()[]{}"):
+                return parts[0].strip()
+        return title
+
     def extract(self, title: str) -> dict:
         """
         단일 제목에서 키워드 추출
@@ -107,6 +122,7 @@ class KeywordExtractor:
         Returns: {"keywords": [...], "entities": [...], "method": "..."}
         """
         self._load()
+        title = self._strip_publisher_suffix(title)
 
         if self._use_bert_ner:
             return self._extract_with_bert(title)
@@ -119,6 +135,7 @@ class KeywordExtractor:
         [CRITICAL] 대량 기사 처리 시 사용
         """
         self._load()
+        titles = [self._strip_publisher_suffix(t) for t in titles]
 
         if self._use_bert_ner:
             return [self._extract_with_bert(t) for t in titles]

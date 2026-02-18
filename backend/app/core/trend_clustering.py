@@ -58,15 +58,44 @@ def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
-def _get_keyword_texts(keywords_data: dict) -> set[str]:
-    """키워드 데이터에서 모든 키워드/엔터티 텍스트 추출"""
+def _get_keyword_texts(keywords_data: dict, exclude: set[str] | None = None) -> set[str]:
+    """키워드 데이터에서 모든 키워드/엔터티 텍스트 추출 (제외 목록 지원)"""
     texts = set(keywords_data.get("keywords", []))
     for e in keywords_data.get("entities", []):
         t = e.get("text", "")
         if t:
             texts.add(t)
     texts.discard("")
+    if exclude:
+        texts -= exclude
     return texts
+
+
+def _collect_publisher_names(articles: list[dict]) -> set[str]:
+    """기사 제목에서 언론사명 추출 (제목 끝 ' - 언론사명' 패턴)
+
+    2회 이상 등장하는 접미사만 언론사명으로 인정.
+    키워드에서 언론사명을 제외하기 위해 사용.
+    """
+    suffix_counts: dict[str, int] = {}
+    for a in articles:
+        title = a.get("title", "")
+        if " - " in title:
+            suffix = title.rsplit(" - ", 1)[-1].strip()
+            if 2 <= len(suffix) <= 20:
+                suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
+    return {s for s, c in suffix_counts.items() if c >= 2}
+
+
+def _filter_keywords_data(keywords_data: dict, exclude: set[str]) -> dict:
+    """키워드 데이터에서 언론사명 등 제외 텍스트 필터링"""
+    if not exclude:
+        return keywords_data
+    return {
+        **keywords_data,
+        "keywords": [k for k in keywords_data.get("keywords", []) if k not in exclude],
+        "entities": [e for e in keywords_data.get("entities", []) if e.get("text", "") not in exclude],
+    }
 
 
 def _has_keyword_overlap(kws_a: set[str], kws_b: set[str]) -> bool:
@@ -91,6 +120,7 @@ def _has_keyword_overlap(kws_a: set[str], kws_b: set[str]) -> bool:
 def _merge_similar_clusters(
     clusters: list[dict],
     vectors: dict[str, list[float]],
+    publisher_names: set[str] | None = None,
 ) -> list[dict]:
     """
     그래프 기반 클러스터 병합 (connected components)
@@ -110,7 +140,7 @@ def _merge_similar_clusters(
     for c in clusters:
         seed = c["members"][0]["article"]
         seed_vecs.append(vectors.get(seed["qdrant_point_id"]))
-        seed_kws.append(_get_keyword_texts(seed.get("keywords_data", {})))
+        seed_kws.append(_get_keyword_texts(seed.get("keywords_data", {}), exclude=publisher_names))
 
     # 인접 리스트 구축
     adj: list[list[int]] = [[] for _ in range(n)]
@@ -165,7 +195,7 @@ def _merge_similar_clusters(
         base = clusters[comp[0]]
         base_seed = base["members"][0]["article"]
         base_vec = vectors.get(base_seed["qdrant_point_id"])
-        base_kws = _get_keyword_texts(base_seed.get("keywords_data", {}))
+        base_kws = _get_keyword_texts(base_seed.get("keywords_data", {}), exclude=publisher_names)
 
         all_members = list(base["members"])
         seen_ids = {m["article"]["id"] for m in all_members}
@@ -177,7 +207,7 @@ def _merge_similar_clusters(
                     art_vec = vectors.get(art["qdrant_point_id"])
                     if base_vec and art_vec:
                         emb_sim = _cosine_similarity(base_vec, art_vec)
-                        art_kws = _get_keyword_texts(art.get("keywords_data", {}))
+                        art_kws = _get_keyword_texts(art.get("keywords_data", {}), exclude=publisher_names)
                         common = base_kws & art_kws
                         if not common:
                             for a in base_kws:
@@ -282,6 +312,11 @@ async def build_article_clusters(
     if not valid_articles:
         return _empty_response(period)
 
+    # 2.5. 언론사명 수집 (키워드에서 제외하기 위해)
+    publisher_names = _collect_publisher_names(list(valid_articles.values()))
+    if publisher_names:
+        logger.info(f"Publisher names to exclude from keywords: {publisher_names}")
+
     # 3. Greedy 클러스터링 (가중치 복합 스코어링) - 배치 검색 최적화
     clustered_ids: set[str] = set()
     clusters: list[dict] = []
@@ -357,9 +392,11 @@ async def build_article_clusters(
             if embedding_score < CLUSTER_EMBEDDING_THRESHOLD:
                 continue
 
-            # NER 키워드 유사도 계산
+            # NER 키워드 유사도 계산 (언론사명 제외)
             hit_keywords = hit_article.get("keywords_data", {})
-            keyword_score = compute_keyword_similarity(seed_keywords, hit_keywords)
+            filtered_seed_kw = _filter_keywords_data(seed_keywords, publisher_names)
+            filtered_hit_kw = _filter_keywords_data(hit_keywords, publisher_names)
+            keyword_score = compute_keyword_similarity(filtered_seed_kw, filtered_hit_kw)
 
             # 가중치 복합 스코어
             final_score = ALPHA * embedding_score + BETA * keyword_score
@@ -377,9 +414,9 @@ async def build_article_clusters(
             elif final_score < CLUSTER_FINAL_THRESHOLD:
                 continue
             else:
-                # 공통 키워드 추출
-                seed_kw_texts = _get_keyword_texts(seed_keywords)
-                hit_kw_texts = _get_keyword_texts(hit_keywords)
+                # 공통 키워드 추출 (언론사명 제외)
+                seed_kw_texts = _get_keyword_texts(seed_keywords, exclude=publisher_names)
+                hit_kw_texts = _get_keyword_texts(hit_keywords, exclude=publisher_names)
                 common = seed_kw_texts & hit_kw_texts
                 if not common:
                     # 부분 매칭으로 겹친 경우
@@ -408,7 +445,7 @@ async def build_article_clusters(
         })
 
     # 3.5. 유사 클러스터 병합 (seed 간 유사도 기반)
-    clusters = _merge_similar_clusters(clusters, vectors)
+    clusters = _merge_similar_clusters(clusters, vectors, publisher_names)
 
     # 4. 클러스터 메타데이터 계산
     topic_clusters = []
