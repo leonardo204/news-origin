@@ -124,7 +124,7 @@ export default function HomePage() {
                     navigate('/trends')
                   }}
                 >
-                  <CardContent className="flex p-0">
+                  <CardContent className="flex h-full p-0">
                     <div className="w-1 shrink-0 rounded-l" style={{ backgroundColor: catColor }} />
                     <div className="flex-1 p-3 sm:p-4">
                       <div className="mb-1 flex items-center gap-1.5">

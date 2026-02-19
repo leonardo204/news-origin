@@ -466,7 +466,7 @@ async def build_article_clusters(
             for a in articles_data
         ]
         first_seen = min(timestamps)
-        last_seen = max(timestamps)
+        last_seen = max(a["created_at"] for a in articles_data)
 
         duration_hours = max(
             (last_seen - first_seen).total_seconds() / 3600, 1.0
@@ -554,7 +554,7 @@ async def build_article_clusters(
             cluster_id=str(uuid.uuid4()), title=rep["title"],
             article_count=1,
             publishers=[rep["publisher"]] if rep["publisher"] else [],
-            categories=[cat], first_seen=ts, last_seen=ts,
+            categories=[cat], first_seen=ts, last_seen=rep["created_at"],
             avg_similarity=1.0, representative_article=cluster_article,
             articles=[cluster_article], growth_rate=0,
         ))
