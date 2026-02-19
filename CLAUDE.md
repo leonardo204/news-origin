@@ -137,9 +137,9 @@ make docker-down      # 인프라 중지
 ## Host PC & Performance Constraints
 
 ### 호스트 사양 (CRITICAL - 모든 변경 시 고려)
-- CPU: Intel i3-2310M (2코어/4스레드, 2.10GHz) - 2011년형 저사양
-- RAM: 3.8GB (동일 호스트에서 Outline Wiki도 운영)
-- GPU: 없음 - BERT NER 모델은 CPU 전용, 임베딩은 Azure OpenAI API
+- CPU: Intel i7-9750H (6코어/12스레드, 2.60GHz, 최대 4.5GHz) - MacBook Pro 2019
+- RAM: 16GB
+- GPU: AMD Radeon RX 5500M (CUDA 미지원) - BERT NER 모델은 CPU 전용, 임베딩은 Azure OpenAI API
 - 사용자: 극소수
 
 ### Celery Worker 설정 주의 (CRITICAL)
@@ -156,14 +156,14 @@ make docker-down      # 인프라 중지
 ### Docker mem_limit 설정 근거
 | 컨테이너 | 한도 | 실사용 | 비고 |
 |-----------|------|--------|------|
-| celery-worker | 1024m | ~740m (BERT NER 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + 오버헤드, 임베딩은 Azure API |
-| qdrant | 512m | ~75m (현재) | 기사 누적 시 성장, 90일 보존 |
-| backend | 384m | ~130m | 단일 uvicorn 워커 |
-| celery-beat | 128m | ~46m | 스케줄러 전용 |
-| postgres | 128m | ~28m | DB 크기 ~10MB |
-| redis | 64m | ~5m | maxmemory 32mb |
+| celery-worker | 1024m | ~956m (BERT NER 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + 오버헤드, 임베딩은 Azure API |
+| qdrant | 512m | ~102m (현재) | 기사 누적 시 성장, 90일 보존 |
+| backend | 384m | ~133m | 단일 uvicorn 워커 |
+| celery-beat | 128m | ~48m | 스케줄러 전용 |
+| postgres | 128m | ~46m | DB 크기 ~10MB |
+| redis | 64m | ~4m | maxmemory 32mb |
 | nginx | 64m | ~4m | proxy_cache 포함 |
-| frontend | 32m | ~5m | 정적 파일 서빙 |
+| frontend | 32m | ~10m | 정적 파일 서빙 |
 
 ### Nginx 캐싱 구조
 - **proxy_cache**: trends API 4개 엔드포인트에 2~5분 TTL (nginx.prod.conf)

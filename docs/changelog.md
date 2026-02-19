@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-02-19
+
+### fix: 누락된 ORM 모델 파일 추가 + .gitignore 수정
+- **문제**: `.gitignore`의 `models/` 규칙(ML 모델 캐시용)이 `backend/app/models/` 디렉토리까지 무시하여 `base.py`, `article.py`, `search_log.py`, `__init__.py` 4개 파일이 git에 커밋되지 않았음
+- **수정**: `models/` → `*.bin`, `*.pt`, `*.onnx`, `*.safetensors` 확장자 기반으로 변경
+- 모델 파일 4개 커밋 추가
+
+### infra: 호스트 마이그레이션 완료 (i3-2310M → i7-9750H)
+- 기존 호스트(Intel i3-2310M, 3.8GB RAM)에서 신규 호스트(Intel i7-9750H, 16GB RAM)로 이전
+- PostgreSQL 4325 articles, Qdrant 4766 vectors 복원 완료
+- CLAUDE.md 호스트 사양 및 실사용 메모리 수치 업데이트
+
+---
+
 ## 2026-02-18
 
 ### fix: 클러스터 키워드에서 언론사명 제외 — 품질 개선
