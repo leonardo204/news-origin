@@ -54,7 +54,10 @@ coverage.xml
 
 # ML Models (cached)
 .cache/
-models/
+*.bin
+*.pt
+*.onnx
+*.safetensors
 
 # Migration data (backups, secrets)
 migration/data/
