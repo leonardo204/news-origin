@@ -198,7 +198,6 @@ export default function Header() {
                       <div className="space-y-2">
                         <CrawlStatusRow phase={crawlStatus.phase} detail={crawlStatus.detail} />
                         <div className="border-t border-border/50" />
-                        <StatRow icon={<BarChart3 className="h-3.5 w-3.5 text-lifecycle-spread" />} label="총 추적" value={stats.total_trackings} />
                         <StatRow icon={<Newspaper className="h-3.5 w-3.5 text-lifecycle-origin" />} label="수집된 기사" value={stats.total_articles} />
                         <StatRow icon={<TrendingUp className="h-3.5 w-3.5 text-lifecycle-explosion" />} label="진행 중" value={stats.active_trackings} />
                         <div className="border-t border-border/50" />
@@ -207,7 +206,7 @@ export default function Header() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-[13px] text-muted-foreground">마지막 크롤링</span>
+                            <span className="text-[13px] text-muted-foreground">마지막 업데이트</span>
                           </div>
                           <span className="text-[13px] font-medium tabular-nums">
                             {stats.last_crawl_at ? formatRelativeTime(stats.last_crawl_at) : '-'}
@@ -259,7 +258,7 @@ function CrawlStatusRow({ phase, detail }: { phase: string; detail: string | nul
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
         <Radio className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-[13px] text-muted-foreground">크롤링</span>
+        <span className="text-[13px] text-muted-foreground">수집상태</span>
       </div>
       <div className="flex items-center gap-1.5">
         <span className={`h-2 w-2 rounded-full ${config.dotClass}`} />

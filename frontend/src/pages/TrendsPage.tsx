@@ -253,11 +253,50 @@ export default function TrendsPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Header */}
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <TrendingUp className="h-6 w-6 text-lifecycle-explosion" />
-          뉴스 트렌드
-        </h1>
+      <div className="mb-4 flex items-center gap-2">
+        <TrendingUp className="h-6 w-6 text-lifecycle-explosion" />
+        <h1 className="text-2xl font-bold">뉴스 트렌드</h1>
+      </div>
+
+      {error && (
+        <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Publisher Filter + Period Filter (same row) */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {articleTrends && topPublishers.length > 0 && (
+            <>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" />
+                <span className="font-medium">언론사:</span>
+              </div>
+              <select
+                value={selectedPublisher || ''}
+                onChange={(e) => setPublisher(e.target.value || null)}
+                className="rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-lifecycle-origin/50"
+              >
+                <option value="">전체</option>
+                {topPublishers.map((pub) => (
+                  <option key={pub} value={pub}>
+                    {pub}
+                  </option>
+                ))}
+              </select>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                  필터 초기화
+                </button>
+              )}
+            </>
+          )}
+        </div>
         {/* Period Filter */}
         <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-1">
           {(['24h', '7d', '30d'] as const).map((p) => (
@@ -276,16 +315,9 @@ export default function TrendsPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
-        </div>
-      )}
-
-      {/* Filters */}
-      {!isLoading && articleTrends && (
-        <div className="mb-6 space-y-3">
-          {/* Category Filter */}
+      {/* Category Filter */}
+      {articleTrends && (
+        <div className="mb-6">
           <div className="rounded-lg border border-border bg-secondary/20 p-3">
             <button
               onClick={() => setCategoryFilterExpanded(!categoryFilterExpanded)}
@@ -334,44 +366,18 @@ export default function TrendsPage() {
               </div>
             </div>
           </div>
-
-          {/* Publisher Filter */}
-          {topPublishers.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="h-4 w-4" />
-                <span className="font-medium">언론사:</span>
-              </div>
-              <select
-                value={selectedPublisher || ''}
-                onChange={(e) => setPublisher(e.target.value || null)}
-                className="rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-lifecycle-origin/50"
-              >
-                <option value="">전체</option>
-                {topPublishers.map((pub) => (
-                  <option key={pub} value={pub}>
-                    {pub}
-                  </option>
-                ))}
-              </select>
-              {hasActiveFilters && (
-                <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-1 rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                  필터 초기화
-                </button>
-              )}
-            </div>
-          )}
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading && !articleTrends ? (
         <LoadingSkeleton />
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px]">
+        <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px]">
+          {isLoading && (
+            <div className="absolute inset-x-0 top-0 z-10 h-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-lifecycle-origin" />
+            </div>
+          )}
           {/* Left: Main Content */}
           <div className="space-y-6">
             {/* Topic Clusters */}

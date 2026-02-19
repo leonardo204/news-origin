@@ -52,7 +52,7 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   trendView: 'overall',
 
   setPeriod: (period) => {
-    set({ period, articleTrends: null, isLoading: true })
+    set({ period, isLoading: true })
     get().loadArticleTrends()
   },
 
@@ -75,8 +75,7 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   },
 
   loadArticleTrends: async () => {
-    const hasData = !!get().articleTrends
-    set({ isLoading: !hasData, error: null })
+    set({ isLoading: true, error: null })
     try {
       const articleTrends = await api.getArticleTrends(get().period)
       set({ articleTrends, isLoading: false })
