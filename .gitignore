@@ -56,5 +56,8 @@ coverage.xml
 .cache/
 models/
 
+# Migration data (backups, secrets)
+migration/data/
+
 # OMC
 .omc/
