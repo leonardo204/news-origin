@@ -23,19 +23,19 @@ export default function Header() {
 
     let es: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null
     let retryDelay = 1000
     let unmounted = false
     let isFirstConnect = true
 
     function connect() {
       if (unmounted) return
-      if (!isFirstConnect) setSseStatus('reconnecting')
       isFirstConnect = false
       es = new EventSource('/api/trends/events')
-      retryDelay = 1000 // reset on successful connection attempt
 
       es.onopen = () => {
         retryDelay = 1000
+        if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null }
         setSseStatus('connected')
       }
 
@@ -57,7 +57,10 @@ export default function Header() {
       es.onerror = () => {
         es?.close()
         es = null
-        setSseStatus('offline')
+        // 5초 이상 끊겨 있을 때만 'offline' 표시 (짧은 끊김은 무시)
+        if (!offlineTimer && !isFirstConnect) {
+          offlineTimer = setTimeout(() => { setSseStatus('offline') }, 5000)
+        }
         if (!unmounted) {
           reconnectTimer = setTimeout(() => {
             retryDelay = Math.min(retryDelay * 2, 30000)
@@ -73,6 +76,7 @@ export default function Header() {
       unmounted = true
       es?.close()
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (offlineTimer) clearTimeout(offlineTimer)
     }
   }, [loadStats, loadCrawlStatus, updateCrawlStatus])
 
