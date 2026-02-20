@@ -94,12 +94,14 @@ make docker-down      # 인프라 중지
 - **데이터 수집**: 크롤링 배치마다 5건 샘플 평가 + 6시간 주기 30건 추가 수집
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
-- **Fine-tuning**: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
+- **Fine-tuning**: 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거 (24시간 내 중복 방지)
+  - 수동 실행도 가능: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
 - **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교), 롤백
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006)
-- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 02:00)
+- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 02:00 UTC = 11:00 KST, 자동 fine-tuning 포함)
+- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 6단계 시각화, 인라인 평가 활동, KST 예상 실행 시간, 예측 대시보드 (현재 단계/일일 수집률/예상 준비일)
 
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
