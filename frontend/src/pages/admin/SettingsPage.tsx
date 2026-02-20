@@ -17,8 +17,12 @@ interface SettingsData {
     categories: string[]
     feed_limit_per_category: number
     publisher_feed_limit: number
+    publishers: string[]
     max_articles_per_run: number
     retention_days: number
+    crawl_delay_seconds: number
+    crawl_max_concurrent: number
+    crawl_timeout: number
   }
   clustering: {
     merge_threshold: number
@@ -32,12 +36,14 @@ interface SettingsData {
     min_quality: number
     min_samples: number
     eval_sample_size: number
+    base_model: string
     reextract_days: number
     max_versions: number
   }
   system: {
     app_env: string
     debug: boolean
+    retention_days: number
   }
 }
 
@@ -306,6 +312,7 @@ export default function SettingsPage() {
         <CardContent>
           <ConfigItem label="환경" value={data.system.app_env} />
           <ConfigItem label="디버그 모드" value={data.system.debug} />
+          <ConfigItem label="데이터 보존 기간" value={`${data.system.retention_days}일`} />
         </CardContent>
       </Card>
     </div>

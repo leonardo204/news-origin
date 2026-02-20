@@ -6,6 +6,7 @@ import {
   Building2,
   Tag,
   Newspaper,
+  Globe,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchCrawl } from '@/services/adminApi'
@@ -14,6 +15,15 @@ interface CrawlData {
   schedule: {
     interval_minutes: number
     categories: string[]
+  }
+  feed_sources?: {
+    categories: Array<{ key: string; label: string; url: string }>
+    publishers: Array<{ name: string; url: string }>
+    limits: {
+      per_category: number
+      per_publisher: number
+      max_per_run: number
+    }
   }
   category_stats: Array<{ category: string; count: number }>
   publisher_stats: Array<{ publisher: string; count: number }>
@@ -166,6 +176,77 @@ export default function CollectionPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Feed Sources */}
+      {data.feed_sources && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Category Feeds */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5 text-blue-500" />
+                카테고리 피드
+                <span className="ml-auto text-xs font-normal text-gray-400">
+                  피드당 최대 {data.feed_sources.limits.per_category}건
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {data.feed_sources.categories.map((feed) => (
+                  <div
+                    key={feed.key}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-800"
+                  >
+                    <span className="shrink-0 text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {feed.label}
+                    </span>
+                    <span
+                      className="min-w-0 truncate text-xs text-gray-400"
+                      title={feed.url}
+                    >
+                      {feed.url}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Publisher Feeds */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-emerald-500" />
+                언론사 피드
+                <span className="ml-auto text-xs font-normal text-gray-400">
+                  피드당 최대 {data.feed_sources.limits.per_publisher}건
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {data.feed_sources.publishers.map((pub) => (
+                  <div
+                    key={pub.name}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-800"
+                  >
+                    <span className="shrink-0 text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {pub.name}
+                    </span>
+                    <span
+                      className="min-w-0 truncate text-xs text-gray-400"
+                      title={pub.url}
+                    >
+                      {pub.url}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Category + Publisher Stats */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

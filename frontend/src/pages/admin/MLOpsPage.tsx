@@ -9,6 +9,13 @@ import {
   Clock,
   Archive,
   Loader2,
+  Calendar,
+  ArrowRight,
+  CircleDot,
+  Target,
+  Rocket,
+  RotateCcw,
+  Search,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchMLOps } from '@/services/adminApi'
@@ -22,6 +29,15 @@ interface ModelVersion {
   status: string
   samples: number
   created_at: string
+}
+
+interface PipelineStage {
+  id: string
+  label: string
+  status: string
+  progress?: number
+  target?: number
+  detail: string
 }
 
 interface MLOpsData {
@@ -41,6 +57,21 @@ interface MLOpsData {
     min_quality: number
     min_samples: number
     eval_sample_size: number
+  }
+  schedule?: Array<{
+    task: string
+    interval: string
+    detail: string
+  }>
+  pipeline?: {
+    stages: PipelineStage[]
+    summary: {
+      total_samples: number
+      unused_samples: number
+      target_samples: number
+      readiness_percent: number
+      active_model: string
+    }
   }
 }
 
@@ -104,6 +135,30 @@ function getStatusBadge(status: string) {
 function formatF1(value: number | null | undefined): string {
   if (value == null) return '-'
   return (value * 100).toFixed(1) + '%'
+}
+
+const STAGE_ICONS: Record<string, typeof Database> = {
+  collect: Database,
+  evaluate: Search,
+  readiness: Target,
+  finetune: FlaskConical,
+  deploy: Rocket,
+  reextract: RotateCcw,
+}
+
+function getStageStyle(status: string) {
+  switch (status) {
+    case 'active':
+      return { ring: 'ring-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', badgeLabel: '진행 중' }
+    case 'done':
+      return { ring: 'ring-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', badgeLabel: '완료' }
+    case 'ready':
+      return { ring: 'ring-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', badgeLabel: '준비됨' }
+    case 'collecting':
+      return { ring: 'ring-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', badgeLabel: '수집 중' }
+    default:
+      return { ring: 'ring-gray-300 dark:ring-gray-600', bg: 'bg-gray-50 dark:bg-gray-800', text: 'text-gray-400 dark:text-gray-500', badge: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400', badgeLabel: '대기' }
+  }
 }
 
 export default function MLOpsPage() {
@@ -263,6 +318,98 @@ export default function MLOpsPage() {
         </CardContent>
       </Card>
 
+      {/* Pipeline Visualization */}
+      {data.pipeline && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CircleDot className="h-5 w-5 text-blue-500" />
+              MLOps 파이프라인
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Horizontal flow (desktop) / Vertical (mobile) */}
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-0">
+              {data.pipeline.stages.map((stage, idx) => {
+                const style = getStageStyle(stage.status)
+                const StageIcon = STAGE_ICONS[stage.id] || CircleDot
+                const hasProgress = stage.progress != null && stage.target != null && stage.target > 0
+                const progressPct = hasProgress ? Math.min(100, Math.round((stage.progress! / stage.target!) * 100)) : 0
+
+                return (
+                  <div key={stage.id} className="flex items-start gap-0 md:flex-1">
+                    <div className="flex flex-1 flex-col items-center text-center">
+                      {/* Icon circle */}
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-full ring-2 ${style.ring} ${style.bg}`}>
+                        <StageIcon className={`h-5 w-5 ${style.text}`} />
+                      </div>
+                      {/* Label */}
+                      <p className="mt-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                        {stage.label}
+                      </p>
+                      {/* Badge */}
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${style.badge}`}>
+                        {style.badgeLabel}
+                      </span>
+                      {/* Progress bar for collect/readiness */}
+                      {hasProgress && (
+                        <div className="mt-1.5 h-1.5 w-16 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      )}
+                      {/* Detail */}
+                      <p className="mt-1 text-[10px] text-gray-400">
+                        {stage.detail}
+                      </p>
+                    </div>
+                    {/* Arrow connector */}
+                    {idx < data.pipeline!.stages.length - 1 && (
+                      <div className="hidden shrink-0 pt-4 md:flex md:items-center md:px-1">
+                        <ArrowRight className="h-4 w-4 text-gray-300 dark:text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Summary bar */}
+            <div className="mt-6 rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">학습 데이터 진행률</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {data.pipeline.summary.unused_samples} / {data.pipeline.summary.target_samples}건
+                  <span className="ml-1 text-xs font-normal text-gray-400">
+                    ({data.pipeline.summary.readiness_percent}%)
+                  </span>
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    data.pipeline.summary.readiness_percent >= 100
+                      ? 'bg-emerald-500'
+                      : 'bg-blue-500'
+                  }`}
+                  style={{ width: `${Math.min(100, data.pipeline.summary.readiness_percent)}%` }}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
+                <span>활성 모델: {data.pipeline.summary.active_model}</span>
+                {data.pipeline.summary.readiness_percent < 100 && data.pipeline.summary.target_samples > 0 && (
+                  <span>
+                    예상 소요: ~{Math.ceil((data.pipeline.summary.target_samples - data.pipeline.summary.unused_samples) / ((data.config.eval_sample_size || 30) * 4))}일
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Training Data Stats */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {trainingStats.map((stat) => (
@@ -380,6 +527,52 @@ export default function MLOpsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Schedule Card */}
+      {data.schedule && data.schedule.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-indigo-500" />
+              MLOps 스케줄
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                      작업
+                    </th>
+                    <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                      주기
+                    </th>
+                    <th className="pb-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                      상세
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {data.schedule.map((s) => (
+                    <tr key={s.task}>
+                      <td className="py-2.5 pr-4 font-medium text-gray-900 dark:text-gray-100">
+                        {s.task}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-gray-500 dark:text-gray-400">
+                        {s.interval}
+                      </td>
+                      <td className="py-2.5 text-gray-500 dark:text-gray-400">
+                        {s.detail}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Config Card */}
       <Card>

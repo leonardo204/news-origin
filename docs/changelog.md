@@ -6,6 +6,28 @@
 
 ## 2026-02-20
 
+### feat: 관리자 대시보드 — 피드 출처 + MLOps 스케줄링 시각화
+- **수집 관리 페이지**: 카테고리 RSS 피드 7개 + 언론사 RSS 피드 6개 출처 카드 추가 (URL, 피드당 수집 한도 표시)
+- **MLOps 페이지**: 6단계 파이프라인 시각화 (수집 → 평가 → 준비 → 학습 → 배포 → 재추출)
+  - 단계별 상태 뱃지 (진행중/완료/대기/수집중), 프로그레스 바, 예상 소요일
+  - 학습 데이터 진행률 요약 바 (unused/target)
+- **MLOps 스케줄 테이블**: 5개 작업의 주기 및 상세 정보 표시
+- **백엔드**: `/api/admin/crawl`에 `feed_sources`, `/api/admin/mlops`에 `schedule`+`pipeline` 필드 추가
+- **수정 파일**: `admin.py`, `CollectionPage.tsx`, `MLOpsPage.tsx`
+
+### fix: 관리자 대시보드 데이터 누락 및 undefined 수정
+- **JSONB GROUP BY 오류 수정**: `Article.metadata_["category"]` JSONB 컬럼의 GROUP BY에서 parameterized query 불일치로 PostgreSQL 에러 발생 → `literal_column` 사용으로 해결
+  - `/api/admin/crawl`: category_stats, publisher_stats, recent_articles, daily_counts 모두 빈 배열 반환 → 정상 데이터 반환
+  - `/api/admin/stats`: articles_by_category, top_publishers 빈 배열 반환 → 정상 데이터 반환
+- **쿼리 독립 실행**: `/crawl`, `/stats` 엔드포인트의 단일 try/except 블록을 각 쿼리별로 분리하여 한 쿼리 실패 시 다른 데이터까지 빈 값이 되는 연쇄 장애 방지
+- **크롤링 상태 필드명 수정**: `crawl.last_run`이 항상 null — `cs.get("updated_at")` → `cs.get("started_at")` (캐시 실제 필드명과 일치)
+- **설정 페이지 undefined 수정** (백엔드 + 프론트엔드):
+  - `crawling.max_articles_per_run`: 누락 → `MAX_ARTICLES_PER_RUN` (90) 추가
+  - `crawling.retention_days`: `system` 섹션에만 있던 값을 `crawling`에도 추가
+  - `mlops.max_versions`: `max_model_versions` → `max_versions`로 필드명 통일
+  - `system.debug`: 백엔드에 없는 필드 → `system.retention_days` 표시로 대체
+  - 프론트엔드 `SettingsData` 인터페이스를 백엔드 실제 응답과 정합성 일치
+
 ### feat: 관리자 대시보드 (`/admin`)
 - **목적**: 수집현황, MLOps, 시스템 자원, 통계, 로그, 설정을 한눈에 모니터링하는 관리자 콘솔
 - **인증**: JWT 기반 단일 관리자 계정 (`.env`에서 `ADMIN_USERNAME`, `ADMIN_PASSWORD` 관리)

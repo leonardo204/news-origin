@@ -1,8 +1,10 @@
 """
 # admin.py - Admin Dashboard API Routes
-# Version: 0.1.0
+# Version: 0.3.0
 # Description: 관리자 대시보드 엔드포인트 (인증, 시스템 현황, 크롤링 통계, MLOps, 로그)
 # Changes:
+#   - 0.3.0: /crawl에 feed_sources 추가, /mlops에 schedule+pipeline 추가
+#   - 0.2.0: JSONB GROUP BY 수정, 설정 필드 정합성, 크롤 상태 필드명, 쿼리 독립 실행
 #   - 0.1.0: 초기 구현 — login, verify, overview, crawl, mlops, system, stats, logs, settings
 """
 
@@ -27,15 +29,28 @@ from app.models.timeline import TrackingRequest
 from app.workers.beat_schedule import (
     CATEGORY_FEEDS,
     FEED_LIMIT_PER_CATEGORY,
+    MAX_ARTICLES_PER_RUN,
     PUBLISHER_FEED_LIMIT,
     PUBLISHER_FEEDS,
 )
 
-from sqlalchemy import case, cast, Date, func, select, text
+from sqlalchemy import case, cast, Date, func, literal_column, select, text
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# 카테고리 한글 라벨 매핑
+CATEGORY_LABELS = {
+    "headlines": "헤드라인",
+    "politics": "정치",
+    "economy": "경제",
+    "society": "사회",
+    "tech": "기술",
+    "entertainment": "연예",
+    "sports": "스포츠",
+    "world": "세계",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +157,7 @@ async def overview(username: str = Depends(require_admin)):
         from app.services.cache import get_crawl_status
         cs = await get_crawl_status()
         crawl_info["status"] = cs.get("phase", "idle")
-        crawl_info["last_run"] = cs.get("updated_at")
+        crawl_info["last_run"] = cs.get("started_at")
 
         # articles per hour (last 24h)
         async with async_session_factory() as session:
@@ -221,21 +236,25 @@ async def crawl(username: str = Depends(require_admin)):
     recent_articles: list[dict] = []
     daily_counts: list[dict] = []
 
+    # 각 쿼리를 독립 실행하여 하나의 실패가 전체에 영향 주지 않도록 함
     try:
         async with async_session_factory() as session:
-            # category stats
+            cat_col = Article.metadata_["category"].astext
             row = await session.execute(
                 select(
-                    Article.metadata_["category"].astext.label("category"),
+                    cat_col.label("category"),
                     func.count(Article.id).label("count"),
                 )
-                .where(Article.metadata_["category"].astext.isnot(None))
-                .group_by(Article.metadata_["category"].astext)
+                .where(cat_col.isnot(None))
+                .group_by(literal_column("category"))
                 .order_by(func.count(Article.id).desc())
             )
             category_stats = [{"category": r.category, "count": r.count} for r in row.all()]
+    except Exception as e:
+        logger.warning(f"crawl category_stats query failed: {e}")
 
-            # publisher stats (top 20)
+    try:
+        async with async_session_factory() as session:
             row = await session.execute(
                 select(
                     Article.publisher,
@@ -247,8 +266,11 @@ async def crawl(username: str = Depends(require_admin)):
                 .limit(20)
             )
             publisher_stats = [{"publisher": r.publisher, "count": r.count} for r in row.all()]
+    except Exception as e:
+        logger.warning(f"crawl publisher_stats query failed: {e}")
 
-            # recent articles (last 20)
+    try:
+        async with async_session_factory() as session:
             row = await session.execute(
                 select(
                     Article.title,
@@ -268,8 +290,11 @@ async def crawl(username: str = Depends(require_admin)):
                 }
                 for r in row.all()
             ]
+    except Exception as e:
+        logger.warning(f"crawl recent_articles query failed: {e}")
 
-            # daily counts (last 14 days)
+    try:
+        async with async_session_factory() as session:
             cutoff = now - timedelta(days=14)
             row = await session.execute(
                 select(
@@ -285,10 +310,27 @@ async def crawl(username: str = Depends(require_admin)):
                 for r in row.all()
             ]
     except Exception as e:
-        logger.warning(f"crawl stats query failed: {e}")
+        logger.warning(f"crawl daily_counts query failed: {e}")
+
+    feed_sources = {
+        "categories": [
+            {"key": key, "label": CATEGORY_LABELS.get(key, key), "url": url}
+            for key, url in CATEGORY_FEEDS.items()
+        ],
+        "publishers": [
+            {"name": name, "url": url}
+            for name, url in PUBLISHER_FEEDS.items()
+        ],
+        "limits": {
+            "per_category": FEED_LIMIT_PER_CATEGORY,
+            "per_publisher": PUBLISHER_FEED_LIMIT,
+            "max_per_run": MAX_ARTICLES_PER_RUN,
+        },
+    }
 
     return {
         "schedule": schedule,
+        "feed_sources": feed_sources,
         "category_stats": category_stats,
         "publisher_stats": publisher_stats,
         "recent_articles": recent_articles,
@@ -321,6 +363,14 @@ async def mlops(username: str = Depends(require_admin)):
                     "version": active.version,
                     "base_model": active.base_model,
                     "f1": active.eval_f1_score,
+                    "is_active": True,
+                }
+            else:
+                # fine-tuned 모델이 없으면 기본 BERT 모델 정보 표시
+                current_model = {
+                    "version": "base",
+                    "base_model": settings.bert_model_name,
+                    "f1": None,
                     "is_active": True,
                 }
 
@@ -361,6 +411,68 @@ async def mlops(username: str = Depends(require_admin)):
     except Exception as e:
         logger.warning(f"mlops query failed: {e}")
 
+    # -- schedule info --
+    schedule = [
+        {"task": "데이터 수집 (GPT-5 평가)", "interval": "6시간마다", "detail": f"{settings.ner_eval_sample_size}건/회"},
+        {"task": "인라인 평가 (크롤링 배치)", "interval": "30분마다 (크롤링 시)", "detail": "배치당 5건"},
+        {"task": "학습 준비 확인", "interval": "매일 02:00 UTC", "detail": f"임계값: {settings.ner_training_min_samples}건"},
+        {"task": "Fine-tuning", "interval": "수동 실행", "detail": "docker compose run finetune"},
+        {"task": "키워드 재추출", "interval": "매월 1일 04:00 UTC", "detail": f"최근 {settings.ner_reextract_days}일"},
+    ]
+
+    # -- pipeline status --
+    min_samples = settings.ner_training_min_samples
+    total = training_data["total"]
+    unused = training_data["unused"]
+    avg_quality = training_data["avg_quality"]
+    has_finetuned = len(model_versions) > 0
+    active_version = current_model["version"] if current_model else "base"
+
+    # stage status 결정
+    collect_status = "done" if unused >= min_samples else ("active" if unused > 0 else "waiting")
+    readiness_status = "ready" if unused >= min_samples else "collecting"
+    finetune_status = "done" if has_finetuned else "waiting"
+    deploy_status = "active" if has_finetuned and active_version != "base" else "waiting"
+    remaining = max(0, min_samples - unused)
+
+    pipeline = {
+        "stages": [
+            {
+                "id": "collect", "label": "데이터 수집", "status": collect_status,
+                "progress": unused, "target": min_samples,
+                "detail": f"{unused}/{min_samples}건",
+            },
+            {
+                "id": "evaluate", "label": "품질 평가", "status": "active",
+                "detail": f"평균 품질: {avg_quality:.2f}",
+            },
+            {
+                "id": "readiness", "label": "학습 준비", "status": readiness_status,
+                "progress": unused, "target": min_samples,
+                "detail": "준비 완료" if readiness_status == "ready" else f"{remaining}건 부족",
+            },
+            {
+                "id": "finetune", "label": "Fine-tuning", "status": finetune_status,
+                "detail": f"최신: {model_versions[0]['version']}" if has_finetuned else "수동 실행 대기",
+            },
+            {
+                "id": "deploy", "label": "모델 배포", "status": deploy_status,
+                "detail": f"활성: {active_version}" if deploy_status == "active" else "대기 중",
+            },
+            {
+                "id": "reextract", "label": "키워드 재추출", "status": "done" if has_finetuned else "waiting",
+                "detail": "매월 자동 실행",
+            },
+        ],
+        "summary": {
+            "total_samples": total,
+            "unused_samples": unused,
+            "target_samples": min_samples,
+            "readiness_percent": round(unused / min_samples * 100, 1) if min_samples > 0 else 0.0,
+            "active_model": active_version,
+        },
+    }
+
     return {
         "current_model": current_model,
         "training_data": training_data,
@@ -370,6 +482,8 @@ async def mlops(username: str = Depends(require_admin)):
             "min_samples": settings.ner_training_min_samples,
             "eval_sample_size": settings.ner_eval_sample_size,
         },
+        "schedule": schedule,
+        "pipeline": pipeline,
     }
 
 
@@ -439,9 +553,9 @@ async def stats(username: str = Depends(require_admin)):
     top_publishers: list[dict] = []
     tracking_by_type: dict = {"instant": 0, "live": 0}
 
+    # 각 쿼리를 독립 실행
     try:
         async with async_session_factory() as session:
-            # overview counts
             total_articles = (await session.execute(select(func.count(Article.id)))).scalar() or 0
             total_publishers = (await session.execute(
                 select(func.count(func.distinct(Article.publisher)))
@@ -454,8 +568,11 @@ async def stats(username: str = Depends(require_admin)):
                 "total_tracking": total_tracking,
                 "total_searches": total_searches,
             }
+    except Exception as e:
+        logger.warning(f"stats overview query failed: {e}")
 
-            # articles by date (last 30 days)
+    try:
+        async with async_session_factory() as session:
             cutoff_30d = now - timedelta(days=30)
             row = await session.execute(
                 select(
@@ -467,20 +584,27 @@ async def stats(username: str = Depends(require_admin)):
                 .order_by(cast(Article.created_at, Date))
             )
             articles_by_date = [{"date": r.date.isoformat(), "count": r.count} for r in row.all()]
+    except Exception as e:
+        logger.warning(f"stats articles_by_date query failed: {e}")
 
-            # articles by category
+    try:
+        async with async_session_factory() as session:
+            cat_col = Article.metadata_["category"].astext
             row = await session.execute(
                 select(
-                    Article.metadata_["category"].astext.label("category"),
+                    cat_col.label("category"),
                     func.count(Article.id).label("count"),
                 )
-                .where(Article.metadata_["category"].astext.isnot(None))
-                .group_by(Article.metadata_["category"].astext)
+                .where(cat_col.isnot(None))
+                .group_by(literal_column("category"))
                 .order_by(func.count(Article.id).desc())
             )
             articles_by_category = [{"category": r.category, "count": r.count} for r in row.all()]
+    except Exception as e:
+        logger.warning(f"stats articles_by_category query failed: {e}")
 
-            # top publishers (top 15)
+    try:
+        async with async_session_factory() as session:
             row = await session.execute(
                 select(
                     Article.publisher,
@@ -492,8 +616,11 @@ async def stats(username: str = Depends(require_admin)):
                 .limit(15)
             )
             top_publishers = [{"publisher": r.publisher, "count": r.count} for r in row.all()]
+    except Exception as e:
+        logger.warning(f"stats top_publishers query failed: {e}")
 
-            # tracking by type
+    try:
+        async with async_session_factory() as session:
             row = await session.execute(
                 select(
                     TrackingRequest.tracking_type,
@@ -505,7 +632,7 @@ async def stats(username: str = Depends(require_admin)):
                 if r.tracking_type in tracking_by_type:
                     tracking_by_type[r.tracking_type] = r.count
     except Exception as e:
-        logger.warning(f"stats query failed: {e}")
+        logger.warning(f"stats tracking_by_type query failed: {e}")
 
     return {
         "overview": overview_data,
@@ -555,6 +682,8 @@ async def settings_view(username: str = Depends(require_admin)):
             "feed_limit_per_category": FEED_LIMIT_PER_CATEGORY,
             "publisher_feed_limit": PUBLISHER_FEED_LIMIT,
             "publishers": list(PUBLISHER_FEEDS.keys()),
+            "max_articles_per_run": MAX_ARTICLES_PER_RUN,
+            "retention_days": settings.article_retention_days,
             "crawl_delay_seconds": settings.crawl_delay_seconds,
             "crawl_max_concurrent": settings.crawl_max_concurrent,
             "crawl_timeout": settings.crawl_timeout,
@@ -573,10 +702,11 @@ async def settings_view(username: str = Depends(require_admin)):
             "eval_sample_size": settings.ner_eval_sample_size,
             "base_model": settings.bert_model_name,
             "reextract_days": settings.ner_reextract_days,
-            "max_model_versions": settings.ner_max_model_versions,
+            "max_versions": settings.ner_max_model_versions,
         },
         "system": {
             "app_env": settings.app_env,
+            "debug": settings.app_debug,
             "retention_days": settings.article_retention_days,
         },
     }
