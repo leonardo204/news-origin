@@ -1332,8 +1332,20 @@ async def _run_check_readiness():
             )
             total_count = total_result.scalar() or 0
 
+            # 24시간 내 생성된 모델 버전 확인 (중복 트리거 방지)
+            already_triggered = False
+            if unused_count >= settings.ner_training_min_samples:
+                from app.models.ner_training import NerModelVersion
+                recent_model = await db.execute(
+                    select(NerModelVersion).where(
+                        NerModelVersion.created_at >= datetime.now(timezone.utc) - timedelta(hours=24)
+                    ).limit(1)
+                )
+                already_triggered = recent_model.scalar_one_or_none() is not None
+
         ready = unused_count >= settings.ner_training_min_samples
         status = "ready" if ready else "collecting"
+        auto_triggered = False
 
         logger.info(
             f"NER training readiness: {unused_count} unused / {total_count} total "
@@ -1341,24 +1353,40 @@ async def _run_check_readiness():
         )
 
         if ready:
+
             try:
                 from app.services.webhook import send_webhook
                 send_webhook(
                     title="NER Fine-tuning 준비 완료",
                     description=(
                         f"미사용 학습 데이터 {unused_count}건 (임계치: {settings.ner_training_min_samples}건)\n"
-                        f"`docker compose run finetune` 으로 학습을 시작하세요."
+                        + ("자동 Fine-tuning 트리거됨" if not already_triggered else "24시간 내 이미 트리거됨 — 스킵")
                     ),
                     color=0x9B59B6,
                 )
             except Exception as _we:
                 logger.warning(f"Webhook call failed (non-critical): {_we}")
 
+            # 자동 Fine-tuning 트리거 (24시간 내 중복 방지)
+            if not already_triggered:
+                try:
+                    trigger_bert_finetune.delay()
+                    auto_triggered = True
+                    logger.info(
+                        f"Auto-triggered BERT fine-tuning: {unused_count} unused samples "
+                        f"(threshold: {settings.ner_training_min_samples})"
+                    )
+                except Exception as ft_err:
+                    logger.warning(f"Auto fine-tuning trigger failed: {ft_err}")
+            else:
+                logger.info("Fine-tuning already triggered within 24h — skipping auto-trigger")
+
         return {
             "status": status,
             "unused_samples": unused_count,
             "total_samples": total_count,
             "threshold": settings.ner_training_min_samples,
+            "auto_triggered": auto_triggered,
         }
 
     finally:

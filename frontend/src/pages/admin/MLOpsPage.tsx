@@ -16,6 +16,9 @@ import {
   Rocket,
   RotateCcw,
   Search,
+  TrendingUp,
+  Activity,
+  Zap,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchMLOps } from '@/services/adminApi'
@@ -40,6 +43,23 @@ interface PipelineStage {
   detail: string
 }
 
+interface RecentEvaluation {
+  title: string
+  quality_score: number
+  method: string
+  created_at: string
+}
+
+interface Predictions {
+  finetune_ready: boolean
+  daily_collection_rate: number
+  est_days_to_ready: number | null
+  est_ready_date_kst: string | null
+  next_finetune_trigger: string
+  current_phase: string
+  timestamp_kst: string
+}
+
 interface MLOpsData {
   current_model: {
     version: string
@@ -62,6 +82,7 @@ interface MLOpsData {
     task: string
     interval: string
     detail: string
+    next_run_kst?: string
   }>
   pipeline?: {
     stages: PipelineStage[]
@@ -73,6 +94,8 @@ interface MLOpsData {
       active_model: string
     }
   }
+  recent_evaluations?: RecentEvaluation[]
+  predictions?: Predictions
 }
 
 function LoadingSkeleton() {
@@ -159,6 +182,16 @@ function getStageStyle(status: string) {
     default:
       return { ring: 'ring-gray-300 dark:ring-gray-600', bg: 'bg-gray-50 dark:bg-gray-800', text: 'text-gray-400 dark:text-gray-500', badge: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400', badgeLabel: '대기' }
   }
+}
+
+function formatTimeAgo(isoStr: string): string {
+  const diff = Date.now() - new Date(isoStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return '방금'
+  if (mins < 60) return `${mins}분 전`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}시간 전`
+  return `${Math.floor(hours / 24)}일 전`
 }
 
 export default function MLOpsPage() {
@@ -252,14 +285,73 @@ export default function MLOpsPage() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           MLOps 모니터링
         </h2>
-        <button
-          onClick={loadData}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          새로고침
-        </button>
+        <div className="flex items-center gap-3">
+          {data.predictions && (
+            <span className="text-xs text-gray-400">
+              {data.predictions.timestamp_kst}
+            </span>
+          )}
+          <button
+            onClick={loadData}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            새로고침
+          </button>
+        </div>
       </div>
+
+      {/* Predictions Banner */}
+      {data.predictions && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-indigo-500" />
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  현재 상태
+                </span>
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  data.predictions.finetune_ready
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                }`}>
+                  {data.predictions.current_phase}
+                </span>
+              </div>
+              <div className="h-4 w-px bg-gray-200 dark:bg-gray-700" />
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-300">일일 수집률:</span>{' '}
+                {data.predictions.daily_collection_rate}건/일
+              </div>
+              {data.predictions.est_days_to_ready != null && data.predictions.est_days_to_ready > 0 && (
+                <>
+                  <div className="h-4 w-px bg-gray-200 dark:bg-gray-700" />
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">예상 준비 완료:</span>{' '}
+                    ~{data.predictions.est_days_to_ready}일 후
+                    {data.predictions.est_ready_date_kst && (
+                      <span className="ml-1 text-xs text-gray-400">
+                        ({data.predictions.est_ready_date_kst})
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+              {data.predictions.finetune_ready && (
+                <>
+                  <div className="h-4 w-px bg-gray-200 dark:bg-gray-700" />
+                  <div className="text-sm">
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                      {data.predictions.next_finetune_trigger}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Current Model */}
       <Card>
@@ -399,11 +491,14 @@ export default function MLOpsPage() {
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
                 <span>활성 모델: {data.pipeline.summary.active_model}</span>
-                {data.pipeline.summary.readiness_percent < 100 && data.pipeline.summary.target_samples > 0 && (
+                {data.predictions && data.predictions.est_days_to_ready != null && data.predictions.est_days_to_ready > 0 ? (
                   <span>
-                    예상 소요: ~{Math.ceil((data.pipeline.summary.target_samples - data.pipeline.summary.unused_samples) / ((data.config.eval_sample_size || 30) * 4))}일
+                    예상 소요: ~{data.predictions.est_days_to_ready}일
+                    {data.predictions.est_ready_date_kst && ` (${data.predictions.est_ready_date_kst})`}
                   </span>
-                )}
+                ) : data.pipeline.summary.readiness_percent >= 100 ? (
+                  <span className="text-emerald-500">Fine-tuning 준비 완료</span>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -439,6 +534,71 @@ export default function MLOpsPage() {
           </Card>
         ))}
       </div>
+
+      {/* Inline Evaluation Activity (Recent 24h) */}
+      {data.recent_evaluations && data.recent_evaluations.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-orange-500" />
+              인라인 평가 활동
+              <span className="ml-auto text-xs font-normal text-gray-400">
+                최근 24시간 | {data.predictions?.daily_collection_rate ?? data.recent_evaluations.length}건 수집
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                      기사 제목
+                    </th>
+                    <th className="pb-3 pr-4 text-right font-medium text-gray-500 dark:text-gray-400">
+                      품질 점수
+                    </th>
+                    <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                      추출 방식
+                    </th>
+                    <th className="pb-3 text-right font-medium text-gray-500 dark:text-gray-400">
+                      수집 시각
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {data.recent_evaluations.map((ev, idx) => (
+                    <tr key={idx}>
+                      <td className="max-w-xs truncate py-2.5 pr-4 text-gray-900 dark:text-gray-100">
+                        {ev.title}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          ev.quality_score >= 0.8
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                            : ev.quality_score >= 0.5
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
+                          {ev.quality_score.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className="inline-flex rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                          {ev.method}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 text-right text-xs text-gray-400">
+                        {ev.created_at ? formatTimeAgo(ev.created_at) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Model Versions Table */}
       <Card>
@@ -528,7 +688,7 @@ export default function MLOpsPage() {
         </CardContent>
       </Card>
 
-      {/* Schedule Card */}
+      {/* Schedule Card (with KST next-run) */}
       {data.schedule && data.schedule.length > 0 && (
         <Card>
           <CardHeader>
@@ -548,6 +708,9 @@ export default function MLOpsPage() {
                     <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
                       주기
                     </th>
+                    <th className="pb-3 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                      다음 실행 (KST)
+                    </th>
                     <th className="pb-3 text-left font-medium text-gray-500 dark:text-gray-400">
                       상세
                     </th>
@@ -557,10 +720,23 @@ export default function MLOpsPage() {
                   {data.schedule.map((s) => (
                     <tr key={s.task}>
                       <td className="py-2.5 pr-4 font-medium text-gray-900 dark:text-gray-100">
-                        {s.task}
+                        <div className="flex items-center gap-1.5">
+                          <Zap className="h-3.5 w-3.5 text-amber-400" />
+                          {s.task}
+                        </div>
                       </td>
                       <td className="whitespace-nowrap py-2.5 pr-4 text-gray-500 dark:text-gray-400">
                         {s.interval}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4">
+                        {s.next_run_kst ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                            <Clock className="h-3 w-3" />
+                            {s.next_run_kst}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="py-2.5 text-gray-500 dark:text-gray-400">
                         {s.detail}

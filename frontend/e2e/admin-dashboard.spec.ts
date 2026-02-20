@@ -3,26 +3,29 @@ import { test, expect } from '@playwright/test'
 const ADMIN_URL = 'http://localhost:10880'
 
 async function login(page: import('@playwright/test').Page) {
-  await page.goto(`${ADMIN_URL}/admin/login`)
-  await page.waitForLoadState('networkidle')
-
   const username = process.env.ADMIN_USERNAME || 'admin'
   const password = process.env.ADMIN_PASSWORD || 'admin'
 
-  // Use role-based locators to trigger React onChange
-  const usernameInput = page.getByRole('textbox', { name: '사용자 이름' })
-  const passwordInput = page.getByRole('textbox', { name: '비밀번호' })
+  // Navigate to admin to set origin, then authenticate via API directly
+  await page.goto(`${ADMIN_URL}/admin/login`)
 
-  await usernameInput.fill(username)
-  await passwordInput.fill(password)
+  // Call login API and store token directly (bypasses UI race conditions)
+  const token = await page.evaluate(
+    async ({ url, user, pass }) => {
+      const res = await fetch(`${url}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      })
+      const data = await res.json()
+      const t = data.token
+      localStorage.setItem('admin_token', t)
+      return t
+    },
+    { url: ADMIN_URL, user: username, pass: password }
+  )
 
-  // Wait for button to become enabled
-  const loginBtn = page.getByRole('button', { name: '로그인' })
-  await expect(loginBtn).toBeEnabled({ timeout: 3000 })
-  await loginBtn.click()
-
-  // Wait for navigation away from login
-  await page.waitForURL('**/admin', { timeout: 10000 })
+  if (!token) throw new Error('Login failed: no token received')
 }
 
 test.describe('Admin Dashboard - Collection Page', () => {
@@ -74,7 +77,20 @@ test.describe('Admin Dashboard - MLOps Page', () => {
     await expect(page.locator('text=/\\d+ \\/ \\d+건/')).toBeVisible()
   })
 
-  test('shows schedule table', async ({ page }) => {
+  test('shows predictions banner', async ({ page }) => {
+    await login(page)
+    await page.goto(`${ADMIN_URL}/admin/mlops`)
+    await page.waitForLoadState('networkidle')
+
+    // Verify predictions banner exists
+    await expect(page.locator('text=현재 상태')).toBeVisible({ timeout: 20000 })
+    await expect(page.locator('text=일일 수집률')).toBeVisible()
+
+    // Verify current phase badge
+    await expect(page.locator('text=데이터 수집 중').first()).toBeVisible()
+  })
+
+  test('shows schedule table with KST times', async ({ page }) => {
     await login(page)
     await page.goto(`${ADMIN_URL}/admin/mlops`)
     await page.waitForLoadState('networkidle')
@@ -84,11 +100,18 @@ test.describe('Admin Dashboard - MLOps Page', () => {
     await scheduleCard.scrollIntoViewIfNeeded()
     await expect(scheduleCard).toBeVisible({ timeout: 10000 })
 
-    // Verify schedule items
+    // Verify updated schedule items
+    await expect(page.locator('text=뉴스 수집 + 인라인 평가')).toBeVisible()
     await expect(page.locator('text=데이터 수집 (GPT-5 평가)')).toBeVisible()
     await expect(page.locator('text=6시간마다')).toBeVisible()
     await expect(page.locator('text=학습 준비 확인')).toBeVisible()
-    await expect(page.locator('text=매일 02:00 UTC')).toBeVisible()
-    await expect(page.locator('text=수동 실행').first()).toBeVisible()
+    await expect(page.locator('text=매일 11:00 KST')).toBeVisible()
+    await expect(page.locator('text=자동 (준비 완료 시)').first()).toBeVisible()
+
+    // Verify KST next-run column header
+    await expect(page.locator('text=다음 실행 (KST)')).toBeVisible()
+
+    // Verify KST time badges are shown (format: MM/DD HH:MM KST)
+    await expect(page.locator('text=/\\d{2}\\/\\d{2} \\d{2}:\\d{2} KST/').first()).toBeVisible()
   })
 })

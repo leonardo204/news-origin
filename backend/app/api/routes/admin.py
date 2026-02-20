@@ -1,8 +1,9 @@
 """
 # admin.py - Admin Dashboard API Routes
-# Version: 0.3.0
+# Version: 0.4.0
 # Description: 관리자 대시보드 엔드포인트 (인증, 시스템 현황, 크롤링 통계, MLOps, 로그)
 # Changes:
+#   - 0.4.0: MLOps 고도화 — 인라인 평가 활동, KST 예상 시간, 자동 finetune 상태, 예측 대시보드
 #   - 0.3.0: /crawl에 feed_sources 추가, /mlops에 schedule+pipeline 추가
 #   - 0.2.0: JSONB GROUP BY 수정, 설정 필드 정합성, 크롤 상태 필드명, 쿼리 독립 실행
 #   - 0.1.0: 초기 구현 — login, verify, overview, crawl, mlops, system, stats, logs, settings
@@ -51,6 +52,44 @@ CATEGORY_LABELS = {
     "sports": "스포츠",
     "world": "세계",
 }
+
+# KST 타임존 (UTC+9)
+KST = timezone(timedelta(hours=9))
+
+
+def _next_cron_run(*, minute: str | int = 0, hour: str | int = "*",
+                   day_of_month: str | int = "*") -> str:
+    """간단한 cron 패턴으로 다음 실행 시각을 KST 문자열로 반환"""
+    now_utc = datetime.now(timezone.utc)
+
+    def _expand(pattern: str | int, max_val: int) -> set[int]:
+        if isinstance(pattern, int):
+            return {pattern}
+        if pattern == "*":
+            return set(range(max_val))
+        if pattern.startswith("*/"):
+            step = int(pattern[2:])
+            return set(range(0, max_val, step))
+        return {int(pattern)}
+
+    min_vals = _expand(minute, 60)
+    hr_vals = _expand(hour, 24)
+    dom_check = None if day_of_month == "*" else _expand(day_of_month, 32)
+
+    # 다음 실행 시각 찾기 (최대 31일 내)
+    candidate = now_utc.replace(second=0, microsecond=0)
+    for _ in range(31 * 24 * 60):
+        candidate += timedelta(minutes=1)
+        if candidate.minute not in min_vals:
+            continue
+        if candidate.hour not in hr_vals:
+            continue
+        if dom_check is not None and candidate.day not in dom_check:
+            continue
+        kst = candidate.astimezone(KST)
+        return kst.strftime("%m/%d %H:%M KST")
+
+    return "계산 불가"
 
 
 # ---------------------------------------------------------------------------
@@ -411,14 +450,43 @@ async def mlops(username: str = Depends(require_admin)):
     except Exception as e:
         logger.warning(f"mlops query failed: {e}")
 
-    # -- schedule info --
-    schedule = [
-        {"task": "데이터 수집 (GPT-5 평가)", "interval": "6시간마다", "detail": f"{settings.ner_eval_sample_size}건/회"},
-        {"task": "인라인 평가 (크롤링 배치)", "interval": "30분마다 (크롤링 시)", "detail": "배치당 5건"},
-        {"task": "학습 준비 확인", "interval": "매일 02:00 UTC", "detail": f"임계값: {settings.ner_training_min_samples}건"},
-        {"task": "Fine-tuning", "interval": "수동 실행", "detail": "docker compose run finetune"},
-        {"task": "키워드 재추출", "interval": "매월 1일 04:00 UTC", "detail": f"최근 {settings.ner_reextract_days}일"},
-    ]
+    # -- recent evaluations (last 24h) --
+    recent_evaluations: list[dict] = []
+    daily_eval_count = 0
+    try:
+        async with async_session_factory() as session:
+            cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+            # 24시간 내 수집 건수
+            cnt_row = await session.execute(
+                select(func.count(NerTrainingSample.id)).where(
+                    NerTrainingSample.created_at >= cutoff_24h
+                )
+            )
+            daily_eval_count = cnt_row.scalar() or 0
+
+            # 최근 평가 20건 상세
+            row = await session.execute(
+                select(
+                    NerTrainingSample.title,
+                    NerTrainingSample.gpt_quality_score,
+                    NerTrainingSample.extraction_method,
+                    NerTrainingSample.created_at,
+                )
+                .where(NerTrainingSample.created_at >= cutoff_24h)
+                .order_by(NerTrainingSample.created_at.desc())
+                .limit(20)
+            )
+            recent_evaluations = [
+                {
+                    "title": r.title[:60] if r.title else "",
+                    "quality_score": round(float(r.gpt_quality_score), 2) if r.gpt_quality_score else 0,
+                    "method": r.extraction_method or "unknown",
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in row.all()
+            ]
+    except Exception as e:
+        logger.warning(f"mlops recent_evaluations query failed: {e}")
 
     # -- pipeline status --
     min_samples = settings.ner_training_min_samples
@@ -453,7 +521,7 @@ async def mlops(username: str = Depends(require_admin)):
             },
             {
                 "id": "finetune", "label": "Fine-tuning", "status": finetune_status,
-                "detail": f"최신: {model_versions[0]['version']}" if has_finetuned else "수동 실행 대기",
+                "detail": f"최신: {model_versions[0]['version']}" if has_finetuned else "자동 트리거 대기",
             },
             {
                 "id": "deploy", "label": "모델 배포", "status": deploy_status,
@@ -473,6 +541,69 @@ async def mlops(username: str = Depends(require_admin)):
         },
     }
 
+    # -- predictions --
+    est_days_to_ready = None
+    if remaining > 0 and daily_eval_count > 0:
+        est_days_to_ready = max(1, round(remaining / daily_eval_count))
+    elif remaining > 0:
+        # fallback: 이론적 수집률 (6h×4 + 30min×48 inline, 품질 통과 ~60%)
+        theoretical_daily = (settings.ner_eval_sample_size * 4 + 5 * 48) * 0.6
+        est_days_to_ready = max(1, round(remaining / theoretical_daily)) if theoretical_daily > 0 else None
+
+    now_kst = datetime.now(KST)
+    predictions = {
+        "finetune_ready": unused >= min_samples,
+        "daily_collection_rate": daily_eval_count,
+        "est_days_to_ready": est_days_to_ready if remaining > 0 else 0,
+        "est_ready_date_kst": (
+            (now_kst + timedelta(days=est_days_to_ready)).strftime("%Y-%m-%d")
+            if est_days_to_ready and remaining > 0 else None
+        ),
+        "next_finetune_trigger": (
+            "임계 도달 → 다음 02:00 KST 자동 실행" if not (unused >= min_samples)
+            else "다음 학습 준비 확인 시 자동 트리거"
+        ),
+        "current_phase": (
+            "fine-tuning 대기" if unused >= min_samples
+            else "데이터 수집 중"
+        ),
+        "timestamp_kst": now_kst.strftime("%Y-%m-%d %H:%M KST"),
+    }
+
+    # -- schedule info (with KST next-run) --
+    schedule = [
+        {
+            "task": "뉴스 수집 + 인라인 평가",
+            "interval": "30분마다",
+            "detail": "배치당 5건 GPT-5 평가",
+            "next_run_kst": _next_cron_run(minute="*/30"),
+        },
+        {
+            "task": "데이터 수집 (GPT-5 평가)",
+            "interval": "6시간마다",
+            "detail": f"{settings.ner_eval_sample_size}건/회",
+            "next_run_kst": _next_cron_run(minute=15, hour="*/6"),
+        },
+        {
+            "task": "학습 준비 확인",
+            "interval": "매일 11:00 KST",
+            "detail": f"임계값: {settings.ner_training_min_samples}건",
+            "next_run_kst": _next_cron_run(minute=0, hour=2),
+        },
+        {
+            "task": "Fine-tuning",
+            "interval": "자동 (준비 완료 시)",
+            "detail": "임계 도달 시 자동 트리거",
+            "next_run_kst": "준비 완료 시" if unused < min_samples else "트리거 대기",
+        },
+        {
+            "task": "키워드 재추출",
+            "interval": "매월 1일 13:00 KST",
+            "detail": f"최근 {settings.ner_reextract_days}일",
+            "next_run_kst": _next_cron_run(minute=0, hour=4, day_of_month=1),
+        },
+    ]
+
     return {
         "current_model": current_model,
         "training_data": training_data,
@@ -484,6 +615,8 @@ async def mlops(username: str = Depends(require_admin)):
         },
         "schedule": schedule,
         "pipeline": pipeline,
+        "recent_evaluations": recent_evaluations,
+        "predictions": predictions,
     }
 
 
