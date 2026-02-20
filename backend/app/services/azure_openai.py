@@ -313,6 +313,79 @@ def call_gpt_sync(
         raise
 
 
+def call_gpt_with_tools_sync(
+    prompt: str,
+    tools: list[dict],
+    system_message: str = "You are a helpful assistant for Korean news analysis.",
+    max_tokens: int = 4096,
+    tool_choice: str | dict = "auto",
+) -> dict:
+    """
+    Azure OpenAI GPT-5 동기 호출 + function calling (tools)
+
+    Celery 워커에서 사용. 구조화된 출력이 필요할 때 사용.
+    Returns: tool_calls의 첫 번째 function arguments (parsed JSON dict)
+    """
+    client = _get_sync_client()
+    base = _get_base_url(settings.azure_openai_endpoint)
+    deployment = _resolve_deployment(settings.azure_openai_model_name)
+    url = (
+        f"{base}/openai/deployments/{deployment}"
+        f"/chat/completions?api-version={settings.azure_openai_api_version}"
+    )
+
+    body = {
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        "max_completion_tokens": max_tokens,
+        "tools": tools,
+    }
+    if tool_choice != "auto":
+        body["tool_choice"] = tool_choice
+
+    try:
+        response = _retry_request(
+            client, "POST", url,
+            headers={
+                "api-key": settings.azure_openai_api_key,
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        data = response.json()
+        message = data["choices"][0]["message"]
+
+        # tool_calls가 있으면 첫 번째 function의 arguments를 파싱하여 반환
+        tool_calls = message.get("tool_calls")
+        if tool_calls:
+            import json
+            args_str = tool_calls[0]["function"]["arguments"]
+            return json.loads(args_str)
+
+        # tool_calls가 없으면 content에서 JSON 파싱 시도 (fallback)
+        content = message.get("content", "")
+        if content:
+            import json
+            cleaned = content.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
+            try:
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError("GPT response contains neither tool_calls nor parseable JSON content")
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"GPT tools API error {e.response.status_code}: {_safe_error_body(e.response)}")
+        raise
+    except (KeyError, IndexError) as e:
+        logger.error(f"Unexpected GPT tools API response format: {e}")
+        raise
+
+
 async def _async_retry_request(
     client: httpx.AsyncClient, method: str, url: str, **kwargs
 ) -> httpx.Response:

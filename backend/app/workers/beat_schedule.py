@@ -56,4 +56,17 @@ beat_schedule = {
         "task": "app.workers.tasks.check_worker_memory",
         "schedule": crontab(minute="*/5"),
     },
+    # NER MLOps 스케줄
+    "collect-ner-training-data-every-6h": {
+        "task": "app.workers.tasks.collect_ner_training_data",
+        "schedule": crontab(hour="*/6", minute=15),  # 6시간마다 (정각 피해 15분)
+    },
+    "check-training-readiness-daily": {
+        "task": "app.workers.tasks.check_training_readiness",
+        "schedule": crontab(hour=2, minute=0),  # 매일 02:00 KST
+    },
+    "reextract-keywords-on-demand": {
+        "task": "app.workers.tasks.reextract_keywords_batch",
+        "schedule": crontab(day_of_month=1, hour=4, minute=0),  # 월 1회 (수동 트리거 권장)
+    },
 }

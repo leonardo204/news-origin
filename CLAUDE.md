@@ -8,8 +8,8 @@
 - **Frontend**: React 19 + TypeScript + Vite + Zustand + Tailwind CSS + ECharts + React Flow (@xyflow/react)
 - **Infra**: PostgreSQL 15 + Qdrant (vector DB) + Redis 7 + Nginx
 - **Embedding**: Azure OpenAI `text-embedding-3-large` (1024차원, API 기반)
-- **NER**: `klue/bert-base` 기반 키워드 추출 (kiwipiepy 폴백)
-- **평가**: Azure OpenAI `gpt-5` (샘플링 품질 평가, reasoning model)
+- **NER**: `klue/bert-base` 기반 키워드 추출 (kiwipiepy 폴백), MLOps fine-tuning 파이프라인
+- **평가**: Azure OpenAI `gpt-5` (function calling 기반 NER 품질 평가 + 교정)
 
 ## Project Structure
 ```
@@ -89,6 +89,18 @@ make docker-down      # 인프라 중지
 6. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
 7. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
 
+## NER MLOps Pipeline
+- **목적**: GPT-5 평가 데이터로 BERT NER 모델을 점진적으로 개선하는 폐쇄 루프
+- **데이터 수집**: 크롤링 배치마다 5건 샘플 평가 + 6시간 주기 30건 추가 수집
+- **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
+- **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
+- **Fine-tuning**: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
+- **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교), 롤백
+- **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
+- **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
+- **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006)
+- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 02:00)
+
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
 - **임베딩 유사도 게이트**: cosine_sim >= 0.52 (CLUSTER_MERGE_EMB_THRESHOLD)
@@ -163,6 +175,7 @@ make docker-down      # 인프라 중지
 | postgres | 128m | ~46m | DB 크기 ~10MB |
 | redis | 64m | ~4m | maxmemory 32mb |
 | nginx | 64m | ~4m | proxy_cache 포함 |
+| finetune | 2048m | ~1.5GB (학습 시) | profiles: finetune, 필요 시만 실행 |
 | frontend | 32m | ~10m | 정적 파일 서빙 |
 
 ### Nginx 캐싱 구조

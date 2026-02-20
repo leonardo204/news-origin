@@ -1,9 +1,10 @@
 """
-# evaluator.py - GPT-5o-mini 품질 평가 서비스
-# Version: 0.1.0
-# Description: Azure OpenAI GPT-5o-mini 기반 NER/클러스터 품질 평가
+# evaluator.py - GPT-5 품질 평가 서비스
+# Version: 0.2.0
+# Description: Azure OpenAI GPT-5 기반 NER/클러스터 품질 평가
 # Changes:
 #   - 0.1.0: NER 키워드 평가, 클러스터 품질 평가, 샘플링 전략
+#   - 0.2.0: evaluate_keywords를 ner_evaluation_agent로 위임 (function calling)
 """
 
 import json
@@ -22,7 +23,10 @@ def evaluate_keywords(
     max_retries: int = 2,
 ) -> dict:
     """
-    NER 키워드 추출 품질 평가 (GPT-5o-mini)
+    NER 키워드 추출 품질 평가 (GPT-5 function calling 위임)
+
+    내부적으로 ner_evaluation_agent.evaluate_and_correct()를 사용하여
+    구조화된 평가 결과를 생성하고, 기존 인터페이스와 호환되는 형식으로 변환.
 
     Args:
         title: 기사 제목
@@ -31,6 +35,33 @@ def evaluate_keywords(
     Returns:
         {"score": 0.0~1.0, "feedback": "...", "suggested_keywords": [...]}
     """
+    try:
+        from app.services.ner_evaluation_agent import evaluate_and_correct
+
+        result = evaluate_and_correct(title, keywords_data, max_retries=max_retries)
+
+        suggested = [e["text"] for e in result.corrected_entities] if result.corrected_entities else []
+
+        return {
+            "score": result.quality_score,
+            "feedback": result.reasoning,
+            "suggested_keywords": suggested,
+            "corrected_entities": result.corrected_entities,
+            "missed_entities": result.missed_entities,
+            "false_positives": result.false_positives,
+        }
+    except Exception as e:
+        logger.warning(f"Function calling evaluation failed, falling back to legacy: {e}")
+        # Fallback: 기존 비구조화 방식
+        return _evaluate_keywords_legacy(title, keywords_data, max_retries)
+
+
+def _evaluate_keywords_legacy(
+    title: str,
+    keywords_data: dict,
+    max_retries: int = 2,
+) -> dict:
+    """기존 비구조화 프롬프트 기반 NER 평가 (fallback)"""
     keywords = keywords_data.get("keywords", [])
     entities = keywords_data.get("entities", [])
     method = keywords_data.get("method", "unknown")
@@ -57,14 +88,13 @@ JSON 형식으로만 응답:
     for attempt in range(max_retries):
         try:
             response = call_gpt_sync(prompt)
-            # JSON 파싱 (```json ... ``` 래핑 처리)
             cleaned = response.strip()
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
             return json.loads(cleaned)
         except json.JSONDecodeError:
             if attempt < max_retries - 1:
-                continue  # GPT가 잘못된 JSON 반환 → 재시도
+                continue
             return {"score": -1, "feedback": "GPT returned invalid JSON", "suggested_keywords": []}
         except Exception as e:
             if attempt == max_retries - 1:

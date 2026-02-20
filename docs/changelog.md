@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-02-20
+
+### feat: NER 키워드 추출 품질 개선 MLOps 파이프라인
+- **목적**: BERT NER 모델("윤석열" → "윤석"만 추출 등) 품질을 GPT-5 평가 데이터로 점진 개선하는 폐쇄 루프 구축
+- **Phase 1 — 학습 데이터 수집**:
+  - GPT-5 function calling 기반 NER 평가 에이전트 (`ner_evaluation_agent.py`) — 파싱 실패 제거
+  - BIO 태그 변환 + DB 영속화 파이프라인 (`ner_training_pipeline.py`)
+  - 크롤링 배치 완료 시 평가 결과 자동 DB 저장 (기존 로그만 기록 → DB 축적)
+  - 6시간 주기 추가 학습 데이터 수집 태스크 (`collect_ner_training_data`)
+- **Phase 2 — Fine-tuning + 배포**:
+  - HuggingFace Trainer 기반 fine-tuning 스크립트 (`scripts/finetune_bert_ner.py`, CPU, epochs=3)
+  - 별도 Docker 컨테이너 (`docker compose --profile finetune run finetune`)
+  - 모델 버전 관리자 (`model_manager.py`) — 심볼릭 링크 전환, quality gate, 롤백
+  - 모델 교체 후 최근 7일 기사 키워드 재추출 태스크 (`reextract_keywords_batch`)
+- **DB 스키마**: `ner_training_samples`, `ner_model_versions` 테이블 추가 (Alembic 006)
+- **설정**: `config.py`에 MLOps 관련 6개 설정 추가
+- **기존 기능 영향 없음**: 서비스 중단 없이 운영, fine-tuning은 별도 컨테이너
+- **수정 파일**: 6개 신규 + 8개 수정 (상세는 CLAUDE.md 참조)
+
+---
+
 ## 2026-02-19
 
 ### fix: 트렌드 페이지 UX 개선 + 현황 패널 용어 변경

@@ -142,6 +142,9 @@ services:
       - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
       - BERT_NER_MODEL_PATH=${BERT_NER_MODEL_PATH:-}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+      - NER_MODEL_BASE_DIR=/app/models/bert-ner
+    volumes:
+      - bert_models:/app/models/bert-ner
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +162,29 @@ services:
     mem_reservation: 768m
     cpus: 1.0
     restart: always
+
+  finetune:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: newsorigin-finetune
+    command: python -m scripts.finetune_bert_ner
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
+      - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
+      - NER_MODEL_BASE_DIR=/app/models/bert-ner
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+    volumes:
+      - bert_models:/app/models/bert-ner
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 2048m
+    profiles:
+      - finetune
 
   celery-beat:
     build:
@@ -264,3 +290,4 @@ volumes:
   qdrant_data:
   redis_data:
   frontend_dist:
+  bert_models:

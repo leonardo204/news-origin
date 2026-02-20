@@ -6,5 +6,6 @@ from app.models.base import Base
 from app.models.article import Article
 from app.models.timeline import TrackingRequest, TimelineEntry
 from app.models.search_log import SearchLog
+from app.models.ner_training import NerTrainingSample, NerModelVersion
 
-__all__ = ["Base", "Article", "TrackingRequest", "TimelineEntry", "SearchLog"]
+__all__ = ["Base", "Article", "TrackingRequest", "TimelineEntry", "SearchLog", "NerTrainingSample", "NerModelVersion"]

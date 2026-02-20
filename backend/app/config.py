@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     background_crawl_enabled: bool = True
     article_retention_days: int = 90
 
+    # MLOps - NER Fine-tuning
+    ner_model_base_dir: str = "/app/models/bert-ner"
+    ner_eval_sample_size: int = 30
+    ner_eval_min_quality: float = 0.7
+    ner_training_min_samples: int = 200
+    ner_reextract_days: int = 7
+    ner_max_model_versions: int = 3
+
     # Webhook
     webhook_url: str = ""  # Discord/Slack webhook URL
 

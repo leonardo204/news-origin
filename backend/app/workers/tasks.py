@@ -312,14 +312,26 @@ async def _run_fetch_trending():
                     logger.warning(f"Deleted {len(failed_articles)} articles with failed embeddings; pushed {len(failed_articles)} to retry queue")
                 logger.info(f"Embedded {embedded_count}/{len(articles_to_embed)} articles")
 
-            # 5.5. 샘플링 품질 평가 (비용 절감)
+            # 5.5. 샘플링 품질 평가 (비용 절감) + MLOps 학습 데이터 수집
             try:
                 from app.services.evaluator import evaluate_batch_sample
                 eval_articles = [
                     {"title": a.title, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
                     for a in articles_to_embed[:20]
                 ]
-                evaluate_batch_sample(eval_articles, sample_size=5)
+                eval_results = evaluate_batch_sample(eval_articles, sample_size=5)
+                # 평가 결과를 DB에 저장 (MLOps 학습 데이터 수집)
+                if eval_results:
+                    try:
+                        from app.services.ner_training_pipeline import save_evaluation_results
+                        from app.services.model_manager import get_current_version
+                        save_evaluation_results(
+                            eval_results,
+                            model_version=get_current_version(),
+                            session_factory=session_factory,
+                        )
+                    except Exception as save_err:
+                        logger.warning(f"Failed to save evaluation results: {save_err}")
             except Exception as e:
                 logger.warning(f"Sampling evaluation skipped: {e}")
 
@@ -1179,3 +1191,257 @@ def check_worker_memory(self):
         logger.warning(f"Worker memory WARNING: {rss_mb:.0f}MB (threshold: {WARN_THRESHOLD_MB}MB)")
 
     return {"status": status, "rss_mb": round(rss_mb, 1), "pid": os.getpid()}
+
+
+# ── NER MLOps Tasks ──
+
+
+@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
+def collect_ner_training_data(self):
+    """
+    NER 학습 데이터 수집 태스크
+
+    미평가 기사에서 샘플링 → GPT function calling 평가 → DB 저장
+    Celery Beat에 의해 6시간마다 실행
+    """
+    try:
+        return run_async(_run_collect_ner_training())
+    except Exception as e:
+        logger.error(f"collect_ner_training_data failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+async def _run_collect_ner_training():
+    """NER 학습 데이터 수집 파이프라인"""
+    from sqlalchemy import select, func as sa_func
+    from app.models.article import Article
+    from app.models.ner_training import NerTrainingSample
+    from app.config import get_settings
+
+    settings = get_settings()
+    worker_engine, session_factory = _create_worker_engine()
+
+    try:
+        async with session_factory() as db:
+            # 이미 평가된 기사 제목 목록
+            evaluated_result = await db.execute(
+                select(NerTrainingSample.title)
+            )
+            evaluated_titles = {row[0] for row in evaluated_result.all()}
+
+            # 키워드가 추출된 기사 중 미평가 기사 샘플링
+            result = await db.execute(
+                select(Article).where(
+                    Article.metadata_.isnot(None),
+                ).order_by(sa_func.random()).limit(settings.ner_eval_sample_size * 2)
+            )
+            candidates = result.scalars().all()
+
+            # 이미 평가된 기사 제외
+            articles = [
+                a for a in candidates
+                if a.title not in evaluated_titles
+                and (a.metadata_ or {}).get("keywords_data")
+            ][:settings.ner_eval_sample_size]
+
+        if not articles:
+            logger.info("No unevaluated articles found for NER training data collection")
+            return {"status": "ok", "evaluated": 0, "saved": 0}
+
+        # GPT function calling 평가 + DB 저장
+        from app.services.ner_evaluation_agent import evaluate_and_correct
+        from app.services.ner_training_pipeline import convert_to_bio_tags, save_training_sample
+        from app.services.model_manager import get_current_version
+
+        model_version = get_current_version()
+        evaluated = 0
+        saved = 0
+
+        for article in articles:
+            try:
+                keywords_data = (article.metadata_ or {}).get("keywords_data", {})
+                correction = evaluate_and_correct(article.title, keywords_data)
+                evaluated += 1
+
+                if not correction.success or correction.quality_score < settings.ner_eval_min_quality:
+                    continue
+
+                bio_tags = convert_to_bio_tags(article.title, correction.corrected_entities)
+
+                sample_id = save_training_sample(
+                    session_factory=session_factory,
+                    article_id=str(article.id),
+                    title=article.title,
+                    bio_tags=bio_tags,
+                    gpt_quality_score=correction.quality_score,
+                    gpt_corrected_entities=correction.corrected_entities,
+                    gpt_reasoning=correction.reasoning,
+                    model_version=model_version,
+                    extraction_method=keywords_data.get("method", "unknown"),
+                )
+
+                if sample_id:
+                    saved += 1
+
+            except Exception as e:
+                logger.warning(f"NER eval failed for '{article.title[:50]}': {e}")
+                continue
+
+        logger.info(f"NER training data collection: {evaluated} evaluated, {saved} saved")
+        return {"status": "ok", "evaluated": evaluated, "saved": saved}
+
+    finally:
+        await worker_engine.dispose()
+
+
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
+def check_training_readiness(self):
+    """
+    NER fine-tuning 준비 상태 확인 태스크
+
+    미사용 학습 데이터 건수 확인 → 임계치 초과 시 알림
+    Celery Beat에 의해 매일 02:00에 실행
+    """
+    try:
+        return run_async(_run_check_readiness())
+    except Exception as e:
+        logger.error(f"check_training_readiness failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+async def _run_check_readiness():
+    """학습 준비 상태 확인"""
+    from sqlalchemy import select, func as sa_func
+    from app.models.ner_training import NerTrainingSample
+    from app.config import get_settings
+
+    settings = get_settings()
+    worker_engine, session_factory = _create_worker_engine()
+
+    try:
+        async with session_factory() as db:
+            result = await db.execute(
+                select(sa_func.count(NerTrainingSample.id)).where(
+                    NerTrainingSample.is_used_for_training == False  # noqa: E712
+                )
+            )
+            unused_count = result.scalar() or 0
+
+            total_result = await db.execute(
+                select(sa_func.count(NerTrainingSample.id))
+            )
+            total_count = total_result.scalar() or 0
+
+        ready = unused_count >= settings.ner_training_min_samples
+        status = "ready" if ready else "collecting"
+
+        logger.info(
+            f"NER training readiness: {unused_count} unused / {total_count} total "
+            f"(threshold: {settings.ner_training_min_samples}) — {status}"
+        )
+
+        if ready:
+            try:
+                from app.services.webhook import send_webhook
+                send_webhook(
+                    title="NER Fine-tuning 준비 완료",
+                    description=(
+                        f"미사용 학습 데이터 {unused_count}건 (임계치: {settings.ner_training_min_samples}건)\n"
+                        f"`docker compose run finetune` 으로 학습을 시작하세요."
+                    ),
+                    color=0x9B59B6,
+                )
+            except Exception as _we:
+                logger.warning(f"Webhook call failed (non-critical): {_we}")
+
+        return {
+            "status": status,
+            "unused_samples": unused_count,
+            "total_samples": total_count,
+            "threshold": settings.ner_training_min_samples,
+        }
+
+    finally:
+        await worker_engine.dispose()
+
+
+@celery_app.task(bind=True, soft_time_limit=7200, time_limit=7260)
+def trigger_bert_finetune(self):
+    """
+    BERT NER fine-tuning 트리거 (수동 호출용)
+
+    별도 컨테이너에서 실행하는 것을 권장하지만,
+    워커에서도 실행 가능하도록 제공 (메모리 주의)
+    """
+    try:
+        from scripts.finetune_bert_ner import run_finetune
+        result = run_finetune()
+        logger.info(f"Fine-tuning completed: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Fine-tuning failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
+def reextract_keywords_batch(self):
+    """
+    모델 교체 후 최근 기사 키워드 재추출 태스크
+
+    새 BERT NER 모델로 최근 N일 기사의 키워드를 재추출
+    """
+    try:
+        return run_async(_run_reextract())
+    except Exception as e:
+        logger.error(f"reextract_keywords_batch failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+async def _run_reextract():
+    """키워드 재추출 파이프라인"""
+    from sqlalchemy import select
+    from app.models.article import Article
+    from app.services.keyword_extractor import get_extractor
+    from app.config import get_settings
+
+    settings = get_settings()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.ner_reextract_days)
+
+    worker_engine, session_factory = _create_worker_engine()
+
+    try:
+        # 기존 추출기 캐시 무효화 (새 모델 로딩 강제)
+        extractor = get_extractor()
+        extractor._loaded = False
+        extractor._ner_pipeline = None
+
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Article).where(
+                    Article.created_at >= cutoff,
+                    Article.metadata_.isnot(None),
+                ).order_by(Article.created_at.desc())
+            )
+            articles = result.scalars().all()
+
+            if not articles:
+                return {"status": "ok", "reextracted": 0}
+
+            reextracted = 0
+            for article in articles:
+                try:
+                    new_kw = extractor.extract(article.title)
+                    meta = dict(article.metadata_ or {})
+                    meta["keywords_data"] = new_kw
+                    article.metadata_ = meta
+                    reextracted += 1
+                except Exception as e:
+                    logger.warning(f"Re-extraction failed for '{article.title[:50]}': {e}")
+
+            await db.commit()
+
+        logger.info(f"Re-extracted keywords for {reextracted}/{len(articles)} articles")
+        return {"status": "ok", "reextracted": reextracted, "total": len(articles)}
+
+    finally:
+        await worker_engine.dispose()

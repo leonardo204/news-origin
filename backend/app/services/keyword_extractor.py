@@ -55,12 +55,23 @@ class KeywordExtractor:
         self._use_bert_ner = False
         self._loaded = False
 
+    def get_model_version(self) -> str:
+        """현재 로딩된 모델의 버전 반환"""
+        try:
+            from app.services.model_manager import get_current_version
+            return get_current_version()
+        except Exception:
+            return "base"
+
     def _load(self):
         """모델 로딩 (최초 1회)"""
         if self._loaded:
             return
 
-        model_path = settings.bert_ner_model_path or settings.bert_model_name
+        # 모델 경로 우선순위: active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name
+        from app.services.model_manager import get_active_model_path
+        active_path = get_active_model_path()
+        model_path = active_path or settings.bert_ner_model_path or settings.bert_model_name
 
         # BERT NER 모델 로딩 시도
         try:
