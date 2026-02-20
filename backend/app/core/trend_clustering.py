@@ -217,7 +217,7 @@ def _merge_similar_clusters(
                         kw_list = sorted(common)[:3]
                         emb_pct = round(emb_sim * 100)
                         if kw_list:
-                            reason = f"키워드 '{', '.join(kw_list)}' 공유 · 유사도 {emb_pct}%"
+                            reason = f"공통 키워드 '{', '.join(kw_list)}' · 유사도 {emb_pct}%"
                         else:
                             reason = f"내용 유사도 {emb_pct}%"
                         m = {**m, "score": round(emb_sim, 4), "reason": reason}
@@ -427,7 +427,7 @@ async def build_article_clusters(
                 kw_list = sorted(common)[:3]
                 emb_pct = round(embedding_score * 100)
                 if kw_list:
-                    reason = f"키워드 '{', '.join(kw_list)}' 공유 · 유사도 {emb_pct}%"
+                    reason = f"공통 키워드 '{', '.join(kw_list)}' · 유사도 {emb_pct}%"
                 else:
                     reason = f"내용 유사도 {emb_pct}%"
 
