@@ -6,6 +6,13 @@
 
 ## 2026-02-20
 
+### fix: 트렌드 탭 UX 개선 — 상태 초기화, 비교 상태바, 이중 로딩 방지
+- **탭 진입 시 상태 초기화**: 트렌드 탭을 나갔다가 다시 들어올 때 `trendView`, `period`, `expandedClusterId`를 기본값으로 리셋 (Zustand `resetView()` 추가)
+- **비교 로딩 상태바**: '비교' 탭 클릭 시 period 전환과 동일한 상단 프로그레스 바 표시 (`isLoadingComparison` 조건 추가)
+- **카테고리 분포 이중 로딩 방지**: 마운트 시 2개 `useEffect`(데이터 로딩 + URL period 동기화)를 1개로 통합하여 `loadArticleTrends()` 1회만 호출
+- **`loadComparison` 의존성 수정**: `handleSetTrendView`, `handleSetPeriod`의 dependency array에 `loadComparison` 추가하여 stale closure 방지
+- **수정 파일**: `TrendsPage.tsx`, `useTrendStore.ts`
+
 ### feat: MLOps 대시보드 고도화 — 인라인 평가, KST 예상 시간, 자동 Fine-tuning, 예측 대시보드
 - **인라인 평가 활동 카드**: 크롤링 배치마다 실행되는 GPT-5 NER 평가 결과를 최근 24시간 테이블로 시각화 (품질 점수, 추출 방식, 수집 시각)
 - **KST 예상 실행 시간**: 모든 MLOps 스케줄 항목에 한국시간(UTC+9) 다음 실행 시각 표시, `_next_cron_run()` 유틸로 crontab 패턴에서 KST 변환

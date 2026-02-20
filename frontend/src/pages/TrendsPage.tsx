@@ -61,6 +61,7 @@ export default function TrendsPage() {
     setPeriod,
     setTrendView,
     toggleCluster,
+    resetView,
     loadArticleTrends,
     loadRecentArticles,
   } = useTrendStore()
@@ -73,10 +74,18 @@ export default function TrendsPage() {
 
   const selectedPublisher = searchParams.get('publisher') || null
 
+  // 탭 진입 시 상태 초기화 + 데이터 1회 로딩
   useEffect(() => {
+    resetView()
+    // URL에 period 파라미터가 있으면 적용 (딥링크 지원)
+    const urlP = searchParams.get('period') as '24h' | '7d' | '30d' | null
+    if (urlP && ['24h', '7d', '30d'].includes(urlP)) {
+      useTrendStore.setState({ period: urlP })
+    }
     loadArticleTrends()
     loadRecentArticles()
-  }, [loadArticleTrends, loadRecentArticles])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Group clusters by primary category for category view
   const categoryGroups = useMemo(() => {
@@ -171,13 +180,10 @@ export default function TrendsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 페이지 이탈 시 expanded 클러스터 초기화
+  // 페이지 이탈 시 URL 파라미터 정리
   useEffect(() => {
     return () => {
-      const state = useTrendStore.getState()
-      if (state.expandedClusterId) {
-        state.toggleCluster(state.expandedClusterId)
-      }
+      useTrendStore.getState().resetView()
     }
   }, [])
 
@@ -194,36 +200,6 @@ export default function TrendsPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [expandedClusterId, toggleCluster])
 
-  // View toggle / period change clears all filters + expanded state
-  const handleSetTrendView = useCallback((view: 'overall' | 'category' | 'compare') => {
-    setTrendView(view)
-    if (view === 'compare') {
-      loadComparison()
-    }
-  }, [setTrendView])
-
-  // Sync period from URL on mount
-  const urlPeriod = searchParams.get('period') as '24h' | '7d' | '30d' | null
-  useEffect(() => {
-    if (urlPeriod && ['24h', '7d', '30d'].includes(urlPeriod) && urlPeriod !== period) {
-      setPeriod(urlPeriod)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
-    setPeriod(p)
-    const params = new URLSearchParams(searchParams)
-    if (p !== '24h') {
-      params.set('period', p)
-    } else {
-      params.delete('period')
-    }
-    setSearchParams(params)
-    if (trendView === 'compare') {
-      loadComparison()
-    }
-  }, [setPeriod, trendView, searchParams, setSearchParams])
-
   const loadComparison = useCallback(async () => {
     setIsLoadingComparison(true)
     setComparisonError(null)
@@ -237,6 +213,27 @@ export default function TrendsPage() {
       setIsLoadingComparison(false)
     }
   }, [period])
+
+  const handleSetTrendView = useCallback((view: 'overall' | 'category' | 'compare') => {
+    setTrendView(view)
+    if (view === 'compare') {
+      loadComparison()
+    }
+  }, [setTrendView, loadComparison])
+
+  const handleSetPeriod = useCallback((p: '24h' | '7d' | '30d') => {
+    setPeriod(p)
+    const params = new URLSearchParams(searchParams)
+    if (p !== '24h') {
+      params.set('period', p)
+    } else {
+      params.delete('period')
+    }
+    setSearchParams(params)
+    if (trendView === 'compare') {
+      loadComparison()
+    }
+  }, [setPeriod, trendView, searchParams, setSearchParams, loadComparison])
 
   const handleTrack = (article: ClusterArticle) => {
     useTrackingStore.getState().reset()
@@ -373,7 +370,7 @@ export default function TrendsPage() {
         <LoadingSkeleton />
       ) : (
         <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px]">
-          {isLoading && (
+          {(isLoading || isLoadingComparison) && (
             <div className="absolute inset-x-0 top-0 z-10 h-1 overflow-hidden rounded-full bg-muted">
               <div className="h-full w-1/3 animate-pulse rounded-full bg-lifecycle-origin" />
             </div>

@@ -28,6 +28,7 @@ interface TrendState {
   period: '24h' | '7d' | '30d'
   trendView: 'overall' | 'category' | 'compare'
 
+  resetView: () => void
   setPeriod: (period: '24h' | '7d' | '30d') => void
   setTrendView: (view: 'overall' | 'category' | 'compare') => void
   toggleCluster: (clusterId: string) => void
@@ -50,6 +51,10 @@ export const useTrendStore = create<TrendState>((set, get) => ({
   error: null,
   period: '24h',
   trendView: 'overall',
+
+  resetView: () => {
+    set({ trendView: 'overall', period: '24h', expandedClusterId: null })
+  },
 
   setPeriod: (period) => {
     set({ period, isLoading: true })
