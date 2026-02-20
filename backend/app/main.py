@@ -26,7 +26,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import get_settings
 from app.core.limiter import limiter
 from app.core.logging_config import setup_logging, RequestContextMiddleware
-from app.api.routes import articles, search, timeline, trends
+from app.api.routes import admin, articles, search, timeline, trends
 from app.api.errors import (
     APIError,
     api_error_handler,
@@ -95,6 +95,7 @@ tags_metadata = [
     {"name": "search", "description": "뉴스 검색"},
     {"name": "timeline", "description": "타임라인 및 추적 상태"},
     {"name": "trends", "description": "트렌드 및 통계"},
+    {"name": "admin", "description": "관리자 대시보드 API"},
 ]
 
 app = FastAPI(
@@ -132,6 +133,7 @@ app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(timeline.router, prefix="/api/timeline", tags=["timeline"])
 app.include_router(trends.router, prefix="/api/trends", tags=["trends"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/api/health/embeddings", tags=["health"])

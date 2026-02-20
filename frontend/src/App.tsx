@@ -12,6 +12,17 @@ import NetworkStatus from '@/components/ui/NetworkStatus'
 const TimelinePage = lazy(() => import('@/pages/TimelinePage'))
 const TrendsPage = lazy(() => import('@/pages/TrendsPage'))
 
+// Lazy-load admin pages
+const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'))
+const LoginPage = lazy(() => import('@/pages/admin/LoginPage'))
+const AdminOverview = lazy(() => import('@/pages/admin/OverviewPage'))
+const AdminCollection = lazy(() => import('@/pages/admin/CollectionPage'))
+const AdminMLOps = lazy(() => import('@/pages/admin/MLOpsPage'))
+const AdminSystem = lazy(() => import('@/pages/admin/SystemPage'))
+const AdminStats = lazy(() => import('@/pages/admin/StatsPage'))
+const AdminLogs = lazy(() => import('@/pages/admin/LogsPage'))
+const AdminSettings = lazy(() => import('@/pages/admin/SettingsPage'))
+
 function TimelinePageFallback() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
@@ -62,6 +73,19 @@ export default function App() {
       <NetworkStatus />
       <ErrorBoundary>
       <Routes>
+        {/* Admin routes — outside public Layout */}
+        <Route path="/admin/login" element={<Suspense fallback={<div />}><LoginPage /></Suspense>} />
+        <Route path="/admin" element={<Suspense fallback={<div />}><AdminLayout /></Suspense>}>
+          <Route index element={<Suspense fallback={<div />}><AdminOverview /></Suspense>} />
+          <Route path="collection" element={<Suspense fallback={<div />}><AdminCollection /></Suspense>} />
+          <Route path="mlops" element={<Suspense fallback={<div />}><AdminMLOps /></Suspense>} />
+          <Route path="system" element={<Suspense fallback={<div />}><AdminSystem /></Suspense>} />
+          <Route path="stats" element={<Suspense fallback={<div />}><AdminStats /></Suspense>} />
+          <Route path="logs" element={<Suspense fallback={<div />}><AdminLogs /></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<div />}><AdminSettings /></Suspense>} />
+        </Route>
+
+        {/* Public routes */}
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
           <Route

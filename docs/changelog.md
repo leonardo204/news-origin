@@ -6,6 +6,18 @@
 
 ## 2026-02-20
 
+### feat: 관리자 대시보드 (`/admin`)
+- **목적**: 수집현황, MLOps, 시스템 자원, 통계, 로그, 설정을 한눈에 모니터링하는 관리자 콘솔
+- **인증**: JWT 기반 단일 관리자 계정 (`.env`에서 `ADMIN_USERNAME`, `ADMIN_PASSWORD` 관리)
+- **백엔드**: `/api/admin/*` 9개 엔드포인트 (login, verify, overview, crawl, mlops, system, stats, logs, settings)
+  - 인메모리 로그 링 버퍼 (최근 1000건), Celery inspect 연동, psutil 시스템 모니터링
+- **프론트엔드**: React 7개 페이지 + 사이드바 레이아웃 + 로그인 페이지
+  - 코드 스플릿: 각 페이지 5-10KB gzip
+  - 다크/라이트 모드 전환, 30초 자동 새로고침
+- **읽기 전용**: 설정 변경 기능 없음 (모니터링 전용)
+- **신규 파일**: `auth.py`, `routes/admin.py`, `adminApi.ts`, `useAdminStore.ts`, 9개 페이지 컴포넌트
+- **수정 파일**: `config.py`, `requirements.txt`, `main.py`, `App.tsx`, `docker-compose.prod.yml`, `.env.example`
+
 ### feat: NER 키워드 추출 품질 개선 MLOps 파이프라인
 - **목적**: BERT NER 모델("윤석열" → "윤석"만 추출 등) 품질을 GPT-5 평가 데이터로 점진 개선하는 폐쇄 루프 구축
 - **Phase 1 — 학습 데이터 수집**:

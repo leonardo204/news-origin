@@ -95,6 +95,8 @@ services:
       - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
       - BERT_NER_MODEL_PATH=${BERT_NER_MODEL_PATH:-}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy

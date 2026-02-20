@@ -38,6 +38,9 @@ slowapi>=0.1.9
 # Monitoring
 psutil>=5.9.0
 
+# Auth
+PyJWT>=2.8.0
+
 # Utilities
 pydantic>=2.5.0
 pydantic-settings>=2.1.0

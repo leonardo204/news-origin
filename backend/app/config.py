@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     ner_reextract_days: int = 7
     ner_max_model_versions: int = 3
 
+    # Admin Dashboard
+    admin_username: str = ""
+    admin_password: str = ""
+    admin_jwt_expire_hours: int = 24
+
     # Webhook
     webhook_url: str = ""  # Discord/Slack webhook URL
 
