@@ -61,10 +61,16 @@ class MemoryLogHandler(logging.Handler):
             self.handleError(record)
 
 
-# 모듈 로드 시 루트 로거에 설치
+# setup_logging() 이후 호출해야 핸들러가 유지됨 (main.py에서 init_log_handler() 호출)
 _memory_handler = MemoryLogHandler(maxlen=1000)
 _memory_handler.setFormatter(logging.Formatter("%(message)s"))
-logging.getLogger().addHandler(_memory_handler)
+
+
+def init_log_handler() -> None:
+    """루트 로거에 메모리 핸들러 추가 — setup_logging() 이후 호출"""
+    root = logging.getLogger()
+    if _memory_handler not in root.handlers:
+        root.addHandler(_memory_handler)
 
 
 # ---------------------------------------------------------------------------

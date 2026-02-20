@@ -37,6 +37,7 @@ from app.api.errors import (
 # Structured logging setup
 settings = get_settings()
 setup_logging(log_level="INFO")
+admin.init_log_handler()  # setup_logging 이후 메모리 로그 핸들러 설치
 logger = logging.getLogger("news-origin")
 
 
