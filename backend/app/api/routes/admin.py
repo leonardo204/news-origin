@@ -247,7 +247,16 @@ async def overview(username: str = Depends(require_admin)):
     try:
         from app.workers.celery_app import celery_app
         pong = await asyncio.to_thread(celery_app.control.inspect(timeout=2).ping)
-        services["celery"] = "ok" if pong else "error"
+        if pong:
+            services["celery"] = "ok"
+        else:
+            # solo pool can't respond to inspect while busy; check Redis heartbeat fallback
+            from app.services.cache import get_redis
+            _r = await get_redis()
+            if _r and await _r.exists("celery:worker:heartbeat"):
+                services["celery"] = "ok"
+            else:
+                services["celery"] = "error"
     except Exception:
         services["celery"] = "error"
 
@@ -1074,12 +1083,13 @@ async def traffic(
     except Exception as e:
         logger.warning(f"traffic summary query failed: {e}")
 
-    # -- hourly (last 24h) --
+    # -- hourly (last 24h, KST) --
     hourly: list[dict] = []
     try:
         async with async_session_factory() as session:
             h24 = now - timedelta(hours=24)
-            hour_trunc = func.date_trunc(literal_column("'hour'"), RequestLog.created_at)
+            kst_col = func.timezone(literal_column("'Asia/Seoul'"), RequestLog.created_at)
+            hour_trunc = func.date_trunc(literal_column("'hour'"), kst_col)
             rows = await session.execute(
                 select(
                     hour_trunc.label("hour"),
@@ -1104,23 +1114,24 @@ async def traffic(
     except Exception as e:
         logger.warning(f"traffic hourly query failed: {e}")
 
-    # -- daily (last 30d) --
+    # -- daily (last 30d, KST) --
     daily: list[dict] = []
     try:
         async with async_session_factory() as session:
             d30 = now - timedelta(days=30)
+            kst_date = cast(func.timezone(literal_column("'Asia/Seoul'"), RequestLog.created_at), Date)
             rows = await session.execute(
                 select(
-                    cast(RequestLog.created_at, Date).label("date"),
+                    kst_date.label("date"),
                     func.count(RequestLog.id).label("count"),
                     func.avg(RequestLog.duration_ms).label("avg_duration"),
                     func.count(case((RequestLog.status_code >= 400, RequestLog.id))).label("errors"),
                 ).where(
                     RequestLog.created_at >= d30
                 ).group_by(
-                    cast(RequestLog.created_at, Date)
+                    kst_date
                 ).order_by(
-                    cast(RequestLog.created_at, Date)
+                    kst_date
                 )
             )
             daily = [

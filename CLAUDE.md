@@ -54,6 +54,7 @@ make docker-down      # 인프라 중지
 - **프로덕션**: `docker-compose.prod.yml` - Nginx :10880 (외부), 내부 포트만 사용
 - 프로덕션 빌드: `docker compose -f docker-compose.prod.yml up -d --build`
 - 프로덕션 로그: `docker compose -f docker-compose.prod.yml logs -f [service]`
+- **Docker 내부 Python 실행 (CRITICAL)**: `docker compose exec <service> python3 -c "..."` — 반드시 `python3` 사용 (`python`은 시스템 Python을 가리킬 수 있어 모듈 미발견 오류 발생)
 
 ## Known Gotchas
 

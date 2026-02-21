@@ -1208,6 +1208,16 @@ def check_worker_memory(self):
         status = "warning"
         logger.warning(f"Worker memory WARNING: {rss_mb:.0f}MB (threshold: {WARN_THRESHOLD_MB}MB)")
 
+    # Redis heartbeat for dashboard health check (solo pool can't respond to inspect while busy)
+    try:
+        import redis as _redis
+        from app.config import get_settings
+        _r = _redis.Redis.from_url(get_settings().redis_url)
+        _r.setex("celery:worker:heartbeat", 600, f"{rss_mb:.0f}")
+        _r.close()
+    except Exception:
+        pass
+
     return {"status": status, "rss_mb": round(rss_mb, 1), "pid": os.getpid()}
 
 
