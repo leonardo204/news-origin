@@ -18,6 +18,7 @@ import {
   Newspaper,
   Monitor,
   Activity,
+  Mail,
 } from 'lucide-react'
 
 interface NavItem {
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { path: '/admin/system', label: '시스템', icon: Server },
   { path: '/admin/stats', label: '통계', icon: BarChart3 },
   { path: '/admin/traffic', label: '트래픽', icon: Activity },
+  { path: '/admin/reports', label: '리포트', icon: Mail },
   { path: '/admin/logs', label: '로그', icon: FileText },
   { path: '/admin/settings', label: '설정', icon: Settings2 },
 ]

@@ -1496,3 +1496,120 @@ async def _run_reextract():
 
     finally:
         await worker_engine.dispose()
+
+
+# ── Admin Report Tasks ──
+
+@celery_app.task(name="app.workers.tasks.generate_weekly_report")
+def generate_weekly_report():
+    """주간 리포트 생성 + 이메일 발송"""
+    return run_async(_generate_report("weekly"))
+
+
+@celery_app.task(name="app.workers.tasks.generate_monthly_report")
+def generate_monthly_report():
+    """월간 리포트 생성 + 이메일 발송"""
+    return run_async(_generate_report("monthly"))
+
+
+async def _generate_report(report_type: str):
+    """정기 리포트 생성 + 이메일 발송 공통 로직"""
+    from app.services.report_generator import generate_periodic_report
+    from app.services.email_sender import send_report_email
+
+    worker_engine, session_factory = _create_worker_engine()
+    try:
+        async with session_factory() as session:
+            report = await generate_periodic_report(session, report_type)
+            logger.info(f"[{report_type}] 리포트 생성 완료: {report.title}")
+
+            # 이메일 발송
+            try:
+                narrative = None
+                if report.content_json and isinstance(report.content_json, dict):
+                    narrative = report.content_json.get("narrative")
+                sent = send_report_email(
+                    title=report.title,
+                    summary=report.summary,
+                    report_type=report_type,
+                    severity="info",
+                    report_id=str(report.id),
+                    narrative=narrative,
+                )
+                if sent:
+                    report.email_sent = True
+                    report.email_sent_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    logger.info(f"[{report_type}] 리포트 이메일 발송 완료")
+            except Exception as e:
+                report.email_error = str(e)[:500]
+                await session.commit()
+                logger.warning(f"[{report_type}] 리포트 이메일 발송 실패: {e}")
+
+            return {"status": "ok", "report_id": str(report.id), "title": report.title}
+    finally:
+        await worker_engine.dispose()
+
+
+@celery_app.task(name="app.workers.tasks.check_system_alerts")
+def check_system_alerts():
+    """시스템 알림 체크 → 비정기 리포트 생성 + 이메일 발송"""
+    return run_async(_check_system_alerts())
+
+
+async def _check_system_alerts():
+    """시스템 알림 감지 + 리포트 생성 + 이메일 발송"""
+    from app.services.alert_detector import check_all_alerts
+    from app.services.report_generator import generate_alert_report
+    from app.services.email_sender import send_report_email
+
+    worker_engine, session_factory = _create_worker_engine()
+    try:
+        async with session_factory() as session:
+            alerts = await check_all_alerts(session)
+
+            if not alerts:
+                return {"status": "ok", "alerts": 0}
+
+            results = []
+            for alert in alerts:
+                try:
+                    report = await generate_alert_report(
+                        session=session,
+                        category=alert["category"],
+                        severity=alert["severity"],
+                        title=alert["title"],
+                        summary=alert["summary"],
+                        details=alert["details"],
+                    )
+
+                    # 이메일 발송
+                    try:
+                        sent = send_report_email(
+                            title=report.title,
+                            summary=report.summary,
+                            report_type="alert",
+                            severity=alert["severity"],
+                            report_id=str(report.id),
+                        )
+                        if sent:
+                            report.email_sent = True
+                            report.email_sent_at = datetime.now(timezone.utc)
+                            await session.commit()
+                    except Exception as e:
+                        report.email_error = str(e)[:500]
+                        await session.commit()
+                        logger.warning(f"알림 이메일 발송 실패 [{alert['category']}]: {e}")
+
+                    results.append({
+                        "category": alert["category"],
+                        "severity": alert["severity"],
+                        "report_id": str(report.id),
+                    })
+                except Exception as e:
+                    logger.error(f"알림 리포트 생성 실패 [{alert['category']}]: {e}")
+
+            logger.info(f"시스템 알림 체크 완료: {len(alerts)}건 감지, {len(results)}건 리포트 생성")
+            return {"status": "ok", "alerts": len(alerts), "reports": results}
+    finally:
+        await worker_engine.dispose()

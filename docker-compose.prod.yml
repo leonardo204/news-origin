@@ -97,6 +97,12 @@ services:
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,6 +151,13 @@ services:
       - BERT_NER_MODEL_PATH=${BERT_NER_MODEL_PATH:-}
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
       - NER_MODEL_BASE_DIR=/app/models/bert-ner
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
     volumes:
       - bert_models:/app/models/bert-ner
     depends_on:
@@ -210,6 +223,12 @@ services:
       - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - EMBEDDING_MODEL=text-embedding-3-large
       - GNEWS_API_KEY=${GNEWS_API_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
     depends_on:
       redis:
         condition: service_healthy

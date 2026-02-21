@@ -93,6 +93,22 @@ class Settings(BaseSettings):
     admin_password: str = ""
     admin_jwt_expire_hours: int = 24
 
+    # SMTP Email
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+    admin_email: str = ""  # 리포트 수신 이메일
+
+    # Alert Thresholds (비정기 리포트 트리거)
+    alert_error_rate_threshold: float = 10.0  # 에러율 N% 이상
+    alert_traffic_spike_multiplier: float = 3.0  # 트래픽 N배 급증
+    alert_disk_usage_threshold: float = 90.0  # 디스크 사용률 N% 이상
+    alert_memory_usage_threshold: float = 90.0  # 메모리 사용률 N% 이상
+    alert_cooldown_minutes: int = 60  # 동일 알림 재발송 방지 (분)
+
     # Webhook
     webhook_url: str = ""  # Discord/Slack webhook URL
 

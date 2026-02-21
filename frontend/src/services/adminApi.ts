@@ -54,3 +54,9 @@ export const fetchSettings = () => adminApi.get('/settings')
 
 export const fetchTraffic = (params?: { period?: string }) =>
   adminApi.get('/traffic', { params })
+
+export const fetchReports = (params?: { report_type?: string; severity?: string; limit?: number; offset?: number }) =>
+  adminApi.get('/reports', { params })
+
+export const fetchReportDetail = (reportId: string) =>
+  adminApi.get(`/reports/${reportId}`)

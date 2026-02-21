@@ -24,6 +24,7 @@ const AdminStats = lazy(() => import('@/pages/admin/StatsPage'))
 const AdminLogs = lazy(() => import('@/pages/admin/LogsPage'))
 const AdminSettings = lazy(() => import('@/pages/admin/SettingsPage'))
 const AdminTraffic = lazy(() => import('@/pages/admin/TrafficPage'))
+const AdminReports = lazy(() => import('@/pages/admin/ReportsPage'))
 
 function TimelinePageFallback() {
   return (
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="system" element={<Suspense fallback={<div />}><AdminSystem /></Suspense>} />
           <Route path="stats" element={<Suspense fallback={<div />}><AdminStats /></Suspense>} />
           <Route path="traffic" element={<Suspense fallback={<div />}><AdminTraffic /></Suspense>} />
+          <Route path="reports" element={<Suspense fallback={<div />}><AdminReports /></Suspense>} />
           <Route path="logs" element={<Suspense fallback={<div />}><AdminLogs /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<div />}><AdminSettings /></Suspense>} />
         </Route>

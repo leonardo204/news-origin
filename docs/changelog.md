@@ -6,6 +6,28 @@
 
 ## 2026-02-21
 
+### feat: 관리자 리포트 시스템 — 정기/비정기 리포트 + 이메일 발송 + GPT-5 내러티브
+- **정기 리포트**: 매주 월요일/매달 1일에 자동 생성 (크롤링, 트래픽, MLOps, 시스템, 에러 통계)
+  - 기간 비교 (이전 주/월 대비 변동률), 일별 추이, 한국어 카테고리 레이블
+  - 상위 언론사 10위, 상위 엔드포인트 10위, 상태코드 분포
+  - 시스템 리소스 상세 (CPU/메모리/디스크 총량·사용량·여유)
+  - NER 모델 히스토리 + 품질 추이
+- **GPT-5 AI 내러티브**: 수집된 통계를 GPT-5가 비전문가 관리자 관점으로 800자 이내 운영 요약 자동 생성
+  - 빈 응답 시 자동 재시도 (최대 2회, GPT-5 reasoning 모델 간헐적 빈 content 대응)
+- **비정기 리포트**: 10분마다 시스템 알림 체크 (에러율 급증, 트래픽 급증, 디스크/메모리 사용률) → 알림 리포트 자동 생성
+  - 카테고리별 대응 가이드 (비전문가 관리자용 권장 조치)
+- **이메일 발송**: SMTP HTML 템플릿 — AI 운영 요약 포함, KST 시간 표시, 대시보드 링크 (`https://news.zerolive.co.kr/admin/reports`)
+- **게시판 UI**: 전통적인 게시판 스타일 (목록 ↔ 상세 전환)
+  - 섹션별 전용 렌더러: 크롤링(카테고리 바 차트, 언론사 랭킹), 트래픽(상태코드 뱃지, 엔드포인트 테이블), MLOps(품질 추이 미니 차트, 모델 히스토리), 시스템(CPU/메모리/디스크 프로그레스 바), 에러(테이블), 알림(대응 가이드 카드)
+- **DB 모델**: `admin_reports` 테이블 (report_type, title, summary, content_json, severity, email 상태)
+- **Celery Beat**: `generate_weekly_report` (월 09:00 KST), `generate_monthly_report` (1일 09:00 KST), `check_system_alerts` (10분)
+- **신규 파일**: `admin_report.py`, `email_sender.py`, `report_generator.py`, `alert_detector.py`, `010_add_admin_reports.py`, `ReportsPage.tsx`
+- **수정 파일**: `config.py`, `tasks.py`, `beat_schedule.py`, `admin.py`, `adminApi.ts`, `App.tsx`, `AdminLayout.tsx`, `models/__init__.py`, `docker-compose.prod.yml`
+
+### fix: celery-worker CORS_ORIGINS 환경변수 누락
+- **문제**: `docker-compose.prod.yml`의 celery-worker에 `CORS_ORIGINS` 미설정 → 이메일 대시보드 링크가 `http://localhost:10080`으로 생성
+- **수정**: celery-worker environment에 `CORS_ORIGINS=${CORS_ORIGINS:-}` 추가
+
 ### fix: 트렌드 카테고리 분포 차트 이중 렌더링 — 근본 수정
 - **근본 원인**: `ReactECharts`의 `option={{...}}` 내 인라인 `formatter` 함수가 매 렌더마다 새 참조 생성 → `echarts-for-react`의 `fast-deep-equal` 비교 실패 → `notMerge`로 차트 완전 재생성 (애니메이션 2회 실행)
 - **트리거**: `useTrendStore()` selector 미사용으로 `recentArticles`, SSE 상태 등 무관한 필드 변경에도 컴포넌트 리렌더

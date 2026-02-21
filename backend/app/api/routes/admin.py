@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from app.api.auth import authenticate, create_token, require_admin
 from app.config import get_settings
+from app.models.admin_report import AdminReport
 from app.models.article import Article
 from app.models.base import async_session_factory
 from app.models.ner_training import NerModelVersion, NerTrainingSample
@@ -1235,6 +1236,102 @@ async def traffic(
         "recent_errors": recent_errors,
         "geo_distribution": geo_distribution,
     }
+
+
+# ---------------------------------------------------------------------------
+# Settings (read-only, secrets masked)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
+@router.get("/reports")
+async def reports_list(
+    username: str = Depends(require_admin),
+    report_type: str | None = Query(None, description="Filter: weekly, monthly, alert"),
+    severity: str | None = Query(None, description="Filter: info, warning, critical"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """리포트 목록 조회 (게시판)"""
+    try:
+        async with async_session_factory() as session:
+            stmt = select(AdminReport).order_by(AdminReport.created_at.desc())
+
+            if report_type:
+                stmt = stmt.where(AdminReport.report_type == report_type)
+            if severity:
+                stmt = stmt.where(AdminReport.severity == severity)
+
+            # total count
+            count_stmt = select(func.count(AdminReport.id))
+            if report_type:
+                count_stmt = count_stmt.where(AdminReport.report_type == report_type)
+            if severity:
+                count_stmt = count_stmt.where(AdminReport.severity == severity)
+            total = (await session.execute(count_stmt)).scalar() or 0
+
+            stmt = stmt.offset(offset).limit(limit)
+            rows = await session.execute(stmt)
+            reports = rows.scalars().all()
+
+            return {
+                "reports": [
+                    {
+                        "id": str(r.id),
+                        "report_type": r.report_type,
+                        "title": r.title,
+                        "summary": r.summary,
+                        "category": r.category,
+                        "severity": r.severity,
+                        "email_sent": r.email_sent,
+                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                    }
+                    for r in reports
+                ],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+    except Exception as e:
+        logger.warning(f"reports list query failed: {e}")
+        return {"reports": [], "total": 0, "limit": limit, "offset": offset}
+
+
+@router.get("/reports/{report_id}")
+async def report_detail(
+    report_id: str,
+    username: str = Depends(require_admin),
+):
+    """리포트 상세 조회"""
+    try:
+        import uuid as _uuid
+        rid = _uuid.UUID(report_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="잘못된 리포트 ID 형식입니다")
+
+    async with async_session_factory() as session:
+        row = await session.execute(
+            select(AdminReport).where(AdminReport.id == rid)
+        )
+        report = row.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다")
+
+        return {
+            "id": str(report.id),
+            "report_type": report.report_type,
+            "title": report.title,
+            "summary": report.summary,
+            "content_json": report.content_json,
+            "category": report.category,
+            "severity": report.severity,
+            "email_sent": report.email_sent,
+            "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
+            "email_error": report.email_error,
+            "created_at": report.created_at.isoformat() if report.created_at else None,
+        }
 
 
 # ---------------------------------------------------------------------------

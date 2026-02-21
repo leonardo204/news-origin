@@ -77,7 +77,7 @@ make docker-down      # 인프라 중지
 
 ### datetime timezone
 - 모든 datetime은 UTC 기준 (`enable_utc=True`)
-- 프론트엔드에서 KST 변환 표시
+- **관리자/사용자에게 표시하는 모든 시간은 KST (Asia/Seoul)** — 프론트엔드 `toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })`, 이메일/리포트도 동일
 - Beat 스케줄의 crontab은 UTC 기준 (timezone="Asia/Seoul" 설정으로 보정)
 
 ### ECharts 차트 옵션 반드시 useMemo (CRITICAL)
@@ -156,6 +156,8 @@ make docker-down      # 인프라 중지
 - `GET /api/search/news` - 뉴스 검색
 - `GET /api/trends/*` - 트렌드 분석
 - `GET /api/admin/traffic` - 트래픽 통계 (시간별/일별, 상태코드, 엔드포인트, GeoIP, 에러)
+- `GET /api/admin/reports` - 리포트 목록 (유형/등급 필터, 페이지네이션)
+- `GET /api/admin/reports/{id}` - 리포트 상세 (content_json 포함)
 - `GET /api/health` - 헬스체크
 - `/policy` - 운영 정책 페이지 (프론트엔드 라우트)
 
@@ -167,6 +169,18 @@ make docker-down      # 인프라 중지
 - **배치 INSERT**: `RequestLogWriter` — `deque(maxlen=10_000)` → 5초/50건마다 DB flush
 - **GeoIP**: ip-api.com 배치 API, Redis 24시간 캐시
 - **보존**: 90일 (기존 cleanup 태스크 연동)
+
+## Admin Report System
+- **정기 리포트**: `generate_weekly_report` (월요일 09:00 KST), `generate_monthly_report` (매달 1일 09:00 KST)
+  - 기간 비교 (전기 대비 변동률), 일별 추이, 한국어 카테고리, 상위 언론사/엔드포인트
+  - GPT-5 AI 내러티브: 비전문가 관리자 관점 운영 요약 자동 생성 (빈 응답 시 최대 2회 재시도)
+- **비정기 리포트**: `check_system_alerts` (10분마다) — 에러율 급증, 트래픽 급증, 디스크/메모리 사용률
+  - 카테고리별 대응 가이드 포함 (비전문가 관리자용)
+- **이메일 발송**: SMTP HTML 템플릿, AI 운영 요약 포함, KST 시간 표시, 대시보드 링크, 쿨다운 60분
+- **게시판 UI**: `/admin/reports` — 전통적 게시판 스타일 (목록 ↔ 상세 전환), 섹션별 전용 렌더러 (차트/프로그레스 바/테이블)
+- **DB 테이블**: `admin_reports` (Alembic 010), content_json에 섹션별 통계 저장
+- **설정**: `config.py` — `smtp_*`, `admin_email`, `alert_*_threshold`, `alert_cooldown_minutes`
+- **report_generator.py**: 각 섹션(크롤링/트래픽/MLOps/시스템/에러) 독립 try/except + rollback
 - **관리자 대시보드**: `/admin/traffic` — 에어리어 차트, GeoIP 분포, 상태코드, 엔드포인트 통계
 
 ## Host PC & Performance Constraints
