@@ -85,8 +85,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not initialize Qdrant: {e}")
 
+    # 요청 로그 비동기 배치 Writer 시작
+    from app.services.request_logger import request_log_writer
+    request_log_writer.start()
+
     yield
 
+    # 요청 로그 Writer 종료 (잔여 로그 flush)
+    await request_log_writer.stop()
     logger.info("Shutting down News Origin API")
 
 

@@ -70,6 +70,24 @@ def setup_logging(log_level: str = "INFO"):
         logger.propagate = False
 
 
+def _extract_client_ip(request: Request) -> str | None:
+    """실제 클라이언트 IP 추출 (CDN/프록시 헤더 우선)"""
+    # Cloudflare
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+    # X-Forwarded-For (첫 번째 = 원본 클라이언트)
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    # X-Real-IP
+    xri = request.headers.get("X-Real-IP")
+    if xri:
+        return xri.strip()
+    # 직접 연결
+    return request.client.host if request.client else None
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """요청 ID 트레이싱 미들웨어 - 모든 로그에 request_id 자동 추가"""
 
@@ -116,5 +134,19 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         # 응답 헤더에 request_id 추가
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time"] = f"{duration_ms:.0f}ms"
+
+        # 요청 로그를 비동기 배치 큐에 적재
+        try:
+            from app.services.request_logger import request_log_writer
+            request_log_writer.enqueue({
+                "method": request.method,
+                "path": str(request.url.path),
+                "status_code": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+                "client_ip": _extract_client_ip(request),
+                "user_agent": (request.headers.get("User-Agent") or "")[:512] or None,
+            })
+        except Exception:
+            pass  # 로그 적재 실패는 요청 처리에 영향 없음
 
         return response

@@ -23,6 +23,7 @@ const AdminSystem = lazy(() => import('@/pages/admin/SystemPage'))
 const AdminStats = lazy(() => import('@/pages/admin/StatsPage'))
 const AdminLogs = lazy(() => import('@/pages/admin/LogsPage'))
 const AdminSettings = lazy(() => import('@/pages/admin/SettingsPage'))
+const AdminTraffic = lazy(() => import('@/pages/admin/TrafficPage'))
 
 function TimelinePageFallback() {
   return (
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="mlops" element={<Suspense fallback={<div />}><AdminMLOps /></Suspense>} />
           <Route path="system" element={<Suspense fallback={<div />}><AdminSystem /></Suspense>} />
           <Route path="stats" element={<Suspense fallback={<div />}><AdminStats /></Suspense>} />
+          <Route path="traffic" element={<Suspense fallback={<div />}><AdminTraffic /></Suspense>} />
           <Route path="logs" element={<Suspense fallback={<div />}><AdminLogs /></Suspense>} />
           <Route path="settings" element={<Suspense fallback={<div />}><AdminSettings /></Suspense>} />
         </Route>

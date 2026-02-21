@@ -51,3 +51,6 @@ export const fetchLogs = (params?: { level?: string; limit?: number }) =>
   adminApi.get('/logs', { params })
 
 export const fetchSettings = () => adminApi.get('/settings')
+
+export const fetchTraffic = (params?: { period?: string }) =>
+  adminApi.get('/traffic', { params })

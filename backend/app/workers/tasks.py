@@ -407,6 +407,7 @@ async def _run_cleanup():
     from app.models.article import Article
     from app.models.timeline import TimelineEntry
     from app.models.search_log import SearchLog
+    from app.models.request_log import RequestLog
     from app.services.vector_store import get_qdrant_client
     from app.config import get_settings
 
@@ -444,6 +445,13 @@ async def _run_cleanup():
             )
             deleted_logs = old_logs_result.rowcount
             logger.info(f"Deleted {deleted_logs} old search logs")
+
+            # request_logs 정리 (90일 초과 로그 삭제)
+            old_request_logs_result = await db.execute(
+                delete(RequestLog).where(RequestLog.created_at < cutoff)
+            )
+            deleted_request_logs = old_request_logs_result.rowcount
+            logger.info(f"Deleted {deleted_request_logs} old request logs")
 
             if not to_delete_ids:
                 logger.info("No old articles to clean up")

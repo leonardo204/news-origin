@@ -80,6 +80,13 @@ make docker-down      # 인프라 중지
 - 프론트엔드에서 KST 변환 표시
 - Beat 스케줄의 crontab은 UTC 기준 (timezone="Asia/Seoul" 설정으로 보정)
 
+### ECharts 차트 옵션 반드시 useMemo (CRITICAL)
+- `ReactECharts`의 `option={{...}}` 인라인 객체 내 `formatter` 등 **함수가 포함되면** 매 렌더마다 새 참조 생성
+- `echarts-for-react`는 `fast-deep-equal`로 비교하는데, **함수는 참조 비교**라 항상 "다름" 판정
+- `notMerge` prop과 결합 시 매 렌더마다 차트를 완전 재생성 → 애니메이션 반복 재생
+- **해결**: chart option과 onEvents를 반드시 `useMemo`로 감싸고, 실제 데이터 의존성만 deps에 포함
+- Zustand store를 selector 없이 구독하면 무관한 필드 변경(SSE, recentArticles 등)에도 리렌더 발생 → 차트 갱신 트리거
+
 ## Crawling Pipeline
 1. Celery Beat → `fetch_trending_news` (30분 간격)
 2. Google News RSS 6개 카테고리 (headlines, politics, economy, society, tech, entertainment)
@@ -148,8 +155,19 @@ make docker-down      # 인프라 중지
 - `GET /api/timeline/{id}/status` - 추적 상태 폴링
 - `GET /api/search/news` - 뉴스 검색
 - `GET /api/trends/*` - 트렌드 분석
+- `GET /api/admin/traffic` - 트래픽 통계 (시간별/일별, 상태코드, 엔드포인트, GeoIP, 에러)
 - `GET /api/health` - 헬스체크
 - `/policy` - 운영 정책 페이지 (프론트엔드 라우트)
+
+## Request Logging (트래픽 수집)
+- **수집 대상**: 실 사용자 트래픽만 (관리자/내부 트래픽 제외)
+- **제외 경로**: `/api/admin/*`, `/api/health*`, `/assets/*`, `/favicon.ico`
+- **제외 IP**: 사설/Docker/로컬호스트/예약 IP (`ipaddress` 모듈 `is_private|is_loopback|is_reserved`)
+- **IP 추출 우선순위**: CF-Connecting-IP → X-Forwarded-For(첫 번째) → X-Real-IP → `request.client.host`
+- **배치 INSERT**: `RequestLogWriter` — `deque(maxlen=10_000)` → 5초/50건마다 DB flush
+- **GeoIP**: ip-api.com 배치 API, Redis 24시간 캐시
+- **보존**: 90일 (기존 cleanup 태스크 연동)
+- **관리자 대시보드**: `/admin/traffic` — 에어리어 차트, GeoIP 분포, 상태코드, 엔드포인트 통계
 
 ## Host PC & Performance Constraints
 

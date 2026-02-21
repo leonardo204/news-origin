@@ -6,6 +6,29 @@
 
 ## 2026-02-21
 
+### fix: 트렌드 카테고리 분포 차트 이중 렌더링 — 근본 수정
+- **근본 원인**: `ReactECharts`의 `option={{...}}` 내 인라인 `formatter` 함수가 매 렌더마다 새 참조 생성 → `echarts-for-react`의 `fast-deep-equal` 비교 실패 → `notMerge`로 차트 완전 재생성 (애니메이션 2회 실행)
+- **트리거**: `useTrendStore()` selector 미사용으로 `recentArticles`, SSE 상태 등 무관한 필드 변경에도 컴포넌트 리렌더
+- **수정**: `categoryChartOption`과 `categoryChartEvents`를 `useMemo`로 메모이제이션 → 실제 데이터 변경 시만 차트 갱신
+- **수정 파일**: `TrendsPage.tsx`
+
+### feat: Admin 트래픽 대시보드 v2 — GeoIP + IP 필터링 + 차트 개선
+- **GeoIP 분포**: ip-api.com 배치 API로 방문자 IP의 국가/도시 분포 집계, Redis 24시간 캐시 (`admin.py`)
+- **사설 IP 필터링**: Docker 내부/로컬호스트/예약 IP 자동 제외 (`request_logger.py`: `_is_private_ip()`)
+- **경로 필터링**: `/api/admin/*`, `/api/health*`, `/assets/*` 자동 제외 — 실 사용자 트래픽만 수집
+- **클라이언트 IP 추출**: CF-Connecting-IP → X-Forwarded-For(첫 번째) → X-Real-IP → direct 우선순위 체인 (`logging_config.py`)
+- **차트 개선**: 바 차트 → 그라데이션 에어리어 차트, 상태코드 도넛 중앙 합계, 국가별 플래그 이모지
+- **수정 파일**: `admin.py`, `request_logger.py`, `logging_config.py`, `TrafficPage.tsx`
+
+### feat: Admin 트래픽 대시보드
+- **HTTP 요청 로그 수집**: FastAPI 미들웨어에서 요청 정보를 비동기 배치 큐에 적재 → 5초/50건마다 DB 일괄 INSERT (`request_logger.py`)
+- **DB 모델**: `request_logs` 테이블 (method, path, status_code, duration_ms, client_ip, user_agent, created_at) + 3개 인덱스
+- **API**: `/api/admin/traffic` — period(24h/7d/30d) 파라미터로 시간별/일별 트래픽, 상태코드 분포, 엔드포인트 통계, 최근 에러 반환
+- **대시보드 UI**: ECharts 차트(시간별 듀얼축, 일별 스택 바, 상태코드 도넛) + 요약 카드 4개 + 엔드포인트/에러 테이블
+- **Cleanup 연동**: 기존 `cleanup_old_articles` 태스크에서 90일 초과 request_logs 자동 삭제
+- **신규 파일**: `request_log.py`, `request_logger.py`, `009_add_request_logs.py`, `TrafficPage.tsx`
+- **수정 파일**: `models/__init__.py`, `logging_config.py`, `main.py`, `admin.py`, `tasks.py`, `adminApi.ts`, `App.tsx`, `AdminLayout.tsx`
+
 ### feat: RSS 정책 대응 — 한겨레 NER 학습 제외, 운영 정책, description 활용
 - **한겨레 NER 학습 제외**: AI 학습 금지 명시 언론사(한겨레) 기사를 NER 학습 데이터 수집 및 GPT 평가 샘플에서 자동 제외 (`config.py`: `ner_excluded_publishers`, `tasks.py`, `evaluator.py`)
 - **운영 정책 페이지**: `/policy` 경로에 서비스 목적, 콘텐츠 이용 방침, AI 학습 정책, 저작권 존중 등 명시, 연락처 이메일 포함 (`PolicyPage.tsx`, `App.tsx`, `Header.tsx`)

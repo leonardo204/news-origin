@@ -893,6 +893,351 @@ async def logs(
 
 
 # ---------------------------------------------------------------------------
+# Traffic — GeoIP helper
+# ---------------------------------------------------------------------------
+
+async def _resolve_geo_ips(ips: list[str]) -> dict[str, dict]:
+    """IP 지리적 위치 일괄 조회 (ip-api.com + Redis 캐시, 24h TTL)"""
+    if not ips:
+        return {}
+
+    results: dict[str, dict] = {}
+    uncached: list[str] = []
+
+    # Redis 캐시 확인
+    try:
+        from app.services.cache import cache_get, cache_set as _cache_set
+        for ip in ips:
+            cached = await cache_get(f"geo:{ip}")
+            if cached:
+                results[ip] = cached
+            else:
+                uncached.append(ip)
+    except Exception:
+        uncached = list(ips)
+
+    if not uncached:
+        return results
+
+    # ip-api.com batch lookup (무료, 최대 100개)
+    def _batch_lookup(ip_list: list[str]) -> list[dict]:
+        import json
+        import urllib.request
+        req = urllib.request.Request(
+            "http://ip-api.com/batch?fields=query,status,country,countryCode,city",
+            data=json.dumps(ip_list[:100]).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+
+    try:
+        data = await asyncio.to_thread(_batch_lookup, uncached)
+        from app.services.cache import cache_set as _cache_set
+        for item in data:
+            if item.get("status") == "success":
+                geo = {
+                    "country": item.get("country", "Unknown"),
+                    "countryCode": item.get("countryCode", ""),
+                    "city": item.get("city", ""),
+                }
+                results[item["query"]] = geo
+                try:
+                    await _cache_set(f"geo:{item['query']}", geo, ttl=86400)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"GeoIP batch lookup failed: {e}")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Traffic
+# ---------------------------------------------------------------------------
+
+@router.get("/traffic")
+async def traffic(
+    username: str = Depends(require_admin),
+    period: str = Query("24h", regex="^(24h|7d|30d)$", description="Time period"),
+):
+    """HTTP 트래픽 대시보드 데이터"""
+    from app.models.request_log import RequestLog
+
+    now = datetime.now(timezone.utc)
+    period_map = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+    cutoff = now - period_map[period]
+
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    month_start = today_start.replace(day=1)
+
+    # -- summary --
+    summary: dict = {"today": 0, "week": 0, "month": 0, "avg_duration": 0.0, "error_rate": 0.0, "unique_ips": 0}
+    try:
+        async with async_session_factory() as session:
+            row = await session.execute(
+                select(
+                    func.count(case((RequestLog.created_at >= today_start, RequestLog.id))).label("today"),
+                    func.count(case((RequestLog.created_at >= week_start, RequestLog.id))).label("week"),
+                    func.count(case((RequestLog.created_at >= month_start, RequestLog.id))).label("month"),
+                    func.avg(case((RequestLog.created_at >= cutoff, RequestLog.duration_ms))).label("avg_duration"),
+                    func.count(case((
+                        (RequestLog.created_at >= cutoff) & (RequestLog.status_code >= 400),
+                        RequestLog.id,
+                    ))).label("errors"),
+                    func.count(case((RequestLog.created_at >= cutoff, RequestLog.id))).label("period_total"),
+                    func.count(func.distinct(case((RequestLog.created_at >= cutoff, RequestLog.client_ip)))).label("unique_ips"),
+                )
+            )
+            r = row.one()
+            period_total = r.period_total or 0
+            errors = r.errors or 0
+            summary = {
+                "today": r.today or 0,
+                "week": r.week or 0,
+                "month": r.month or 0,
+                "avg_duration": round(float(r.avg_duration), 1) if r.avg_duration else 0.0,
+                "error_rate": round(errors / period_total * 100, 1) if period_total > 0 else 0.0,
+                "unique_ips": r.unique_ips or 0,
+            }
+    except Exception as e:
+        logger.warning(f"traffic summary query failed: {e}")
+
+    # -- hourly (last 24h) --
+    hourly: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            h24 = now - timedelta(hours=24)
+            rows = await session.execute(
+                select(
+                    func.date_trunc("hour", RequestLog.created_at).label("hour"),
+                    func.count(RequestLog.id).label("count"),
+                    func.avg(RequestLog.duration_ms).label("avg_duration"),
+                ).where(
+                    RequestLog.created_at >= h24
+                ).group_by(
+                    func.date_trunc("hour", RequestLog.created_at)
+                ).order_by(
+                    func.date_trunc("hour", RequestLog.created_at)
+                )
+            )
+            hourly = [
+                {
+                    "hour": r.hour.isoformat() if r.hour else None,
+                    "count": r.count,
+                    "avg_duration": round(float(r.avg_duration), 1) if r.avg_duration else 0.0,
+                }
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic hourly query failed: {e}")
+
+    # -- daily (last 30d) --
+    daily: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            d30 = now - timedelta(days=30)
+            rows = await session.execute(
+                select(
+                    cast(RequestLog.created_at, Date).label("date"),
+                    func.count(RequestLog.id).label("count"),
+                    func.avg(RequestLog.duration_ms).label("avg_duration"),
+                    func.count(case((RequestLog.status_code >= 400, RequestLog.id))).label("errors"),
+                ).where(
+                    RequestLog.created_at >= d30
+                ).group_by(
+                    cast(RequestLog.created_at, Date)
+                ).order_by(
+                    cast(RequestLog.created_at, Date)
+                )
+            )
+            daily = [
+                {
+                    "date": r.date.isoformat(),
+                    "count": r.count,
+                    "avg_duration": round(float(r.avg_duration), 1) if r.avg_duration else 0.0,
+                    "errors": r.errors or 0,
+                }
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic daily query failed: {e}")
+
+    # -- status_distribution --
+    status_distribution: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(
+                    RequestLog.status_code,
+                    func.count(RequestLog.id).label("count"),
+                ).where(
+                    RequestLog.created_at >= cutoff
+                ).group_by(
+                    RequestLog.status_code
+                ).order_by(
+                    func.count(RequestLog.id).desc()
+                )
+            )
+            status_distribution = [
+                {"status_code": r.status_code, "count": r.count}
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic status_distribution query failed: {e}")
+
+    # -- top_by_count --
+    top_by_count: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(
+                    RequestLog.method,
+                    RequestLog.path,
+                    func.count(RequestLog.id).label("count"),
+                    func.avg(RequestLog.duration_ms).label("avg_duration"),
+                ).where(
+                    RequestLog.created_at >= cutoff
+                ).group_by(
+                    RequestLog.method, RequestLog.path
+                ).order_by(
+                    func.count(RequestLog.id).desc()
+                ).limit(15)
+            )
+            top_by_count = [
+                {
+                    "method": r.method,
+                    "path": r.path,
+                    "count": r.count,
+                    "avg_duration": round(float(r.avg_duration), 1) if r.avg_duration else 0.0,
+                }
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic top_by_count query failed: {e}")
+
+    # -- top_by_duration --
+    top_by_duration: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(
+                    RequestLog.method,
+                    RequestLog.path,
+                    func.count(RequestLog.id).label("count"),
+                    func.avg(RequestLog.duration_ms).label("avg_duration"),
+                    func.max(RequestLog.duration_ms).label("max_duration"),
+                ).where(
+                    RequestLog.created_at >= cutoff
+                ).group_by(
+                    RequestLog.method, RequestLog.path
+                ).order_by(
+                    func.avg(RequestLog.duration_ms).desc()
+                ).limit(15)
+            )
+            top_by_duration = [
+                {
+                    "method": r.method,
+                    "path": r.path,
+                    "count": r.count,
+                    "avg_duration": round(float(r.avg_duration), 1) if r.avg_duration else 0.0,
+                    "max_duration": round(float(r.max_duration), 1) if r.max_duration else 0.0,
+                }
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic top_by_duration query failed: {e}")
+
+    # -- recent_errors --
+    recent_errors: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(
+                    RequestLog.method,
+                    RequestLog.path,
+                    RequestLog.status_code,
+                    RequestLog.duration_ms,
+                    RequestLog.client_ip,
+                    RequestLog.created_at,
+                ).where(
+                    RequestLog.status_code >= 400,
+                ).order_by(
+                    RequestLog.created_at.desc()
+                ).limit(30)
+            )
+            recent_errors = [
+                {
+                    "method": r.method,
+                    "path": r.path,
+                    "status_code": r.status_code,
+                    "duration_ms": round(r.duration_ms, 1),
+                    "client_ip": r.client_ip,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows.all()
+            ]
+    except Exception as e:
+        logger.warning(f"traffic recent_errors query failed: {e}")
+
+    # -- geo_distribution --
+    geo_distribution: list[dict] = []
+    try:
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(
+                    RequestLog.client_ip,
+                    func.count(RequestLog.id).label("count"),
+                ).where(
+                    RequestLog.created_at >= cutoff,
+                    RequestLog.client_ip.isnot(None),
+                ).group_by(RequestLog.client_ip)
+            )
+            ip_counts = {r.client_ip: r.count for r in rows.all()}
+
+        if ip_counts:
+            geo_map = await _resolve_geo_ips(list(ip_counts.keys()))
+            country_agg: dict[str, dict] = {}
+            for ip, count in ip_counts.items():
+                geo = geo_map.get(ip, {"country": "Unknown", "countryCode": "", "city": ""})
+                country = geo["country"]
+                if country not in country_agg:
+                    country_agg[country] = {
+                        "country": country,
+                        "countryCode": geo.get("countryCode", ""),
+                        "count": 0,
+                        "unique_ips": 0,
+                        "cities": {},
+                    }
+                country_agg[country]["count"] += count
+                country_agg[country]["unique_ips"] += 1
+                city = geo.get("city", "")
+                if city:
+                    country_agg[country]["cities"][city] = country_agg[country]["cities"].get(city, 0) + count
+
+            geo_distribution = sorted(country_agg.values(), key=lambda x: -x["count"])
+            for entry in geo_distribution:
+                entry["cities"] = sorted(
+                    [{"city": c, "count": n} for c, n in entry["cities"].items()],
+                    key=lambda x: -x["count"],
+                )[:5]
+    except Exception as e:
+        logger.warning(f"traffic geo_distribution failed: {e}")
+
+    return {
+        "summary": summary,
+        "hourly": hourly,
+        "daily": daily,
+        "status_distribution": status_distribution,
+        "top_by_count": top_by_count,
+        "top_by_duration": top_by_duration,
+        "recent_errors": recent_errors,
+        "geo_distribution": geo_distribution,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Settings (read-only, secrets masked)
 # ---------------------------------------------------------------------------
 

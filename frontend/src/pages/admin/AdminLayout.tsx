@@ -17,6 +17,7 @@ import {
   X,
   Newspaper,
   Monitor,
+  Activity,
 } from 'lucide-react'
 
 interface NavItem {
@@ -32,6 +33,7 @@ const navItems: NavItem[] = [
   { path: '/admin/mlops', label: 'MLOps', icon: Brain },
   { path: '/admin/system', label: '시스템', icon: Server },
   { path: '/admin/stats', label: '통계', icon: BarChart3 },
+  { path: '/admin/traffic', label: '트래픽', icon: Activity },
   { path: '/admin/logs', label: '로그', icon: FileText },
   { path: '/admin/settings', label: '설정', icon: Settings2 },
 ]

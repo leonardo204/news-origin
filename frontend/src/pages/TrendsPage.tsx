@@ -175,6 +175,64 @@ export default function TrendsPage() {
 
   const [categoryFilterExpanded, setCategoryFilterExpanded] = useState(false)
 
+  // Memoize category distribution chart option — 인라인 함수(formatter)가 매 렌더마다
+  // 새 참조를 생성해 echarts-for-react의 deep-equal을 실패시키고,
+  // notMerge와 결합되어 차트가 매번 재애니메이션되는 것을 방지
+  const categoryChartOption = useMemo(() => {
+    if (!articleTrends?.category_distribution) return null
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        backgroundColor: '#1f2937',
+        borderColor: '#374151',
+        textStyle: { color: '#e5e7eb', fontSize: 12 },
+        formatter: (params: EChartsTooltipParam) =>
+          `${params.name}: ${params.value}건 (${params.percent}%)`,
+      },
+      series: [
+        {
+          type: 'pie',
+          radius: ['45%', '75%'],
+          avoidLabelOverlap: true,
+          itemStyle: { borderRadius: 4, borderColor: '#0a0a0a', borderWidth: 2 },
+          label: {
+            color: '#9ca3af',
+            fontSize: 11,
+            formatter: '{b}\n{d}%',
+          },
+          emphasis: {
+            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' },
+            label: { fontWeight: 'bold' },
+          },
+          data: Object.entries(articleTrends.category_distribution).map(
+            ([cat, count]) => ({
+              name: CATEGORY_LABELS[cat] || cat,
+              value: count,
+              itemStyle: {
+                color: CATEGORY_COLORS[cat] || '#6b7280',
+                opacity: selectedCategories.length > 0 && !selectedCategories.includes(cat) ? 0.3 : 1,
+              },
+            }),
+          ),
+        },
+      ],
+    }
+  }, [articleTrends?.category_distribution, selectedCategories])
+
+  const categoryChartEvents = useMemo(() => ({
+    click: (params: EChartsClickParam) => {
+      const catKey = Object.entries(CATEGORY_LABELS).find(
+        ([, label]) => label === params.name,
+      )?.[0]
+      if (catKey) {
+        toggleCategory(catKey)
+        if (trendView !== 'overall') {
+          setTrendView('overall')
+        }
+      }
+    },
+  }), [toggleCategory, trendView, setTrendView])
+
   // Comparison state
   const [comparison, setComparison] = useState<TrendComparison | null>(null)
   const [isLoadingComparison, setIsLoadingComparison] = useState(false)
@@ -516,7 +574,7 @@ export default function TrendsPage() {
           {/* Right: Sidebar */}
           <div className="space-y-6">
             {/* Category Distribution */}
-            {articleTrends && Object.keys(articleTrends.category_distribution).length > 0 && (
+            {categoryChartOption && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -528,58 +586,10 @@ export default function TrendsPage() {
                   <ReactECharts
                     echarts={echarts}
                     notMerge
-                    option={{
-                      backgroundColor: 'transparent',
-                      tooltip: {
-                        backgroundColor: '#1f2937',
-                        borderColor: '#374151',
-                        textStyle: { color: '#e5e7eb', fontSize: 12 },
-                        formatter: (params: EChartsTooltipParam) =>
-                          `${params.name}: ${params.value}건 (${params.percent}%)`,
-                      },
-                      series: [
-                        {
-                          type: 'pie',
-                          radius: ['45%', '75%'],
-                          avoidLabelOverlap: true,
-                          itemStyle: { borderRadius: 4, borderColor: '#0a0a0a', borderWidth: 2 },
-                          label: {
-                            color: '#9ca3af',
-                            fontSize: 11,
-                            formatter: '{b}\n{d}%',
-                          },
-                          emphasis: {
-                            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' },
-                            label: { fontWeight: 'bold' },
-                          },
-                          data: Object.entries(articleTrends.category_distribution).map(
-                            ([cat, count]) => ({
-                              name: CATEGORY_LABELS[cat] || cat,
-                              value: count,
-                              itemStyle: {
-                                color: CATEGORY_COLORS[cat] || '#6b7280',
-                                opacity: selectedCategories.length > 0 && !selectedCategories.includes(cat) ? 0.3 : 1,
-                              },
-                            }),
-                          ),
-                        },
-                      ],
-                    }}
+                    option={categoryChartOption}
                     style={{ height: 200, cursor: 'pointer' }}
                     theme="dark"
-                    onEvents={{
-                      click: (params: EChartsClickParam) => {
-                        const catKey = Object.entries(CATEGORY_LABELS).find(
-                          ([, label]) => label === params.name,
-                        )?.[0]
-                        if (catKey) {
-                          toggleCategory(catKey)
-                          if (trendView !== 'overall') {
-                            setTrendView('overall')
-                          }
-                        }
-                      },
-                    }}
+                    onEvents={categoryChartEvents}
                   />
                 </CardContent>
               </Card>
