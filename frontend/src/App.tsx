@@ -8,23 +8,33 @@ import HomePage from '@/pages/HomePage'
 import NotFoundPage from '@/pages/NotFoundPage'
 import NetworkStatus from '@/components/ui/NetworkStatus'
 
+// 배포 후 chunk 해시 변경 시 old chunk 요청 → 404 대응: 자동 새로고침
+function lazyWithReload(factory: () => Promise<{ default: React.ComponentType }>) {
+  return lazy(() =>
+    factory().catch(() => {
+      window.location.reload()
+      return new Promise(() => {}) // 리로드 중 렌더 방지
+    })
+  )
+}
+
 // Lazy-load heavy pages (contain ECharts / G6)
-const TimelinePage = lazy(() => import('@/pages/TimelinePage'))
-const TrendsPage = lazy(() => import('@/pages/TrendsPage'))
-const PolicyPage = lazy(() => import('@/pages/PolicyPage'))
+const TimelinePage = lazyWithReload(() => import('@/pages/TimelinePage'))
+const TrendsPage = lazyWithReload(() => import('@/pages/TrendsPage'))
+const PolicyPage = lazyWithReload(() => import('@/pages/PolicyPage'))
 
 // Lazy-load admin pages
-const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'))
-const LoginPage = lazy(() => import('@/pages/admin/LoginPage'))
-const AdminOverview = lazy(() => import('@/pages/admin/OverviewPage'))
-const AdminCollection = lazy(() => import('@/pages/admin/CollectionPage'))
-const AdminMLOps = lazy(() => import('@/pages/admin/MLOpsPage'))
-const AdminSystem = lazy(() => import('@/pages/admin/SystemPage'))
-const AdminStats = lazy(() => import('@/pages/admin/StatsPage'))
-const AdminLogs = lazy(() => import('@/pages/admin/LogsPage'))
-const AdminSettings = lazy(() => import('@/pages/admin/SettingsPage'))
-const AdminTraffic = lazy(() => import('@/pages/admin/TrafficPage'))
-const AdminReports = lazy(() => import('@/pages/admin/ReportsPage'))
+const AdminLayout = lazyWithReload(() => import('@/pages/admin/AdminLayout'))
+const LoginPage = lazyWithReload(() => import('@/pages/admin/LoginPage'))
+const AdminOverview = lazyWithReload(() => import('@/pages/admin/OverviewPage'))
+const AdminCollection = lazyWithReload(() => import('@/pages/admin/CollectionPage'))
+const AdminMLOps = lazyWithReload(() => import('@/pages/admin/MLOpsPage'))
+const AdminSystem = lazyWithReload(() => import('@/pages/admin/SystemPage'))
+const AdminStats = lazyWithReload(() => import('@/pages/admin/StatsPage'))
+const AdminLogs = lazyWithReload(() => import('@/pages/admin/LogsPage'))
+const AdminSettings = lazyWithReload(() => import('@/pages/admin/SettingsPage'))
+const AdminTraffic = lazyWithReload(() => import('@/pages/admin/TrafficPage'))
+const AdminReports = lazyWithReload(() => import('@/pages/admin/ReportsPage'))
 
 function TimelinePageFallback() {
   return (
