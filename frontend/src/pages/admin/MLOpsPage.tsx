@@ -824,7 +824,7 @@ export default function MLOpsPage() {
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   추출 방식
                 </span>
-                <InfoBadge content={"BERT NER: klue/bert-base 기반 딥러닝 모델. Fine-tuning으로 성능이 점진적으로 개선됩니다.\nkiwipiepy: 한국어 형태소 분석기 기반 규칙형 추출. BERT 모델 로딩 실패 시 폴백으로 사용됩니다.\nBERT 비율이 높을수록 AI 모델이 정상 작동 중이며, kiwipiepy 100%는 모델 로딩 문제를 의미합니다."} />
+                <InfoBadge content={"BERT NER: klue/bert-base 기반 딥러닝 모델. Fine-tuning 후 NER 전용 모델로 전환됩니다.\nkiwipiepy: 한국어 형태소 분석기 기반 규칙형 추출. Fine-tuning 전이거나 BERT 모델 로딩 실패 시 사용됩니다.\nkiwipiepy 100%는 아직 Fine-tuning된 모델이 없는 초기 상태(정상)이거나, 모델 로딩 문제일 수 있습니다."} />
                 <div className="flex flex-1 items-center gap-4">
                   {(() => {
                     const bert = qa.method_ratio.bert_ner
@@ -906,7 +906,7 @@ export default function MLOpsPage() {
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-orange-500" />
               인라인 평가 활동
-              <InfoBadge content={"크롤링 배치(30분 간격)마다 5건을 샘플링하여 GPT-5 function calling으로 NER 품질을 평가한 결과.\n품질 점수는 현재 모델의 추출 정확도(0.0~1.0)이며, 교정된 엔터티는 학습 데이터로 축적됩니다."} />
+              <InfoBadge content={"크롤링 배치(30분 간격)마다 5건을 샘플링하여 GPT-5 function calling으로 NER 품질을 평가한 결과.\n품질 점수는 현재 모델의 추출 정확도(0.0~1.0)이며, 교정된 엔터티는 학습 데이터로 축적됩니다.\n행을 클릭하면 현재 모델이 추출한 키워드와 GPT-5가 교정한 키워드를 비교할 수 있습니다.\nFine-tuning이 반복될수록 모델 추출 결과가 GPT-5 교정 결과에 가까워집니다."} />
               <span className="ml-auto text-xs font-normal text-gray-400">
                 최근 24시간 | {data.predictions?.daily_collection_rate ?? data.recent_evaluations.length}건 수집
               </span>
@@ -942,10 +942,8 @@ export default function MLOpsPage() {
                           onClick={() => {
                             if (!hasEntities) return
                             setExpandedEvals((prev) => {
-                              const next = new Set(prev)
-                              if (next.has(idx)) next.delete(idx)
-                              else next.add(idx)
-                              return next
+                              if (prev.has(idx)) return new Set()
+                              return new Set([idx])
                             })
                           }}
                         >
