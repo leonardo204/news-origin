@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, useMemo, Fragment } from 'react'
 import {
   Brain,
   Database,
@@ -243,6 +243,184 @@ export default function MLOpsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedEvals, setExpandedEvals] = useState<Set<number>>(new Set())
+
+  // --- Theme (must be before early returns for useMemo hooks) ---
+  const isDark = document.documentElement.classList.contains('dark')
+  const textColor = isDark ? '#9CA3AF' : '#6B7280'
+  const gridLineColor = isDark ? 'rgba(55,65,81,0.3)' : 'rgba(229,231,235,0.6)'
+  const tooltipBg = isDark ? '#1F2937' : '#FFF'
+  const tooltipBorder = isDark ? '#374151' : '#E5E7EB'
+  const tooltipText = isDark ? '#E5E7EB' : '#111827'
+  const pieBorderColor = isDark ? '#111827' : '#FFF'
+  const chartTheme = isDark ? 'dark-transparent' : undefined
+
+  // --- Chart data (safe fallbacks for null data) ---
+  const dailyScores = data?.quality_analytics?.daily_scores ?? []
+  const entityErrors = data?.quality_analytics?.entity_error_types ?? []
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const qualityTrendOption = useMemo(() => ({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
+    },
+    legend: {
+      data: ['평균 품질', '평가 건수'],
+      textStyle: { color: textColor, fontSize: 11 },
+      bottom: 0,
+    },
+    grid: { top: 16, right: 48, bottom: 36, left: 48, containLabel: true },
+    xAxis: {
+      type: 'category' as const,
+      data: dailyScores.map((d) => d.date.slice(5)),
+      axisLabel: { color: textColor, fontSize: 10 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: [
+      {
+        type: 'value' as const,
+        name: '품질',
+        min: 0,
+        max: 1,
+        axisLabel: { color: textColor, fontSize: 10, formatter: '{value}' },
+        splitLine: { lineStyle: { color: gridLineColor, type: 'dashed' as const } },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      {
+        type: 'value' as const,
+        name: '건수',
+        axisLabel: { color: textColor, fontSize: 10 },
+        splitLine: { show: false },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+    ],
+    series: [
+      {
+        name: '평균 품질',
+        type: 'line',
+        data: dailyScores.map((d) => d.avg_score),
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color: '#06b6d4', width: 2 },
+        itemStyle: { color: '#06b6d4' },
+        areaStyle: {
+          color: {
+            type: 'linear' as const,
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(6,182,212,0.25)' },
+              { offset: 1, color: 'rgba(6,182,212,0.02)' },
+            ],
+          },
+        },
+      },
+      {
+        name: '평가 건수',
+        type: 'bar',
+        yAxisIndex: 1,
+        data: dailyScores.map((d) => d.count),
+        barMaxWidth: 16,
+        itemStyle: { color: 'rgba(99,102,241,0.4)', borderRadius: [2, 2, 0, 0] },
+      },
+    ],
+  }), [dailyScores, isDark, textColor, gridLineColor, tooltipBg, tooltipBorder, tooltipText])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const entityErrorOption = useMemo(() => ({
+    backgroundColor: 'transparent',
+    tooltip: {
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
+      formatter: (params: { name: string; value: number; percent: number }) =>
+        `${params.name}: ${params.value}건 (${params.percent}%)`,
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 4, borderColor: pieBorderColor, borderWidth: 2 },
+        label: {
+          color: textColor,
+          fontSize: 11,
+          formatter: '{b}\n{d}%',
+        },
+        emphasis: {
+          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' },
+          label: { fontWeight: 'bold' as const },
+        },
+        data: entityErrors.map((e) => ({
+          name: e.label,
+          value: e.count,
+          itemStyle: { color: ENTITY_COLORS[e.type] || '#6b7280' },
+        })),
+      },
+    ],
+  }), [entityErrors, isDark, textColor, tooltipBg, tooltipBorder, tooltipText, pieBorderColor])
+
+  const modelVersionsReversed = useMemo(() => data ? [...data.model_versions].reverse() : [], [data?.model_versions])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const modelF1Option = useMemo(() => ({
+    backgroundColor: 'transparent',
+    tooltip: {
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
+      formatter: (params: { name: string; value: number | null }) =>
+        params.value != null ? `${params.name}: F1 ${(params.value * 100).toFixed(1)}%` : `${params.name}: -`,
+    },
+    grid: { top: 16, right: 16, bottom: 24, left: 48, containLabel: true },
+    xAxis: {
+      type: 'category' as const,
+      data: modelVersionsReversed.map((m) => m.version),
+      axisLabel: { color: textColor, fontSize: 10 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value' as const,
+      min: 0,
+      max: 1,
+      axisLabel: {
+        color: textColor,
+        fontSize: 10,
+        formatter: (v: number) => `${(v * 100).toFixed(0)}%`,
+      },
+      splitLine: { lineStyle: { color: gridLineColor, type: 'dashed' as const } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        type: 'bar',
+        data: modelVersionsReversed.map((m) => ({
+          value: m.f1 ?? 0,
+          itemStyle: {
+            color: m.status === 'active' ? '#10b981' : '#6366f1',
+            borderRadius: [4, 4, 0, 0],
+          },
+        })),
+        barMaxWidth: 36,
+        label: {
+          show: true,
+          position: 'top' as const,
+          formatter: (params: { value: number | null }) =>
+            params.value != null && params.value > 0 ? `${(params.value * 100).toFixed(1)}%` : '-',
+          color: textColor,
+          fontSize: 10,
+        },
+      },
+    ],
+  }), [modelVersionsReversed, isDark, textColor, gridLineColor, tooltipBg, tooltipBorder, tooltipText])
 
   useEffect(() => {
     loadData()
@@ -604,75 +782,9 @@ export default function MLOpsPage() {
                 <ReactECharts
                   echarts={echarts}
                   notMerge
-                  option={{
-                    backgroundColor: 'transparent',
-                    tooltip: {
-                      trigger: 'axis',
-                      backgroundColor: '#1f2937',
-                      borderColor: '#374151',
-                      textStyle: { color: '#e5e7eb', fontSize: 12 },
-                    },
-                    legend: {
-                      data: ['평균 품질', '평가 건수'],
-                      textStyle: { color: '#9ca3af', fontSize: 11 },
-                      bottom: 0,
-                    },
-                    grid: { top: 16, right: 48, bottom: 36, left: 48, containLabel: true },
-                    xAxis: {
-                      type: 'category',
-                      data: qa.daily_scores.map((d) => d.date.slice(5)),
-                      axisLabel: { color: '#6b7280', fontSize: 10 },
-                      axisLine: { lineStyle: { color: '#374151' } },
-                    },
-                    yAxis: [
-                      {
-                        type: 'value',
-                        name: '품질',
-                        min: 0,
-                        max: 1,
-                        axisLabel: { color: '#6b7280', fontSize: 10, formatter: '{value}' },
-                        splitLine: { lineStyle: { color: '#1f2937' } },
-                      },
-                      {
-                        type: 'value',
-                        name: '건수',
-                        axisLabel: { color: '#6b7280', fontSize: 10 },
-                        splitLine: { show: false },
-                      },
-                    ],
-                    series: [
-                      {
-                        name: '평균 품질',
-                        type: 'line',
-                        data: qa.daily_scores.map((d) => d.avg_score),
-                        smooth: true,
-                        symbol: 'circle',
-                        symbolSize: 6,
-                        lineStyle: { color: '#06b6d4', width: 2 },
-                        itemStyle: { color: '#06b6d4' },
-                        areaStyle: {
-                          color: {
-                            type: 'linear',
-                            x: 0, y: 0, x2: 0, y2: 1,
-                            colorStops: [
-                              { offset: 0, color: 'rgba(6,182,212,0.25)' },
-                              { offset: 1, color: 'rgba(6,182,212,0.02)' },
-                            ],
-                          },
-                        },
-                      },
-                      {
-                        name: '평가 건수',
-                        type: 'bar',
-                        yAxisIndex: 1,
-                        data: qa.daily_scores.map((d) => d.count),
-                        barMaxWidth: 16,
-                        itemStyle: { color: 'rgba(99,102,241,0.4)', borderRadius: [2, 2, 0, 0] },
-                      },
-                    ],
-                  }}
+                  theme={chartTheme}
+                  option={qualityTrendOption}
                   style={{ height: 260 }}
-                  theme="dark"
                 />
               ) : (
                 <p className="py-12 text-center text-sm text-gray-400">
@@ -698,40 +810,9 @@ export default function MLOpsPage() {
                   <ReactECharts
                     echarts={echarts}
                     notMerge
-                    option={{
-                      backgroundColor: 'transparent',
-                      tooltip: {
-                        backgroundColor: '#1f2937',
-                        borderColor: '#374151',
-                        textStyle: { color: '#e5e7eb', fontSize: 12 },
-                        formatter: (params: { name: string; value: number; percent: number }) =>
-                          `${params.name}: ${params.value}건 (${params.percent}%)`,
-                      },
-                      series: [
-                        {
-                          type: 'pie',
-                          radius: ['40%', '70%'],
-                          avoidLabelOverlap: true,
-                          itemStyle: { borderRadius: 4, borderColor: '#0a0a0a', borderWidth: 2 },
-                          label: {
-                            color: '#9ca3af',
-                            fontSize: 11,
-                            formatter: '{b}\n{d}%',
-                          },
-                          emphasis: {
-                            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' },
-                            label: { fontWeight: 'bold' },
-                          },
-                          data: qa.entity_error_types.map((e) => ({
-                            name: e.label,
-                            value: e.count,
-                            itemStyle: { color: ENTITY_COLORS[e.type] || '#6b7280' },
-                          })),
-                        },
-                      ],
-                    }}
+                    theme={chartTheme}
+                    option={entityErrorOption}
                     style={{ height: 240 }}
-                    theme="dark"
                   />
                 ) : (
                   <p className="py-12 text-center text-sm text-gray-400">
@@ -755,57 +836,9 @@ export default function MLOpsPage() {
                   <ReactECharts
                     echarts={echarts}
                     notMerge
-                    option={{
-                      backgroundColor: 'transparent',
-                      tooltip: {
-                        backgroundColor: '#1f2937',
-                        borderColor: '#374151',
-                        textStyle: { color: '#e5e7eb', fontSize: 12 },
-                        formatter: (params: { name: string; value: number | null }) =>
-                          params.value != null ? `${params.name}: F1 ${(params.value * 100).toFixed(1)}%` : `${params.name}: -`,
-                      },
-                      grid: { top: 16, right: 16, bottom: 24, left: 48, containLabel: true },
-                      xAxis: {
-                        type: 'category',
-                        data: [...data.model_versions].reverse().map((m) => m.version),
-                        axisLabel: { color: '#6b7280', fontSize: 10 },
-                        axisLine: { lineStyle: { color: '#374151' } },
-                      },
-                      yAxis: {
-                        type: 'value',
-                        min: 0,
-                        max: 1,
-                        axisLabel: {
-                          color: '#6b7280',
-                          fontSize: 10,
-                          formatter: (v: number) => `${(v * 100).toFixed(0)}%`,
-                        },
-                        splitLine: { lineStyle: { color: '#1f2937' } },
-                      },
-                      series: [
-                        {
-                          type: 'bar',
-                          data: [...data.model_versions].reverse().map((m) => ({
-                            value: m.f1 ?? 0,
-                            itemStyle: {
-                              color: m.status === 'active' ? '#10b981' : '#6366f1',
-                              borderRadius: [4, 4, 0, 0],
-                            },
-                          })),
-                          barMaxWidth: 36,
-                          label: {
-                            show: true,
-                            position: 'top',
-                            formatter: (params: { value: number | null }) =>
-                              params.value != null && params.value > 0 ? `${(params.value * 100).toFixed(1)}%` : '-',
-                            color: '#9ca3af',
-                            fontSize: 10,
-                          },
-                        },
-                      ],
-                    }}
+                    theme={chartTheme}
+                    option={modelF1Option}
                     style={{ height: 240 }}
-                    theme="dark"
                   />
                 ) : (
                   <p className="py-12 text-center text-sm text-gray-400">

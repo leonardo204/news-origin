@@ -177,12 +177,13 @@ describe('useTrendStore', () => {
       { id: '1', title: '기사 1', publisher: '언론사1', published_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', url: 'https://example.com/1', category: 'politics' },
       { id: '2', title: '기사 2', publisher: '언론사2', published_at: '2026-01-02', created_at: '2026-01-02T00:00:00Z', url: 'https://example.com/2', category: 'economy' },
     ]
-    vi.mocked(api.getRecentArticles).mockResolvedValue(mockArticles)
+    vi.mocked(api.getRecentArticles).mockResolvedValue({ items: mockArticles, total: 50 })
 
     await useTrendStore.getState().loadRecentArticles()
 
     expect(useTrendStore.getState().recentArticles).toEqual(mockArticles)
-    expect(api.getRecentArticles).toHaveBeenCalledWith(20)
+    expect(useTrendStore.getState().recentArticlesTotal).toBe(50)
+    expect(api.getRecentArticles).toHaveBeenCalledWith(20, 0)
   })
 
   it('loadRecentArticles handles error silently', async () => {

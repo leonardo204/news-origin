@@ -152,4 +152,23 @@ async def check_all_alerts(session: AsyncSession) -> list[dict]:
     except Exception as e:
         logger.warning(f"메모리 알림 체크 실패: {e}")
 
+    # ── 5. CPU 사용률 ──
+    try:
+        if not await _recently_alerted(session, "system_cpu", cooldown):
+            cpu_percent = psutil.cpu_percent(interval=1)
+            if cpu_percent >= settings.alert_cpu_threshold:
+                alerts.append({
+                    "category": "system_cpu",
+                    "severity": "critical" if cpu_percent >= 95 else "warning",
+                    "title": f"CPU 사용률 경고: {cpu_percent}%",
+                    "summary": f"CPU 사용률이 {cpu_percent}%에 도달했습니다.\n임계치: {settings.alert_cpu_threshold}%\nCPU 코어: {psutil.cpu_count()}개",
+                    "details": {
+                        "cpu_percent": cpu_percent,
+                        "cpu_count": psutil.cpu_count(),
+                        "threshold": settings.alert_cpu_threshold,
+                    },
+                })
+    except Exception as e:
+        logger.warning(f"CPU 알림 체크 실패: {e}")
+
     return alerts

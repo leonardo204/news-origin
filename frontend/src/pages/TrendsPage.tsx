@@ -53,6 +53,7 @@ export default function TrendsPage() {
   const {
     articleTrends,
     recentArticles,
+    recentArticlesTotal,
     expandedClusterId,
     isLoading,
     error,
@@ -64,6 +65,7 @@ export default function TrendsPage() {
     resetView,
     loadArticleTrends,
     loadRecentArticles,
+    loadMoreRecentArticles,
   } = useTrendStore()
 
   // Read filters from URL
@@ -642,11 +644,14 @@ export default function TrendsPage() {
                   <CardTitle className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     최근 수집
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({recentArticlesTotal}건)
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-1">
-                    {recentArticles.slice(0, 15).map((a) => (
+                    {recentArticles.map((a) => (
                       <a
                         key={a.id}
                         href={a.url}
@@ -671,6 +676,14 @@ export default function TrendsPage() {
                       </a>
                     ))}
                   </div>
+                  {recentArticles.length < recentArticlesTotal && (
+                    <button
+                      onClick={loadMoreRecentArticles}
+                      className="mt-3 w-full rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      더 보기 ({recentArticlesTotal - recentArticles.length}건 남음)
+                    </button>
+                  )}
                 </CardContent>
               </Card>
             )}

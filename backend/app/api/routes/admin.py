@@ -251,11 +251,80 @@ async def overview(username: str = Depends(require_admin)):
     except Exception:
         services["celery"] = "error"
 
+    # -- traffic summary --
+    traffic_info: dict = {
+        "today": 0, "error_rate": 0.0, "avg_duration": 0.0, "unique_ips": 0,
+    }
+    try:
+        from app.models.request_log import RequestLog
+
+        async with async_session_factory() as session:
+            cutoff_30d = now - timedelta(days=30)
+            row = await session.execute(
+                select(
+                    func.count(case((RequestLog.created_at >= today_start, RequestLog.id))).label("today"),
+                    func.avg(case((RequestLog.created_at >= cutoff_30d, RequestLog.duration_ms))).label("avg_dur"),
+                    func.count(case((
+                        (RequestLog.created_at >= cutoff_30d) & (RequestLog.status_code >= 400),
+                        RequestLog.id,
+                    ))).label("errors"),
+                    func.count(case((RequestLog.created_at >= cutoff_30d, RequestLog.id))).label("total"),
+                    func.count(func.distinct(case((RequestLog.created_at >= cutoff_30d, RequestLog.client_ip)))).label("unique_ips"),
+                )
+            )
+            r = row.one()
+            total = r.total or 0
+            traffic_info = {
+                "today": r.today or 0,
+                "error_rate": round((r.errors or 0) / total * 100, 1) if total > 0 else 0.0,
+                "avg_duration": round(float(r.avg_dur), 1) if r.avg_dur else 0.0,
+                "unique_ips": r.unique_ips or 0,
+            }
+    except Exception as e:
+        logger.warning(f"overview traffic query failed: {e}")
+
+    # -- MLOps summary --
+    settings = get_settings()
+    mlops_info: dict = {
+        "model_version": "base", "model_f1": None,
+        "training_total": 0, "training_unused": 0,
+        "target_samples": settings.ner_training_min_samples,
+        "readiness_pct": 0, "avg_quality": 0.0,
+    }
+    try:
+        async with async_session_factory() as session:
+            row = await session.execute(
+                select(NerModelVersion).where(NerModelVersion.is_active.is_(True)).limit(1)
+            )
+            active = row.scalar_one_or_none()
+            if active:
+                mlops_info["model_version"] = active.version
+                mlops_info["model_f1"] = active.eval_f1_score
+
+            row = await session.execute(
+                select(
+                    func.count(NerTrainingSample.id).label("total"),
+                    func.count(case((NerTrainingSample.is_used_for_training.is_(False), NerTrainingSample.id))).label("unused"),
+                    func.avg(NerTrainingSample.gpt_quality_score).label("avg_quality"),
+                )
+            )
+            r = row.one()
+            unused = r.unused or 0
+            target = settings.ner_training_min_samples
+            mlops_info["training_total"] = r.total or 0
+            mlops_info["training_unused"] = unused
+            mlops_info["readiness_pct"] = min(100, round(unused / target * 100)) if target > 0 else 0
+            mlops_info["avg_quality"] = round(float(r.avg_quality), 3) if r.avg_quality else 0.0
+    except Exception as e:
+        logger.warning(f"overview mlops query failed: {e}")
+
     return {
         "articles": articles_info,
         "crawl": crawl_info,
         "system": system_info,
         "services": services,
+        "traffic": traffic_info,
+        "mlops": mlops_info,
     }
 
 
@@ -1010,17 +1079,18 @@ async def traffic(
     try:
         async with async_session_factory() as session:
             h24 = now - timedelta(hours=24)
+            hour_trunc = func.date_trunc(literal_column("'hour'"), RequestLog.created_at)
             rows = await session.execute(
                 select(
-                    func.date_trunc("hour", RequestLog.created_at).label("hour"),
+                    hour_trunc.label("hour"),
                     func.count(RequestLog.id).label("count"),
                     func.avg(RequestLog.duration_ms).label("avg_duration"),
                 ).where(
                     RequestLog.created_at >= h24
                 ).group_by(
-                    func.date_trunc("hour", RequestLog.created_at)
+                    hour_trunc
                 ).order_by(
-                    func.date_trunc("hour", RequestLog.created_at)
+                    hour_trunc
                 )
             )
             hourly = [

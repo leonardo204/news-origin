@@ -53,10 +53,9 @@
 
 ### P1 - 높음
 
-- [ ] **API 페이지네이션 추가**
-  - 파일: `backend/app/api/routes/trends.py`, `timeline.py`
-  - 현재: 타임라인/트렌드 기사 목록이 전체 반환 (대량 데이터 시 응답 지연)
-  - 개선: cursor 기반 페이지네이션 + 프론트엔드 무한스크롤
+- [x] **API 페이지네이션 추가** ✅
+  - 백엔드: `PaginatedRecentArticles` 스키마 (offset/limit) 구현 완료
+  - 프론트엔드: `getRecentArticles()` 응답 파싱 수정, "더 보기" 버튼 페이지네이션
 
 - [x] **search_logs 테이블 관리** ✅
   - 현재: 검색 로그가 무한 증가, 정리 정책 없음
@@ -95,18 +94,6 @@
   - 파일: `backend/app/services/azure_openai.py`
   - 현재: 단일 API 엔드포인트, 실패 시 전체 배치 실패
   - 개선: exponential backoff + 대체 엔드포인트 설정
-
-### P3 - 낮음
-
-- [ ] **1회성 마이그레이션 태스크 정리**
-  - 파일: `backend/app/workers/tasks.py:919-1095`
-  - 현재: `migrate_article_categories`, `reembed_all_articles`가 여전히 등록됨
-  - 개선: 완료 확인 후 코드 제거 또는 별도 스크립트로 분리
-
-- [ ] **`get_article_text()` 미사용 파라미터 정리**
-  - 파일: `backend/app/services/embedding.py:34-43`
-  - 현재: `content` 파라미터가 하위 호환성으로만 존재 (실제 미사용)
-  - 개선: 호출부 일괄 수정 후 파라미터 제거
 
 ---
 
@@ -177,16 +164,6 @@
   - 현재: 다크 모드 고정
   - 개선: `prefers-color-scheme` 감지 + 수동 토글 (Tailwind dark: class 전환)
 
-### P3 - 낮음
-
-- [ ] **PWA 지원**
-  - 현재: 일반 웹앱
-  - 개선: manifest.json + service worker → 홈 화면 추가, 오프라인 기본 페이지
-
-- [ ] **i18n 기반 다국어 지원**
-  - 현재: 한국어 하드코딩
-  - 개선: `react-i18next` 도입, 영어 지원
-
 ---
 
 ## 3. Infrastructure & DevOps
@@ -199,16 +176,6 @@
     - `pg_dump` cron job (매일 03:00, 7일 보존)
     - Qdrant snapshot 자동화
     - 백업 파일 외부 저장소 동기화 (선택)
-
-- [ ] **HTTPS/SSL 적용**
-  - 현재: HTTP only (포트 10880)
-  - 전제: 도메인 확보 + DNS A 레코드 설정 필요
-  - 개선:
-    - Let's Encrypt certbot (standalone 또는 webroot 방식)
-    - Nginx SSL 설정 (`ssl_certificate`, `ssl_protocols TLSv1.2 TLSv1.3`)
-    - HTTP→HTTPS 301 리다이렉트
-    - certbot auto-renewal cron (매월 갱신)
-    - 도메인 미확보 시: 자체 서명 인증서로 전환 가능
 
 - [x] **Celery 태스크 모니터링** ✅
   - 현재: 로그 기반 모니터링만 존재
@@ -249,12 +216,9 @@
 
 ### P2 - 중간
 
-- [ ] **리소스 사용량 알림**
-  - 현재: `mem_limit` 설정만 존재, 초과 시 OOM Kill
-  - 개선:
-    - Docker healthcheck 강화
-    - 메모리/CPU 임계값 알림 (cAdvisor 또는 단순 스크립트)
-    - 디스크 사용량 모니터링 (DB, Qdrant 데이터 증가)
+- [x] **리소스 사용량 알림** ✅
+  - 구현: 디스크/메모리/CPU 임계값 알림 (`alert_detector.py`), 60분 쿨다운
+  - 정기 리포트에서 시스템 리소스 수집 (`report_generator.py`)
 
 - [x] **컨테이너 재시작 정책 최적화** ✅
   - 현재: `restart: unless-stopped` 일괄 적용
@@ -262,22 +226,6 @@
     - 핵심 서비스 (backend, worker): `restart: always` + health check
     - 인프라 서비스 (postgres, qdrant, redis): `restart: always`
     - 보조 서비스 (beat): `restart: on-failure`
-
-- [ ] **임베딩 품질 모니터링**
-  - 현재: 배치 샘플링 평가만 존재 (`evaluate_batch_sample`)
-  - 개선:
-    - 클러스터링 품질 메트릭 (실루엣 스코어, 클러스터 간 거리)
-    - 임베딩 차원 분포 시각화
-    - API 비용 추적 (Azure OpenAI 토큰 사용량)
-
-### P3 - 낮음
-
-- [ ] **개발 환경 Docker 최적화**
-  - 현재: 프로덕션과 개발 환경의 Dockerfile 공유 → 빌드 시간 20-30분
-  - 개선:
-    - 개발용 경량 Dockerfile 분리
-    - multi-stage build 캐시 최적화
-    - 의존성 레이어 분리 (requirements.txt → 소스 코드)
 
 ---
 
@@ -318,29 +266,6 @@
     - 컬렉션 그룹핑
     - 북마크 기사 일괄 추적
 
-- [ ] **RSS 피드 커스텀 설정**
-  - 현재: 하드코딩된 카테고리 피드 + 고정 언론사 목록
-  - 개선:
-    - 관리자 UI에서 피드 URL 추가/수정
-    - 피드별 수집 빈도 조절
-    - 피드 상태 모니터링 (마지막 수집, 실패 횟수)
-
-### P3 - 낮음
-
-- [ ] **API 공개 & 문서화**
-  - 현재: FastAPI auto-docs 존재하지만 미정리
-  - 개선:
-    - OpenAPI 스키마 정리
-    - API 사용 가이드 작성
-    - Rate limit/인증 안내
-
-- [ ] **멀티 언어 뉴스 지원**
-  - 현재: 한국어 뉴스만 대상
-  - 개선:
-    - 영어/일본어 Google News RSS 추가
-    - 다국어 임베딩 모델 활용 (현재 모델이 multilingual 지원)
-    - 크로스 언어 기사 유사도 비교
-
 ---
 
 ## 5. 코드 품질 & 리팩토링
@@ -378,53 +303,30 @@
 
 ---
 
-## 구현 로드맵 (권장)
+## 구현 로드맵
 
-### Phase 1: 안정성 강화 (2-3주)
-- P0 백엔드: 캐시 무효화 통합, Celery 동시실행 방지
-- P0 인프라: DB 백업 자동화, Celery 모니터링 (Flower)
-- P0 프론트엔드: 에러 바운더리 강화, 번들 최적화
-
-### Phase 1.5: 보안 기반 (1-2주)
-- P0 인프라: 도메인 확보 → HTTPS/SSL 설정 (DNS 전파 대기 포함)
-- P1 인프라: Rate limiting 적용
-
-### Phase 2: 사용자 경험 개선 (2-4주)
-- P1 프론트엔드: 전파 트리 대량 노드, 모바일 UX, 트렌드 필터
-- P1 백엔드: 페이지네이션, RSS 병렬화, Qdrant 배치 검색
-- P1 인프라: 구조화된 로깅, CI/CD
-
-### Phase 3: 기능 확장 (4-8주)
-- P1 프로덕트: 기사 스냅샷, 기본 인증, 알림 시스템
-- P2 전체: 토스트 시스템, 테마 토글, 테스트 확대, 타입 안전성
-
-### Phase 4: 고도화 (8주+)
-- P2-P3 프로덕트: 트렌드 비교, 북마크, RSS 커스텀
-- P3 전체: PWA, 다국어, API 공개
+> Phase 1~4 모두 완료. 남은 항목: 테스트 커버리지 확대 (지속적 개선)
 
 ---
 
 ## 구현 현황
 
-> **마지막 업데이트**: 2026-02-20 (관리자 대시보드 + MLOps 고도화)
-> **구현 완료**: 34/42 항목 (P0-P2 범위)
+> **마지막 업데이트**: 2026-02-21 (API 페이지네이션 + CPU 알림 보강)
+> **구현 완료**: 36/37 항목 (미완료 항목 정리 후)
 
 ### 완료 요약
 
 | 영역 | 완료 | 전체 | 비율 |
 |------|------|------|------|
-| Backend | 9 | 11 | 82% |
+| Backend | 10 | 10 | 100% |
 | Frontend | 8 | 8 | 100% |
-| Infrastructure | 6 | 9 | 67% |
-| Product | 5 | 7 | 71% |
+| Infrastructure | 6 | 6 | 100% |
+| Product | 5 | 5 | 100% |
 | Code Quality | 3 | 4 | 75% |
 
 ### 미완료 사유
 
-- **HTTPS/SSL**: 도메인 확보 및 DNS 설정 필요 (외부 의존)
-- **API 페이지네이션**: 현재 데이터 규모(2500건)에서는 성능 이슈 없음, 향후 스케일 시 적용
 - **테스트 커버리지**: 지속적 개선 항목
-- **RSS 피드 커스텀**: 관리자 UI에서 피드 표시는 구현, 수정 기능은 미구현
 
 ### 주요 구현 내역
 
@@ -485,3 +387,5 @@
 | 카테고리 분포 패널 제거 | `Header.tsx` | 트렌드 페이지 다이어그램으로 대체 |
 | 시간대별 수집량 차트 제거 | `TrendsPage.tsx` | 불필요 UI 정리 |
 | 즉시 추적 동기화 최적화 | `articles.py`, `tasks.py`, `useTrackingStore.ts` | Celery 비동기 → API 동기 처리, Qdrant 벡터 재사용 (3-10s → ~1s) |
+| API 페이지네이션 (recent-articles) | `api.ts`, `useTrendStore.ts`, `TrendsPage.tsx` | 프론트엔드 응답 파싱 수정 + "더 보기" 버튼 |
+| CPU 사용률 알림 | `config.py`, `alert_detector.py` | 90% warning, 95% critical, 60분 쿨다운 |

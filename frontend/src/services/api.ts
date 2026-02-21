@@ -187,12 +187,14 @@ export async function getArticleTrends(
 
 export async function getRecentArticles(
   limit: number = 30,
+  offset: number = 0,
   category?: string,
-): Promise<RecentArticleItem[]> {
+): Promise<{ items: RecentArticleItem[]; total: number }> {
   const { data } = await api.get('/trends/recent-articles', {
-    params: { limit, ...(category ? { category } : {}) },
+    params: { limit, offset, ...(category ? { category } : {}) },
   })
-  return (data as unknown[]).map((item) => safeParse(RecentArticleItemSchema, item)) as RecentArticleItem[]
+  const parsed = (data.items as unknown[]).map((item) => safeParse(RecentArticleItemSchema, item)) as RecentArticleItem[]
+  return { items: parsed, total: data.total as number }
 }
 
 // Crawl Status

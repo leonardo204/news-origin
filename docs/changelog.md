@@ -4,7 +4,40 @@
 
 ---
 
+## 2026-02-22
+
+### feat: 대시보드 개요 페이지 트래픽/MLOps 요약 추가 + Admin 차트 안정화
+- **개요 페이지 트래픽 요약**: 오늘 요청수, 에러율(30일), 평균 응답시간(30일), 고유 방문자(30일)
+- **개요 페이지 MLOps 요약**: 현재 모델/F1, 평균 품질, 학습 데이터 진행도, 학습 준비도 프로그레스 바
+- **개요 섹션 순서 변경**: 기사 통계 → 트래픽 → MLOps → 크롤링 → 서비스 상태 → 시스템 리소스
+- **백엔드 `/api/admin/overview`**: traffic(RequestLog 집계) + mlops(모델/학습 데이터) 요약 데이터 추가
+- **React error #310 수정**: MLOpsPage, StatsPage, TrafficPage — `useMemo` 훅을 early return 앞으로 이동
+- **ECharts 다크테마**: `dark-transparent` 커스텀 테마 등록, 전 관리자 차트에 동적 `theme` prop 적용
+- **TrafficPage 일별 차트 재구축**: `useMemo` + `dataZoom` 슬라이더로 기간 탐색, 기존 period 탭 제거
+- **수정 파일**: `admin.py`, `OverviewPage.tsx`, `MLOpsPage.tsx`, `StatsPage.tsx`, `TrafficPage.tsx`, `echarts.ts`
+
+---
+
 ## 2026-02-21
+
+### fix: Admin 대시보드 트래픽 SQL 오류 + 다크테마 차트 수정 + 모던 스타일 적용
+- **SQL GROUP BY 오류 수정**: `admin.py` 트래픽 hourly 쿼리에서 `func.date_trunc("hour", ...)` → `literal_column("'hour'")` 변경 (asyncpg 파라미터 바인딩 불일치 해결)
+- **다크테마 차트 가시성**: TrafficPage/MLOpsPage의 ECharts에 `echarts` prop + 동적 `theme` prop 추가, `backgroundColor: 'transparent'` 적용
+- **모던 대시보드 스타일**: 전 관리자 페이지 차트를 현대적 스타일로 통일
+  - TrafficPage: indigo 그라데이션 area 차트, 투명 배경, 부드러운 곡선 (smooth: 0.4), 도넛 센터 텍스트
+  - StatsPage: CSS div 바 차트 → ECharts area 차트로 교체 (일별 기사 수집 추이)
+  - MLOpsPage: 하드코딩 `theme="dark"` → 동적 테마 전환, 모든 차트 색상을 테마 변수로 교체
+- **수정 파일**: `admin.py`, `TrafficPage.tsx`, `StatsPage.tsx`, `MLOpsPage.tsx`, `echarts.ts`
+
+### fix: recent-articles 프론트엔드 페이지네이션 수정 + CPU 알림 추가
+- **recent-articles 버그 수정**: 백엔드 `PaginatedRecentArticles` 응답(`{ items, total, offset, limit }`)을 프론트엔드가 flat array로 취급하던 버그 수정
+  - `api.ts`: `data.items` 추출, `offset` 파라미터 전달, `{ items, total }` 반환
+  - `useTrendStore.ts`: `recentArticlesTotal` 상태 추가, `loadMoreRecentArticles()` 액션 추가
+  - `TrendsPage.tsx`: `.slice(0, 15)` 제거, 총 건수 표시, "더 보기 (N건 남음)" 버튼 추가
+- **CPU 사용률 알림**: `alert_detector.py`에 `_check_cpu_usage` 추가 (90% warning, 95% critical, 60분 쿨다운)
+  - `config.py`: `alert_cpu_threshold: int = 90` 설정 추가
+- **todo-enhancement.md 정리**: P1 API 페이지네이션 ✅, P2 리소스 알림 ✅, 미완료 P3 항목 삭제
+- **수정 파일**: `api.ts`, `useTrendStore.ts`, `TrendsPage.tsx`, `config.py`, `alert_detector.py`, `useTrendStore.test.ts`
 
 ### feat: 관리자 리포트 시스템 — 정기/비정기 리포트 + 이메일 발송 + GPT-5 내러티브
 - **정기 리포트**: 매주 월요일/매달 1일에 자동 생성 (크롤링, 트래픽, MLOps, 시스템, 에러 통계)

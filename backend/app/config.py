@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     alert_traffic_spike_multiplier: float = 3.0  # 트래픽 N배 급증
     alert_disk_usage_threshold: float = 90.0  # 디스크 사용률 N% 이상
     alert_memory_usage_threshold: float = 90.0  # 메모리 사용률 N% 이상
+    alert_cpu_threshold: int = 90  # CPU 사용률 N% 이상
     alert_cooldown_minutes: int = 60  # 동일 알림 재발송 방지 (분)
 
     # Webhook

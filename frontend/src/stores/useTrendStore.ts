@@ -11,6 +11,7 @@ interface TrendState {
   // Article-based trends
   articleTrends: ArticleTrendsResponse | null
   recentArticles: RecentArticleItem[]
+  recentArticlesTotal: number
   expandedClusterId: string | null
 
   // Header 호환 (기존 유지)
@@ -36,6 +37,7 @@ interface TrendState {
   setSseStatus: (status: 'connected' | 'reconnecting' | 'offline') => void
   loadArticleTrends: () => Promise<void>
   loadRecentArticles: () => Promise<void>
+  loadMoreRecentArticles: () => Promise<void>
   loadStats: () => Promise<void>
   loadCrawlStatus: () => Promise<void>
 }
@@ -43,6 +45,7 @@ interface TrendState {
 export const useTrendStore = create<TrendState>((set, get) => ({
   articleTrends: null,
   recentArticles: [],
+  recentArticlesTotal: 0,
   expandedClusterId: null,
   stats: null,
   crawlStatus: { phase: 'idle', started_at: null, detail: null },
@@ -92,8 +95,18 @@ export const useTrendStore = create<TrendState>((set, get) => ({
 
   loadRecentArticles: async () => {
     try {
-      const recentArticles = await api.getRecentArticles(20)
-      set({ recentArticles })
+      const { items, total } = await api.getRecentArticles(20, 0)
+      set({ recentArticles: items, recentArticlesTotal: total })
+    } catch {
+      // non-critical
+    }
+  },
+
+  loadMoreRecentArticles: async () => {
+    try {
+      const current = get().recentArticles
+      const { items, total } = await api.getRecentArticles(20, current.length)
+      set({ recentArticles: [...current, ...items], recentArticlesTotal: total })
     } catch {
       // non-critical
     }

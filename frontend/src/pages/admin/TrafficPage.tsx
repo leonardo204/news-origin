@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Activity,
   Clock,
@@ -10,6 +10,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchTraffic } from '@/services/adminApi'
 import ReactECharts from 'echarts-for-react'
+import echarts from '@/lib/echarts'
 
 // --- Types ---
 
@@ -81,8 +82,6 @@ interface TrafficData {
   geo_distribution: GeoEntry[]
 }
 
-type Period = '24h' | '7d' | '30d'
-
 // --- Helpers ---
 
 function formatDuration(ms: number) {
@@ -152,12 +151,107 @@ export default function TrafficPage() {
   const [data, setData] = useState<TrafficData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('24h')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const loadData = useCallback(async (p?: Period) => {
+  // --- Theme (before early returns for useMemo) ---
+  const isDark = document.documentElement.classList.contains('dark')
+  const textColor = isDark ? '#9CA3AF' : '#6B7280'
+  const gridLineColor = isDark ? 'rgba(55, 65, 81, 0.3)' : 'rgba(229, 231, 235, 0.6)'
+  const tooltipBg = isDark ? '#1F2937' : '#FFF'
+  const tooltipBorder = isDark ? '#374151' : '#E5E7EB'
+  const tooltipText = isDark ? '#E5E7EB' : '#111827'
+  const chartTheme = isDark ? ('dark-transparent' as const) : undefined
+
+  // --- Daily chart (useMemo — rebuilt from scratch) ---
+  const dailyEntries = data?.daily ?? []
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dailyOption = useMemo(() => ({
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
+    },
+    legend: {
+      data: ['요청수', '에러'],
+      textStyle: { color: textColor, fontSize: 11 },
+      right: 16,
+      top: 0,
+    },
+    grid: { left: 48, right: 20, top: 28, bottom: 56 },
+    dataZoom: [
+      {
+        type: 'slider' as const,
+        show: true,
+        height: 18,
+        bottom: 4,
+        borderColor: 'transparent',
+        backgroundColor: isDark ? 'rgba(55,65,81,0.3)' : 'rgba(229,231,235,0.5)',
+        fillerColor: isDark ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.12)',
+        handleStyle: { color: '#6366F1', borderColor: '#6366F1' },
+        textStyle: { color: textColor, fontSize: 10 },
+        dataBackground: {
+          lineStyle: { color: 'rgba(99,102,241,0.3)' },
+          areaStyle: { color: 'rgba(99,102,241,0.08)' },
+        },
+        selectedDataBackground: {
+          lineStyle: { color: '#6366F1' },
+          areaStyle: { color: 'rgba(99,102,241,0.15)' },
+        },
+      },
+      { type: 'inside' as const },
+    ],
+    xAxis: {
+      type: 'category' as const,
+      boundaryGap: false,
+      data: dailyEntries.map((d) => d.date.slice(5)),
+      axisLabel: { color: textColor, fontSize: 11 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLabel: { color: textColor, fontSize: 10 },
+      splitLine: { lineStyle: { color: gridLineColor, type: 'dashed' as const } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: '요청수',
+        type: 'line',
+        smooth: 0.4,
+        showSymbol: false,
+        data: dailyEntries.map((d) => d.count),
+        areaStyle: {
+          color: {
+            type: 'linear' as const,
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: isDark ? 'rgba(99,102,241,0.35)' : 'rgba(99,102,241,0.2)' },
+              { offset: 1, color: 'rgba(99,102,241,0.02)' },
+            ],
+          },
+        },
+        lineStyle: { color: '#6366F1', width: 2 },
+        itemStyle: { color: '#6366F1' },
+      },
+      {
+        name: '에러',
+        type: 'line',
+        smooth: 0.4,
+        showSymbol: false,
+        data: dailyEntries.map((d) => d.errors),
+        lineStyle: { color: '#EF4444', width: 1.5 },
+        itemStyle: { color: '#EF4444' },
+      },
+    ],
+  }), [dailyEntries, isDark, textColor, gridLineColor, tooltipBg, tooltipBorder, tooltipText])
+
+  const loadData = useCallback(async () => {
     try {
-      const { data: res } = await fetchTraffic({ period: p || period })
+      const { data: res } = await fetchTraffic({ period: '30d' })
       setData(res)
       setError(null)
     } catch (err) {
@@ -166,22 +260,15 @@ export default function TrafficPage() {
     } finally {
       setLoading(false)
     }
-  }, [period])
+  }, [])
 
   useEffect(() => {
-    setLoading(true)
     loadData()
     intervalRef.current = setInterval(() => loadData(), 30000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [period]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handlePeriodChange = (p: Period) => {
-    setPeriod(p)
-    setLoading(true)
-    loadData(p)
-  }
+  }, [loadData])
 
   if (loading && !data) {
     return (
@@ -216,18 +303,14 @@ export default function TrafficPage() {
 
   const { summary } = data
 
-  // --- Theme ---
-  const isDark = document.documentElement.classList.contains('dark')
-  const textColor = isDark ? '#9CA3AF' : '#6B7280'
-  const gridLineColor = isDark ? 'rgba(55, 65, 81, 0.5)' : 'rgba(229, 231, 235, 0.8)'
-
   // --- Hourly chart (area + line dual axis) ---
   const hourlyOption = {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis' as const,
-      backgroundColor: isDark ? '#1F2937' : '#FFF',
-      borderColor: isDark ? '#374151' : '#E5E7EB',
-      textStyle: { color: isDark ? '#E5E7EB' : '#111827', fontSize: 12 },
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
     },
     grid: { left: 48, right: 48, top: 24, bottom: 36 },
     xAxis: {
@@ -265,7 +348,7 @@ export default function TrafficPage() {
       {
         name: '요청수',
         type: 'line',
-        smooth: true,
+        smooth: 0.4,
         showSymbol: false,
         data: data.hourly.map((h) => h.count),
         areaStyle: {
@@ -273,19 +356,19 @@ export default function TrafficPage() {
             type: 'linear' as const,
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: isDark ? 'rgba(59,130,246,0.35)' : 'rgba(59,130,246,0.25)' },
-              { offset: 1, color: 'rgba(59,130,246,0.02)' },
+              { offset: 0, color: isDark ? 'rgba(99,102,241,0.35)' : 'rgba(99,102,241,0.2)' },
+              { offset: 1, color: 'rgba(99,102,241,0.01)' },
             ],
           },
         },
-        lineStyle: { color: '#3B82F6', width: 2 },
-        itemStyle: { color: '#3B82F6' },
+        lineStyle: { color: '#6366F1', width: 2 },
+        itemStyle: { color: '#6366F1' },
       },
       {
         name: '응답시간',
         type: 'line',
         yAxisIndex: 1,
-        smooth: true,
+        smooth: 0.4,
         showSymbol: false,
         data: data.hourly.map((h) => h.avg_duration),
         lineStyle: { color: '#F59E0B', width: 1.5, type: 'dashed' as const },
@@ -294,76 +377,10 @@ export default function TrafficPage() {
     ],
   }
 
-  // --- Daily chart (smooth area with gradient) ---
-  const dailyOption = {
-    tooltip: {
-      trigger: 'axis' as const,
-      backgroundColor: isDark ? '#1F2937' : '#FFF',
-      borderColor: isDark ? '#374151' : '#E5E7EB',
-      textStyle: { color: isDark ? '#E5E7EB' : '#111827', fontSize: 12 },
-    },
-    grid: { left: 48, right: 20, top: 16, bottom: 36 },
-    xAxis: {
-      type: 'category' as const,
-      boundaryGap: false,
-      data: data.daily.map((d) => d.date.slice(5)),
-      axisLabel: { color: textColor, fontSize: 11 },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    yAxis: {
-      type: 'value' as const,
-      axisLabel: { color: textColor, fontSize: 10 },
-      splitLine: { lineStyle: { color: gridLineColor, type: 'dashed' as const } },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        name: '요청수',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: data.daily.map((d) => d.count),
-        areaStyle: {
-          color: {
-            type: 'linear' as const,
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: isDark ? 'rgba(59,130,246,0.4)' : 'rgba(59,130,246,0.2)' },
-              { offset: 1, color: 'rgba(59,130,246,0.01)' },
-            ],
-          },
-        },
-        lineStyle: { color: '#3B82F6', width: 2.5 },
-        itemStyle: { color: '#3B82F6' },
-      },
-      {
-        name: '에러',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: data.daily.map((d) => d.errors),
-        areaStyle: {
-          color: {
-            type: 'linear' as const,
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(239,68,68,0.18)' },
-              { offset: 1, color: 'rgba(239,68,68,0.01)' },
-            ],
-          },
-        },
-        lineStyle: { color: '#EF4444', width: 1.5 },
-        itemStyle: { color: '#EF4444' },
-      },
-    ],
-  }
-
   // --- Status donut ---
   const STATUS_COLORS: Record<string, string> = {
     '2xx': '#10B981',
-    '3xx': '#3B82F6',
+    '3xx': '#6366F1',
     '4xx': '#F59E0B',
     '5xx': '#EF4444',
   }
@@ -376,11 +393,12 @@ export default function TrafficPage() {
   const statusTotal = Object.values(statusGroups).reduce((a, b) => a + b, 0)
 
   const donutOption = {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item' as const,
-      backgroundColor: isDark ? '#1F2937' : '#FFF',
-      borderColor: isDark ? '#374151' : '#E5E7EB',
-      textStyle: { color: isDark ? '#E5E7EB' : '#111827', fontSize: 12 },
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
       formatter: '{b}: {c} ({d}%)',
     },
     graphic: statusTotal > 0 ? [{
@@ -459,12 +477,6 @@ export default function TrafficPage() {
     },
   ]
 
-  const periods: { key: Period; label: string }[] = [
-    { key: '24h', label: '24시간' },
-    { key: '7d', label: '7일' },
-    { key: '30d', label: '30일' },
-  ]
-
   // Geo distribution
   const geo = data.geo_distribution || []
   const maxGeoCount = Math.max(...geo.map((g) => g.count), 1)
@@ -505,23 +517,6 @@ export default function TrafficPage() {
         ))}
       </div>
 
-      {/* Period Tabs */}
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
-        {periods.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => handlePeriodChange(p.key)}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              period === p.key
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
       {/* Hourly Traffic */}
       <Card>
         <CardHeader>
@@ -533,7 +528,7 @@ export default function TrafficPage() {
         </CardHeader>
         <CardContent>
           {data.hourly.length > 0 ? (
-            <ReactECharts option={hourlyOption} style={{ height: 260 }} />
+            <ReactECharts echarts={echarts} notMerge theme={chartTheme} option={hourlyOption} style={{ height: 260 }} />
           ) : (
             <p className="py-16 text-center text-sm text-gray-400">데이터가 쌓이면 여기에 시간별 추이가 표시됩니다</p>
           )}
@@ -551,7 +546,7 @@ export default function TrafficPage() {
         </CardHeader>
         <CardContent>
           {data.daily.length > 0 ? (
-            <ReactECharts option={dailyOption} style={{ height: 220 }} />
+            <ReactECharts echarts={echarts} notMerge theme={chartTheme} option={dailyOption} style={{ height: 280 }} />
           ) : (
             <p className="py-16 text-center text-sm text-gray-400">데이터가 쌓이면 여기에 일별 추이가 표시됩니다</p>
           )}
@@ -570,7 +565,7 @@ export default function TrafficPage() {
           </CardHeader>
           <CardContent>
             {data.status_distribution.length > 0 ? (
-              <ReactECharts option={donutOption} style={{ height: 260 }} />
+              <ReactECharts echarts={echarts} notMerge theme={chartTheme} option={donutOption} style={{ height: 260 }} />
             ) : (
               <p className="py-12 text-center text-sm text-gray-400">데이터 없음</p>
             )}

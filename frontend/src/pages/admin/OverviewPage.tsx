@@ -8,6 +8,9 @@ import {
   Clock,
   RefreshCw,
   Zap,
+  Globe,
+  Brain,
+  FlaskConical,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchOverview } from '@/services/adminApi'
@@ -35,6 +38,21 @@ interface OverviewData {
     redis: string
     qdrant: string
     celery: string
+  }
+  traffic?: {
+    today: number
+    error_rate: number
+    avg_duration: number
+    unique_ips: number
+  }
+  mlops?: {
+    model_version: string
+    model_f1: number | null
+    training_total: number
+    training_unused: number
+    target_samples: number
+    readiness_pct: number
+    avg_quality: number
   }
 }
 
@@ -275,71 +293,118 @@ export default function OverviewPage() {
         ))}
       </div>
 
-      {/* Row 2: System Resources */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-blue-500" />
-            시스템 리소스
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {resources.map((res) => (
-              <div key={res.label}>
+      {/* Row 2: Traffic Summary */}
+      {data.traffic && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5 text-blue-500" />
+              트래픽 요약
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">오늘 요청</p>
+                <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+                  {data.traffic.today.toLocaleString('ko-KR')}
+                  <span className="ml-1 text-sm font-normal text-gray-400">건</span>
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">에러율 (30일)</p>
+                <p className={`mt-1 text-xl font-bold ${data.traffic.error_rate > 5 ? 'text-red-500' : data.traffic.error_rate > 2 ? 'text-yellow-500' : 'text-emerald-500'}`}>
+                  {data.traffic.error_rate.toFixed(1)}%
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">평균 응답 (30일)</p>
+                <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+                  {data.traffic.avg_duration.toFixed(0)}
+                  <span className="ml-1 text-sm font-normal text-gray-400">ms</span>
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">고유 방문자 (30일)</p>
+                <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+                  {data.traffic.unique_ips.toLocaleString('ko-KR')}
+                  <span className="ml-1 text-sm font-normal text-gray-400">IP</span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Row 3: MLOps Summary */}
+      {data.mlops && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-blue-500" />
+              MLOps 요약
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">현재 모델</p>
+                  <p className="mt-1 text-sm font-bold text-gray-900 dark:text-gray-100">
+                    {data.mlops.model_version}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">모델 F1</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+                    {data.mlops.model_f1 != null ? `${(data.mlops.model_f1 * 100).toFixed(1)}%` : '-'}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">평균 품질</p>
+                  <p className={`mt-1 text-xl font-bold ${data.mlops.avg_quality >= 80 ? 'text-emerald-500' : data.mlops.avg_quality >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                    {data.mlops.avg_quality.toFixed(1)}
+                    <span className="ml-1 text-sm font-normal text-gray-400">점</span>
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">학습 데이터</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+                    {data.mlops.training_unused.toLocaleString('ko-KR')}
+                    <span className="ml-1 text-sm font-normal text-gray-400">
+                      / {data.mlops.target_samples.toLocaleString('ko-KR')}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {res.label}
+                    학습 준비도
                   </span>
-                  <span
-                    className={`text-sm font-semibold ${getResourceTextColor(res.percent)}`}
-                  >
-                    {res.percent.toFixed(1)}%
+                  <span className={`text-sm font-semibold ${data.mlops.readiness_pct >= 100 ? 'text-emerald-500' : data.mlops.readiness_pct >= 60 ? 'text-yellow-500' : 'text-gray-500'}`}>
+                    {data.mlops.readiness_pct}%
                   </span>
                 </div>
                 <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${getResourceColor(res.percent)}`}
-                    style={{ width: `${Math.min(res.percent, 100)}%` }}
+                    className={`h-full rounded-full transition-all duration-500 ${data.mlops.readiness_pct >= 100 ? 'bg-emerald-500' : data.mlops.readiness_pct >= 60 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                    style={{ width: `${Math.min(data.mlops.readiness_pct, 100)}%` }}
                   />
                 </div>
+                {data.mlops.readiness_pct >= 100 && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <FlaskConical className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      Fine-tuning 실행 가능
+                    </span>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Row 3: Service Health */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-blue-500" />
-            서비스 상태
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(data.services).map(([key, status]) => (
-              <div
-                key={key}
-                className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-              >
-                <div
-                  className={`h-3 w-3 rounded-full shadow-lg ${getServiceDot(status)}`}
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {SERVICE_NAMES[key] || key}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {getServiceLabel(status)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Row 4: Crawl Status */}
       <Card>
@@ -392,6 +457,72 @@ export default function OverviewPage() {
                 {data.crawl.articles_per_hour.toLocaleString('ko-KR')}건
               </span>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Row 5: Service Health */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-blue-500" />
+            서비스 상태
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(data.services).map(([key, status]) => (
+              <div
+                key={key}
+                className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+              >
+                <div
+                  className={`h-3 w-3 rounded-full shadow-lg ${getServiceDot(status)}`}
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {SERVICE_NAMES[key] || key}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {getServiceLabel(status)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Row 6: System Resources */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-blue-500" />
+            시스템 리소스
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {resources.map((res) => (
+              <div key={res.label}>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {res.label}
+                  </span>
+                  <span
+                    className={`text-sm font-semibold ${getResourceTextColor(res.percent)}`}
+                  >
+                    {res.percent.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${getResourceColor(res.percent)}`}
+                    style={{ width: `${Math.min(res.percent, 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   BarChart3,
   Newspaper,
@@ -10,6 +10,8 @@ import {
   Zap,
   Radio,
 } from 'lucide-react'
+import ReactECharts from 'echarts-for-react'
+import echarts from '@/lib/echarts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchStats } from '@/services/adminApi'
 
@@ -64,6 +66,68 @@ export default function StatsPage() {
   const [data, setData] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // --- Theme (before early returns for useMemo) ---
+  const isDark = document.documentElement.classList.contains('dark')
+  const textColor = isDark ? '#9CA3AF' : '#6B7280'
+  const gridLineColor = isDark ? 'rgba(55,65,81,0.3)' : 'rgba(229,231,235,0.6)'
+  const tooltipBg = isDark ? '#1F2937' : '#FFF'
+  const tooltipBorder = isDark ? '#374151' : '#E5E7EB'
+  const tooltipText = isDark ? '#E5E7EB' : '#111827'
+  const chartTheme = isDark ? 'dark-transparent' : undefined
+
+  const articlesByDate = data?.articles_by_date ?? []
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const articlesByDateOption = useMemo(() => ({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis' as const,
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText, fontSize: 12 },
+      formatter: (params: Array<{ name: string; value: number }>) => {
+        const p = params[0]
+        return `${p.name}: ${p.value.toLocaleString('ko-KR')}건`
+      },
+    },
+    grid: { left: 48, right: 20, top: 16, bottom: 36 },
+    xAxis: {
+      type: 'category' as const,
+      boundaryGap: false,
+      data: articlesByDate.map((d) => d.date.slice(5)),
+      axisLabel: { color: textColor, fontSize: 11 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLabel: { color: textColor, fontSize: 10 },
+      splitLine: { lineStyle: { color: gridLineColor, type: 'dashed' as const } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        type: 'line',
+        smooth: 0.4,
+        showSymbol: false,
+        data: articlesByDate.map((d) => d.count),
+        areaStyle: {
+          color: {
+            type: 'linear' as const,
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: isDark ? 'rgba(99,102,241,0.35)' : 'rgba(99,102,241,0.18)' },
+              { offset: 1, color: 'rgba(99,102,241,0.01)' },
+            ],
+          },
+        },
+        lineStyle: { color: '#6366F1', width: 2 },
+        itemStyle: { color: '#6366F1' },
+      },
+    ],
+  }), [articlesByDate, isDark, textColor, gridLineColor, tooltipBg, tooltipBorder, tooltipText])
 
   useEffect(() => {
     loadData()
@@ -150,10 +214,6 @@ export default function StatsPage() {
     },
   ]
 
-  const maxDateCount = Math.max(
-    ...data.articles_by_date.map((d) => d.count),
-    1
-  )
   const maxCategoryCount = Math.max(
     ...data.articles_by_category.map((c) => c.count),
     1
@@ -217,35 +277,7 @@ export default function StatsPage() {
         </CardHeader>
         <CardContent>
           {data.articles_by_date.length > 0 ? (
-            <div>
-              <div className="flex items-end gap-[3px] h-36">
-                {data.articles_by_date.map((d) => (
-                  <div
-                    key={d.date}
-                    className="group relative flex-1"
-                    style={{ height: '100%' }}
-                  >
-                    <div
-                      className="absolute bottom-0 left-0 right-0 rounded-t bg-blue-500 transition-all duration-300 hover:bg-blue-400"
-                      style={{
-                        height: `${Math.max((d.count / maxDateCount) * 100, 2)}%`,
-                      }}
-                    />
-                    <div className="absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 dark:bg-gray-700">
-                      {d.date}: {d.count.toLocaleString('ko-KR')}건
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex justify-between">
-                <span className="text-xs text-gray-400">
-                  {data.articles_by_date[0]?.date}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {data.articles_by_date[data.articles_by_date.length - 1]?.date}
-                </span>
-              </div>
-            </div>
+            <ReactECharts echarts={echarts} notMerge theme={chartTheme} option={articlesByDateOption} style={{ height: 200 }} />
           ) : (
             <p className="py-8 text-center text-sm text-gray-400">
               데이터 없음
