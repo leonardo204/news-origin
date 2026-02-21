@@ -1,8 +1,9 @@
 """
 # admin.py - Admin Dashboard API Routes
-# Version: 0.4.0
+# Version: 0.5.0
 # Description: 관리자 대시보드 엔드포인트 (인증, 시스템 현황, 크롤링 통계, MLOps, 로그)
 # Changes:
+#   - 0.5.0: /mlops에 quality_analytics 섹션 추가 (일별 품질 추이, 엔터티 오류, 방식 비율, 인사이트)
 #   - 0.4.0: MLOps 고도화 — 인라인 평가 활동, KST 예상 시간, 자동 finetune 상태, 예측 대시보드
 #   - 0.3.0: /crawl에 feed_sources 추가, /mlops에 schedule+pipeline 추가
 #   - 0.2.0: JSONB GROUP BY 수정, 설정 필드 정합성, 크롤 상태 필드명, 쿼리 독립 실행
@@ -15,6 +16,7 @@ import logging
 import platform
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import psutil
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -106,7 +108,7 @@ class MemoryLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             self.buffer.append({
-                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).astimezone(ZoneInfo("Asia/Seoul")).strftime("%m/%d %H:%M:%S KST"),
                 "level": record.levelname,
                 "logger": record.name,
                 "message": self.format(record),
@@ -471,6 +473,8 @@ async def mlops(username: str = Depends(require_admin)):
                     NerTrainingSample.gpt_quality_score,
                     NerTrainingSample.extraction_method,
                     NerTrainingSample.created_at,
+                    NerTrainingSample.original_entities,
+                    NerTrainingSample.gpt_corrected_entities,
                 )
                 .where(NerTrainingSample.created_at >= cutoff_24h)
                 .order_by(NerTrainingSample.created_at.desc())
@@ -482,6 +486,8 @@ async def mlops(username: str = Depends(require_admin)):
                     "quality_score": round(float(r.gpt_quality_score), 2) if r.gpt_quality_score else 0,
                     "method": r.extraction_method or "unknown",
                     "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "original_entities": r.original_entities or [],
+                    "corrected_entities": r.gpt_corrected_entities or [],
                 }
                 for r in row.all()
             ]
@@ -570,6 +576,92 @@ async def mlops(username: str = Depends(require_admin)):
         "timestamp_kst": now_kst.strftime("%Y-%m-%d %H:%M KST"),
     }
 
+    # -- quality analytics --
+    ENTITY_LABELS = {
+        "PS": "인물", "OG": "기관", "LC": "장소",
+        "DT": "날짜", "TI": "시간", "QT": "수량",
+    }
+    quality_analytics: dict = {
+        "daily_scores": [],
+        "entity_error_types": [],
+        "method_ratio": {"bert_ner": 0, "kiwipiepy": 0},
+        "latest_insight": None,
+    }
+    try:
+        cutoff_30d = datetime.now(timezone.utc) - timedelta(days=30)
+        async with async_session_factory() as session:
+            # daily_scores (30일)
+            rows = await session.execute(
+                select(
+                    cast(NerTrainingSample.created_at, Date).label("date"),
+                    func.avg(NerTrainingSample.gpt_quality_score).label("avg_score"),
+                    func.count(NerTrainingSample.id).label("count"),
+                    func.count(case((NerTrainingSample.extraction_method == "bert_ner", NerTrainingSample.id))).label("method_bert"),
+                    func.count(case((NerTrainingSample.extraction_method == "kiwipiepy", NerTrainingSample.id))).label("method_kiwi"),
+                )
+                .where(NerTrainingSample.created_at >= cutoff_30d)
+                .group_by(cast(NerTrainingSample.created_at, Date))
+                .order_by(cast(NerTrainingSample.created_at, Date))
+            )
+            quality_analytics["daily_scores"] = [
+                {
+                    "date": r.date.isoformat(),
+                    "avg_score": round(float(r.avg_score), 3) if r.avg_score else 0,
+                    "count": r.count,
+                    "method_bert": r.method_bert,
+                    "method_kiwi": r.method_kiwi,
+                }
+                for r in rows.all()
+            ]
+
+            # entity_error_types — gpt_corrected_entities JSONB 순회
+            rows = await session.execute(
+                select(NerTrainingSample.gpt_corrected_entities)
+                .where(NerTrainingSample.created_at >= cutoff_30d)
+            )
+            type_counts: dict[str, int] = {}
+            for (entities,) in rows.all():
+                if isinstance(entities, list):
+                    for ent in entities:
+                        etype = ent.get("type", "UNK") if isinstance(ent, dict) else "UNK"
+                        type_counts[etype] = type_counts.get(etype, 0) + 1
+            total_entities = sum(type_counts.values()) or 1
+            quality_analytics["entity_error_types"] = sorted(
+                [
+                    {
+                        "type": etype,
+                        "label": ENTITY_LABELS.get(etype, etype),
+                        "count": count,
+                        "pct": round(count / total_entities * 100, 1),
+                    }
+                    for etype, count in type_counts.items()
+                ],
+                key=lambda x: -x["count"],
+            )
+
+            # method_ratio — daily_scores에서 이미 집계된 데이터 재활용
+            quality_analytics["method_ratio"] = {
+                "bert_ner": sum(r["method_bert"] for r in quality_analytics["daily_scores"]),
+                "kiwipiepy": sum(r["method_kiwi"] for r in quality_analytics["daily_scores"]),
+            }
+
+            # latest_insight — deployment_insight가 있는 최신 모델
+            row = await session.execute(
+                select(NerModelVersion)
+                .where(NerModelVersion.deployment_insight.isnot(None))
+                .order_by(NerModelVersion.created_at.desc())
+                .limit(1)
+            )
+            insight_model = row.scalar_one_or_none()
+            if insight_model:
+                quality_analytics["latest_insight"] = {
+                    "version": insight_model.version,
+                    "insight": insight_model.deployment_insight,
+                    "created_at": insight_model.created_at.isoformat() if insight_model.created_at else None,
+                }
+    except Exception as e:
+        logger.warning(f"mlops quality_analytics query failed: {e}")
+
     # -- schedule info (with KST next-run) --
     schedule = [
         {
@@ -617,6 +709,7 @@ async def mlops(username: str = Depends(require_admin)):
         "pipeline": pipeline,
         "recent_evaluations": recent_evaluations,
         "predictions": predictions,
+        "quality_analytics": quality_analytics,
     }
 
 

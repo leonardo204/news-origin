@@ -142,12 +142,17 @@ def evaluate_and_correct(
 3. 누락된 중요 엔터티가 있는가?
 4. 잘못 추출된 엔터티(false positive)가 있는가?
 
-submit_ner_evaluation 함수를 호출하여 평가 결과를 제출하세요.
-corrected_entities에는 제목에서 찾을 수 있는 모든 올바른 엔터티를 포함하세요.
+반드시 submit_ner_evaluation 함수를 호출하여 평가 결과를 제출하세요.
+함수를 호출할 수 없는 경우, 아래 JSON 형식으로 직접 응답하세요:
+{{"quality_score": 0.0~1.0, "corrected_entities": [...], "missed_entities": [...], "false_positives": [...], "reasoning": "..."}}
+
+corrected_entities의 각 항목: {{"text": "엔터티", "type": "PS|OG|LC|DT|TI|QT", "start_char": 0, "end_char": 3}}
 start_char와 end_char는 제목 문자열에서의 정확한 위치여야 합니다."""
 
     tools = [_SUBMIT_NER_EVALUATION_TOOL]
-    tool_choice = {"type": "function", "function": {"name": "submit_ner_evaluation"}}
+    # GPT-5 reasoning 모델은 특정 함수 강제(tool_choice)를 지원하지 않을 수 있음
+    # "auto"로 설정하고 프롬프트에서 함수 호출 또는 JSON 응답을 유도
+    tool_choice = "auto"
 
     for attempt in range(max_retries):
         try:

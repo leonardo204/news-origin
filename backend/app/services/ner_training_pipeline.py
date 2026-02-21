@@ -80,9 +80,10 @@ def save_training_sample(
     bio_tags: list[tuple[str, str]],
     gpt_quality_score: float,
     gpt_corrected_entities: list[dict],
-    gpt_reasoning: str,
-    model_version: str,
-    extraction_method: str,
+    original_entities: list[dict] | None = None,
+    gpt_reasoning: str = "",
+    model_version: str = "",
+    extraction_method: str = "unknown",
 ) -> Optional[str]:
     """
     ner_training_samples 테이블에 학습 데이터 저장 (동기)
@@ -98,9 +99,10 @@ def save_training_sample(
         sample = NerTrainingSample(
             article_id=uuid.UUID(article_id) if article_id else None,
             title=title,
-            bio_tags=[list(pair) for pair in bio_tags],  # tuple → list for JSON
+            bio_tags=[list(pair) for pair in bio_tags],
             gpt_quality_score=gpt_quality_score,
             gpt_corrected_entities=gpt_corrected_entities,
+            original_entities=original_entities or [],
             gpt_reasoning=gpt_reasoning,
             extraction_model_version=model_version,
             extraction_method=extraction_method,
@@ -121,86 +123,76 @@ def save_training_sample(
         loop.close()
 
 
-def save_evaluation_results(
+async def save_evaluation_results(
     eval_results: list[dict],
     model_version: str,
     session_factory=None,
 ) -> int:
     """
-    evaluate_batch_sample 결과를 일괄 DB 저장
+    evaluate_batch_sample 결과를 일괄 DB 저장 (async)
 
-    기존 evaluator.py의 결과를 받아서 ner_evaluation_agent로 재평가 후 저장.
-    quality_score >= ner_eval_min_quality 필터.
+    evaluate_batch_sample에서 이미 GPT-5 평가를 수행했으므로
+    결과를 직접 재사용하여 DB에 저장.
 
     Args:
         eval_results: evaluate_batch_sample 반환값
             [{"title": "...", "keywords_data": {...}, "evaluation": {...}}, ...]
         model_version: 현재 BERT NER 모델 버전
-        session_factory: DB 세션 팩토리 (None이면 자체 생성)
+        session_factory: DB async 세션 팩토리
 
     Returns:
         저장된 샘플 수
     """
-    from app.config import get_settings
+    from app.models.ner_training import NerTrainingSample
 
-    settings = get_settings()
     saved_count = 0
 
-    if session_factory is None:
-        from app.workers.tasks import _create_worker_engine
-        engine, session_factory = _create_worker_engine()
-    else:
-        engine = None
+    for result in eval_results:
+        try:
+            title = result.get("title", "")
+            keywords_data = result.get("keywords_data", {})
+            evaluation = result.get("evaluation", {})
+            score = evaluation.get("score", -1)
 
-    try:
-        for result in eval_results:
-            try:
-                title = result.get("title", "")
-                keywords_data = result.get("keywords_data", {})
-                evaluation = result.get("evaluation", {})
-                score = evaluation.get("score", -1)
-
-                if score < settings.ner_eval_min_quality:
-                    continue
-
-                # ner_evaluation_agent로 구조화된 평가 수행
-                from app.services.ner_evaluation_agent import evaluate_and_correct
-                correction = evaluate_and_correct(title, keywords_data)
-
-                if not correction.success or correction.quality_score < settings.ner_eval_min_quality:
-                    continue
-
-                # BIO 태그 변환
-                bio_tags = convert_to_bio_tags(title, correction.corrected_entities)
-
-                # DB 저장
-                sample_id = save_training_sample(
-                    session_factory=session_factory,
-                    article_id=None,
-                    title=title,
-                    bio_tags=bio_tags,
-                    gpt_quality_score=correction.quality_score,
-                    gpt_corrected_entities=correction.corrected_entities,
-                    gpt_reasoning=correction.reasoning,
-                    model_version=model_version,
-                    extraction_method=keywords_data.get("method", "unknown"),
-                )
-
-                if sample_id:
-                    saved_count += 1
-
-            except Exception as e:
-                logger.warning(f"Failed to process eval result for '{result.get('title', '')[:50]}': {e}")
+            # 평가 실패한 경우만 스킵 (score < 0 = GPT 호출 자체가 실패)
+            if score < 0:
                 continue
 
-    finally:
-        if engine is not None:
-            import asyncio
-            loop = asyncio.new_event_loop()
+            # evaluate_batch_sample에서 이미 evaluate_and_correct()를 호출했으므로
+            # 결과를 직접 재사용 (이중 GPT-5 호출 방지)
+            corrected_entities = evaluation.get("corrected_entities", [])
+            if not corrected_entities:
+                continue
+
+            reasoning = evaluation.get("feedback", "")
+
+            # BIO 태그 변환
+            bio_tags = convert_to_bio_tags(title, corrected_entities)
+
+            # DB 저장 (async - Celery async task 내에서 호출)
+            sample = NerTrainingSample(
+                article_id=None,
+                title=title,
+                bio_tags=[list(pair) for pair in bio_tags],
+                gpt_quality_score=score,
+                gpt_corrected_entities=corrected_entities,
+                original_entities=keywords_data.get("entities", []),
+                gpt_reasoning=reasoning,
+                extraction_model_version=model_version,
+                extraction_method=keywords_data.get("method", "unknown"),
+            )
+
             try:
-                loop.run_until_complete(engine.dispose())
-            finally:
-                loop.close()
+                async with session_factory() as db:
+                    db.add(sample)
+                    await db.commit()
+                    saved_count += 1
+            except Exception as e:
+                logger.error(f"Failed to save training sample: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to process eval result for '{result.get('title', '')[:50]}': {e}")
+            continue
 
     logger.info(f"Saved {saved_count}/{len(eval_results)} evaluation results as training samples")
     return saved_count

@@ -114,7 +114,7 @@ async def get_timeline(
         select(TimelineEntry, Article)
         .join(Article, TimelineEntry.article_id == Article.id)
         .where(TimelineEntry.tracking_id == tracking_id)
-        .order_by(Article.published_at.asc().nullslast())
+        .order_by(TimelineEntry.is_origin.desc(), Article.published_at.asc().nullslast())
     )
     entries = entries_result.all()
 

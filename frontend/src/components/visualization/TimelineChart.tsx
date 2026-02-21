@@ -10,9 +10,13 @@ interface TimelineChartProps {
 }
 
 export default function TimelineChart({ items, explosions }: TimelineChartProps) {
-  // Sort items by published_at ascending
+  // Sort items: origin first, then by published_at ascending
   const sorted = useMemo(
-    () => [...items].sort((a, b) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime()),
+    () => [...items].sort((a, b) => {
+      if (a.is_origin && !b.is_origin) return -1
+      if (!a.is_origin && b.is_origin) return 1
+      return new Date(a.published_at).getTime() - new Date(b.published_at).getTime()
+    }),
     [items],
   )
 

@@ -1,8 +1,9 @@
 """
 # finetune_bert_ner.py - BERT NER Fine-tuning Script
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: GPT 교정 데이터로 BERT NER 모델 fine-tuning
 # Changes:
+#   - 0.2.0: 모델 승격 후 GPT-5 배포 인사이트 자동 생성
 #   - 0.1.0: DB 학습 데이터 로드, HuggingFace Trainer NER fine-tuning, 모델 저장
 #
 # 실행 방법:
@@ -412,6 +413,22 @@ def run_finetune(dry_run: bool = False) -> dict:
     if should_promote(f1, current_f1):
         logger.info(f"Quality gate passed (new={f1:.4f}, current={current_f1}), promoting {version}")
         promote_model(version)
+
+        # 배포 인사이트 생성 (GPT-5)
+        try:
+            from app.services.mlops_insight import generate_deployment_insight
+            insight = generate_deployment_insight(
+                version=version,
+                new_f1=f1,
+                prev_f1=current_f1,
+                train_count=len(train_data),
+            )
+            if insight:
+                logger.info(f"Deployment insight generated for {version}")
+            else:
+                logger.warning(f"Deployment insight returned empty for {version}")
+        except Exception as e:
+            logger.warning(f"Insight generation failed (non-critical): {e}")
 
         try:
             from app.services.webhook import send_webhook

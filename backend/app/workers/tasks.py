@@ -325,7 +325,7 @@ async def _run_fetch_trending():
                     try:
                         from app.services.ner_training_pipeline import save_evaluation_results
                         from app.services.model_manager import get_current_version
-                        save_evaluation_results(
+                        await save_evaluation_results(
                             eval_results,
                             model_version=get_current_version(),
                             session_factory=session_factory,
@@ -1275,6 +1275,7 @@ async def _run_collect_ner_training():
                     bio_tags=bio_tags,
                     gpt_quality_score=correction.quality_score,
                     gpt_corrected_entities=correction.corrected_entities,
+                    original_entities=keywords_data.get("entities", []),
                     gpt_reasoning=correction.reasoning,
                     model_version=model_version,
                     extraction_method=keywords_data.get("method", "unknown"),

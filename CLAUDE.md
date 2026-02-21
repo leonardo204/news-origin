@@ -99,9 +99,10 @@ make docker-down      # 인프라 중지
 - **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교), 롤백
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
-- **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006)
+- **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008)
 - **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 02:00 UTC = 11:00 KST, 자동 fine-tuning 포함)
-- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 6단계 시각화, 인라인 평가 활동, KST 예상 실행 시간, 예측 대시보드 (현재 단계/일일 수집률/예상 준비일)
+- **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
+- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 6단계 시각화, 인라인 평가 활동 (키워드 비교 확장행), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
 
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS

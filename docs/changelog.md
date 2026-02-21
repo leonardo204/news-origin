@@ -4,7 +4,50 @@
 
 ---
 
+## 2026-02-21
+
+### feat: MLOps 대시보드 — InfoBadge 툴팁 + 키워드 비교 확장행
+- **InfoBadge 툴팁 (`?` 아이콘)**: MLOps 대시보드 10개 섹션(파이프라인, 학습 데이터, 품질 추이, 엔터티 오류, 모델 성능, 추출 방식, 배포 인사이트, 인라인 평가, 설정 3종)에 hover 시 설명 툴팁 표시 (`InfoBadge.tsx` 신규)
+- **키워드 비교 확장행**: 인라인 평가 활동 테이블에서 행 클릭 시 "현재 모델 추출 vs GPT-5 교정" 엔터티 비교 표시, 엔터티 유형별 색상 코딩 (PS/OG/LC/DT/TI/QT)
+- **`original_entities` 컬럼 추가**: `ner_training_samples` 테이블에 평가 시점 원본 추출 엔터티 저장 (Alembic 008)
+- **수정 파일**: `MLOpsPage.tsx`, `admin.py`, `ner_training.py`, `ner_training_pipeline.py`, `tasks.py`
+- **신규 파일**: `InfoBadge.tsx`, `008_add_original_entities.py`
+
+### fix: 타임라인 기원 기사 정렬 — 백엔드 쿼리 수정
+- **문제**: 동일 날짜 기사가 많을 때 기원(origin) 기사가 타임라인 중간에 위치
+- **수정**: `timeline.py` 쿼리에 `TimelineEntry.is_origin.desc()` 1차 정렬 추가하여 기원 기사가 항상 첫 번째에 위치
+- **수정 파일**: `backend/app/api/routes/timeline.py`
+
+### fix: 6건 버그 수정 및 UX 개선
+- **추출 방식 0/0 비율 버그**: BERT NER 0건/kiwipiepy 0건일 때 kiwipiepy가 100%로 표시되던 버그 수정 (`MLOpsPage.tsx`)
+- **대시보드 로그 KST 시간**: 로그 뷰어 타임스탬프를 UTC ISO → KST (`MM/DD HH:MM:SS KST`) 형식으로 변경 (`admin.py`)
+- **트렌드 카테고리 차트 이중 렌더링**: 탭 진입 시 `loadArticleTrends()` 중복 호출 방지, 기존 데이터가 있으면 재사용 (`TrendsPage.tsx`)
+- **타임라인 기원 기사 정렬**: 기사 목록 + 타임라인 차트에서 기원(origin) 기사가 정렬과 무관하게 항상 맨 위에 위치하도록 수정 (`ArticleList.tsx`, `TimelineChart.tsx`)
+- **전파 트리 미니맵 제거 + 기원 포커스**: 흰색으로 렌더되던 MiniMap 삭제, 초기 뷰를 기원 노드 중심으로 배율 조정 (`PropagationGraph.tsx`)
+- **홈→트렌드 토픽 연동**: 홈에서 실시간 트렌드 토픽 클릭 시 트렌드 탭에서 해당 토픽이 선택+스크롤 이동되도록 구현 (`TrendsPage.tsx`, `HomePage.tsx`)
+- **period/data 정합성**: URL period 파라미터 변경 시 캐시된 데이터 무효화하여 불일치 방지
+
+### fix: NER MLOps 파이프라인 — 학습 데이터 수집 정상화
+- **GPT-5 function calling JSON 추출 개선**: reasoning 모델이 tool_calls 대신 텍스트로 응답할 때 코드블록/전체 JSON/내장 JSON 3단계 추출 (`azure_openai.py`)
+- **tool_choice 호환성**: GPT-5 reasoning 모델과 호환되도록 `tool_choice`를 forced function → `"auto"`로 변경, 프롬프트에 JSON 폴백 형식 안내 (`ner_evaluation_agent.py`)
+- **이중 GPT-5 호출 제거**: `save_evaluation_results`에서 `evaluate_and_correct()` 재호출 삭제, `evaluate_batch_sample` 결과의 `corrected_entities` 직접 재사용 (`ner_training_pipeline.py`)
+- **과도한 품질 게이트 제거**: 초기 평가 점수 0.7 미만 필터가 모든 샘플을 차단하던 문제 수정 (평가 실패만 스킵)
+- **async event loop 충돌 수정**: Celery async task 내에서 `asyncio.new_event_loop()` 호출 시 "Cannot run the event loop while another loop is running" 에러 → `save_evaluation_results`를 async로 전환 (`ner_training_pipeline.py`, `tasks.py`)
+- **결과**: 매 크롤링 배치(30분)마다 5건씩 학습 데이터 정상 축적 (0건 → 6건 확인)
+
+---
+
 ## 2026-02-20
+
+### feat: MLOps 품질 분석 대시보드 + 배포 시 자동 인사이트
+- **품질 추이 차트**: 최근 30일 일별 NER 평균 품질 점수 + 평가 건수 혼합 차트 (ECharts Line+Bar)
+- **엔터티 유형별 오류 분포**: GPT-5 교정 엔터티의 type별 도넛 차트 (PS/OG/LC/DT/TI/QT)
+- **모델 성능 비교**: 모델 버전별 F1 점수 바 차트, 활성 모델 강조
+- **추출 방식 비율**: BERT NER vs kiwipiepy 비율 프로그레스 바
+- **배포 인사이트**: 모델 승격 시 GPT-5가 축적 데이터(품질 추이, 엔터티 오류, 모델 히스토리, 평가 사유)를 분석하여 인사이트 자동 생성 → DB 저장 → 대시보드 표시
+- **DB 변경**: `ner_model_versions.deployment_insight` 컬럼 추가 (Alembic 007)
+- **신규 파일**: `mlops_insight.py` (GPT-5 인사이트 생성 서비스)
+- **수정 파일**: `admin.py` (v0.5.0), `ner_training.py`, `finetune_bert_ner.py`, `MLOpsPage.tsx`, `admin-dashboard.spec.ts`
 
 ### fix: 트렌드 탭 UX 개선 — 상태 초기화, 비교 상태바, 이중 로딩 방지
 - **탭 진입 시 상태 초기화**: 트렌드 탭을 나갔다가 다시 들어올 때 `trendView`, `period`, `expandedClusterId`를 기본값으로 리셋 (Zustand `resetView()` 추가)

@@ -1,8 +1,9 @@
 """
 # ner_training.py - NER MLOps Training Data Models
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: NER 학습 데이터 수집 + 모델 버전 관리 ORM 모델
 # Changes:
+#   - 0.2.0: NerModelVersion에 deployment_insight 컬럼 추가
 #   - 0.1.0: NerTrainingSample, NerModelVersion 테이블
 """
 
@@ -24,6 +25,7 @@ class NerTrainingSample(Base):
     bio_tags = Column(JSONB, nullable=False)  # [["윤","B-PS"],["석","I-PS"],...]
     gpt_quality_score = Column(Float, nullable=False)
     gpt_corrected_entities = Column(JSONB, nullable=False)  # [{text,type,start_char,end_char}]
+    original_entities = Column(JSONB, nullable=True)  # [{text,type,start_char,end_char}] 평가 시점 원본 추출
     gpt_reasoning = Column(Text, nullable=True)
     extraction_model_version = Column(String(20), nullable=True)
     extraction_method = Column(String(20), nullable=True)  # bert_ner | kiwipiepy
@@ -45,4 +47,5 @@ class NerModelVersion(Base):
     eval_recall = Column(Float, nullable=True)
     status = Column(String(20), default="training", nullable=False)  # training|ready|active|retired
     is_active = Column(Boolean, default=False, nullable=False)
+    deployment_insight = Column(Text, nullable=True)  # GPT-5 생성 배포 인사이트
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

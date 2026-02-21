@@ -12,8 +12,10 @@
 
 import asyncio
 import atexit
+import json
 import logging
 import random
+import re
 import threading
 import time
 from typing import Optional
@@ -360,21 +362,44 @@ def call_gpt_with_tools_sync(
         # tool_calls가 있으면 첫 번째 function의 arguments를 파싱하여 반환
         tool_calls = message.get("tool_calls")
         if tool_calls:
-            import json
             args_str = tool_calls[0]["function"]["arguments"]
             return json.loads(args_str)
 
         # tool_calls가 없으면 content에서 JSON 파싱 시도 (fallback)
+        # GPT-5 reasoning 모델은 tool_calls 대신 텍스트로 응답할 수 있음
         content = message.get("content", "")
         if content:
-            import json
+            logger.debug(
+                f"GPT response has no tool_calls, attempting JSON extraction from content "
+                f"(length={len(content)}): {content[:200]}..."
+            )
             cleaned = content.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
+
+            # 1차: 코드 블록 내 JSON 추출
+            code_block_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)```', cleaned)
+            if code_block_match:
+                try:
+                    return json.loads(code_block_match.group(1).strip())
+                except json.JSONDecodeError:
+                    pass
+
+            # 2차: 전체 content가 JSON인 경우
             try:
                 return json.loads(cleaned)
             except json.JSONDecodeError:
                 pass
+
+            # 3차: content 내 JSON 객체 추출 (텍스트 설명 사이에 JSON이 포함된 경우)
+            json_match = re.search(r'\{[\s\S]*\}', cleaned)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
+
+            logger.warning(
+                f"GPT content JSON extraction failed. Content preview: {content[:500]}"
+            )
 
         raise ValueError("GPT response contains neither tool_calls nor parseable JSON content")
 

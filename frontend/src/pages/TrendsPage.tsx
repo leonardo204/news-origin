@@ -76,13 +76,21 @@ export default function TrendsPage() {
 
   // 탭 진입 시 상태 초기화 + 데이터 1회 로딩
   useEffect(() => {
+    // expandedClusterId가 이미 설정된 경우 (홈에서 토픽 클릭) 보존
+    const preserveExpanded = useTrendStore.getState().expandedClusterId
     resetView()
+    if (preserveExpanded) {
+      useTrendStore.setState({ expandedClusterId: preserveExpanded })
+    }
     // URL에 period 파라미터가 있으면 적용 (딥링크 지원)
     const urlP = searchParams.get('period') as '24h' | '7d' | '30d' | null
-    if (urlP && ['24h', '7d', '30d'].includes(urlP)) {
-      useTrendStore.setState({ period: urlP })
+    if (urlP && ['24h', '7d', '30d'].includes(urlP) && urlP !== useTrendStore.getState().period) {
+      useTrendStore.setState({ period: urlP, articleTrends: null })
     }
-    loadArticleTrends()
+    // 데이터가 이미 있으면 중복 로딩 방지 (홈에서 이미 로딩한 경우)
+    if (!useTrendStore.getState().articleTrends) {
+      loadArticleTrends()
+    }
     loadRecentArticles()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -174,11 +182,10 @@ export default function TrendsPage() {
     const timer = setTimeout(() => {
       const el = document.querySelector(`[data-cluster-id="${expandedClusterId}"]`)
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 100)
+    }, 300)
     return () => clearTimeout(timer)
-  // Only on mount or when navigating with a pre-set cluster
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [expandedClusterId])
 
   // 페이지 이탈 시 URL 파라미터 정리
   useEffect(() => {

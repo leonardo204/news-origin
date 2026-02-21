@@ -90,6 +90,24 @@ test.describe('Admin Dashboard - MLOps Page', () => {
     await expect(page.locator('text=데이터 수집 중').first()).toBeVisible()
   })
 
+  test('shows quality analytics charts', async ({ page }) => {
+    await login(page)
+    await page.goto(`${ADMIN_URL}/admin/mlops`)
+    await page.waitForLoadState('networkidle')
+
+    // 품질 추이 차트 확인
+    await expect(page.locator('text=NER 품질 추이')).toBeVisible({ timeout: 10000 })
+
+    // 엔터티 오류 분포 확인
+    await expect(page.locator('text=엔터티 유형별 오류')).toBeVisible()
+
+    // 모델 성능 비교 확인
+    await expect(page.locator('text=모델 성능 비교')).toBeVisible()
+
+    // 추출 방식 비율 확인
+    await expect(page.locator('text=추출 방식').first()).toBeVisible()
+  })
+
   test('shows schedule table with KST times', async ({ page }) => {
     await login(page)
     await page.goto(`${ADMIN_URL}/admin/mlops`)

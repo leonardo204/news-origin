@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback } from 'react'
 import {
   ReactFlow,
   Background,
-  MiniMap,
   Controls,
   Position,
   Handle,
@@ -307,25 +306,15 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
         nodeTypes={nodeTypes}
         onNodeClick={handleNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.05, maxZoom: 0.8 }}
+        fitViewOptions={{ padding: 0.15, maxZoom: 0.85, nodes: rfNodes.filter((n) => n.type === 'origin') }}
         panOnScroll
-        minZoom={0.3}
+        minZoom={0.15}
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
         nodesDraggable
         nodesConnectable={false}
       >
         <Background gap={28} size={1} color={isDark ? '#374151' : '#e5e7eb'} />
-        {nodes.length > 10 && (
-          <MiniMap
-            nodeColor={(n) => (n.style?.background as string) || '#6b7280'}
-            maskColor={isDark ? 'rgba(0,0,0,0.6)' : 'rgba(240,240,240,0.7)'}
-            pannable
-            zoomable
-            position="bottom-right"
-            style={{ borderRadius: 12 }}
-          />
-        )}
         <Controls
           position="top-right"
           showInteractive={false}

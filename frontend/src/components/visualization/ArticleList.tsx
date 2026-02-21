@@ -37,6 +37,10 @@ export default function ArticleList({ items }: ArticleListProps) {
     }
 
     result = [...result].sort((a, b) => {
+      // 기원 기사는 항상 맨 위에 위치
+      if (a.is_origin && !b.is_origin) return -1
+      if (!a.is_origin && b.is_origin) return 1
+
       let cmp = 0
       switch (sortField) {
         case 'title':
