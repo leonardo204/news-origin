@@ -179,6 +179,7 @@ async def get_timeline(
             similarity_score=entry.similarity_score,
             lifecycle_stage=entry.lifecycle_stage,
             url=article.url,
+            summary=article.summary,
             is_origin=entry.is_origin,
             is_user_selected=is_user_sel,
         ))

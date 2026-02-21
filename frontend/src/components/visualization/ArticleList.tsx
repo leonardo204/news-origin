@@ -182,20 +182,25 @@ export default function ArticleList({ items }: ArticleListProps) {
                   key={item.article_id}
                   className="grid grid-cols-[1fr_100px_80px_80px_32px_32px] items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-secondary/30"
                 >
-                  <a
-                    href={item.url || undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center gap-2 overflow-hidden ${
-                      item.url ? 'cursor-pointer' : 'cursor-default'
-                    }`}
-                    onClick={item.url ? undefined : (e) => e.preventDefault()}
-                  >
-                    {item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none" title="기원 기사">★</span>}
-                    {item.is_user_selected && !item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none text-blue-500" title="내가 선택한 기사">◎</span>}
-                    <span className="truncate">{item.title}</span>
-                    {item.url && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 [a:hover_&]:opacity-100" />}
-                  </a>
+                  <div className="overflow-hidden">
+                    <a
+                      href={item.url || undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex items-center gap-2 ${
+                        item.url ? 'cursor-pointer' : 'cursor-default'
+                      }`}
+                      onClick={item.url ? undefined : (e) => e.preventDefault()}
+                    >
+                      {item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none" title="기원 기사">★</span>}
+                      {item.is_user_selected && !item.is_origin && <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none text-blue-500" title="내가 선택한 기사">◎</span>}
+                      <span className="truncate">{item.title}</span>
+                      {item.url && <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 [a:hover_&]:opacity-100" />}
+                    </a>
+                    {item.summary && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground/60">{item.summary}</p>
+                    )}
+                  </div>
                   <span className="truncate text-xs text-muted-foreground">
                     {item.publisher || '-'}
                   </span>
@@ -277,6 +282,9 @@ export default function ArticleList({ items }: ArticleListProps) {
                       {item.is_user_selected && !item.is_origin && <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] leading-none text-blue-500" title="내가 선택한 기사">◎</span>}
                       <span>{item.title}</span>
                     </p>
+                    {item.summary && (
+                      <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground/60">{item.summary}</p>
+                    )}
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       {item.publisher && (
                         <span className="text-xs text-muted-foreground">{item.publisher}</span>

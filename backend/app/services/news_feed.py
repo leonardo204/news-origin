@@ -10,6 +10,7 @@
 
 import asyncio
 import logging
+import re
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -151,7 +152,7 @@ async def fetch_publisher_feed(
     Google News와 달리 <source> 태그가 없으므로 publisher_name을 직접 사용.
     dc:creator가 있으면 저자로 활용.
 
-    Returns: [{url, title, publisher, published_at}, ...]
+    Returns: [{url, title, publisher, published_at, rss_summary?}, ...]
     """
     DC_NS = "http://purl.org/dc/elements/1.1/"
 
@@ -182,12 +183,21 @@ async def fetch_publisher_feed(
 
             published_at = parse_rfc2822(pub_date_str)
 
-            results.append({
+            # RSS description 텍스트 추출 (HTML 태그 제거)
+            desc_raw = item.findtext("description", "") or ""
+            desc_text = _strip_html_tags(desc_raw).strip()
+            rss_summary = desc_text if len(desc_text) >= 20 else None
+
+            entry = {
                 "url": link,
                 "title": title,
                 "publisher": publisher_name,
                 "published_at": published_at,
-            })
+            }
+            if rss_summary:
+                entry["rss_summary"] = rss_summary
+
+            results.append(entry)
     except ET.ParseError:
         logger.warning(f"Failed to parse publisher RSS [{publisher_name}]: {feed_url}")
 
@@ -256,3 +266,8 @@ async def fetch_all_publisher_feeds(
         f"selected: {len(result)} (round-robin across {len(publisher_articles)} publishers)"
     )
     return result
+
+
+def _strip_html_tags(text: str) -> str:
+    """HTML 태그 제거 (RSS description용)"""
+    return re.sub(r"<[^>]+>", "", text)

@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     ner_training_min_samples: int = 200
     ner_reextract_days: int = 7
     ner_max_model_versions: int = 3
+    ner_excluded_publishers: list[str] = ["한겨레"]  # AI 학습 금지 명시 언론사
 
     # Admin Dashboard
     admin_username: str = ""

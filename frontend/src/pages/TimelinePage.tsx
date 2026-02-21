@@ -10,7 +10,6 @@ import BookmarkButton from '@/components/ui/BookmarkButton'
 import ViewToggle from '@/components/visualization/ViewToggle'
 import LifecyclePanel from '@/components/visualization/LifecyclePanel'
 import ArticleDetailPanel from '@/components/visualization/ArticleDetailPanel'
-import ArticleList from '@/components/visualization/ArticleList'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { usePageTitle } from '@/hooks/usePageTitle'
 import { formatDate } from '@/lib/utils'
@@ -412,8 +411,6 @@ export default function TimelinePage() {
             <LifecyclePanel lifecycle={lifecycle} />
           </div>
 
-          {/* Article list */}
-          <ArticleList items={timeline.timeline} />
         </div>
 
         {/* Sidebar - desktop only */}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -197,7 +197,7 @@ function ArticleNode({ data }: NodeProps) {
         width: NODE_W,
         minHeight: NODE_H,
         boxShadow: `0 2px 12px ${color}22`,
-        outline: d.is_user_selected ? `2px dashed ${color}` : undefined,
+        outline: d.is_user_selected ? `2.5px solid #3b82f6` : undefined,
         border: d.is_user_selected ? undefined : `1px solid ${color}35`,
       }}
     >
@@ -207,7 +207,7 @@ function ArticleNode({ data }: NodeProps) {
         <Handle type="source" position={Position.Right} className="!h-3 !w-3 !border-2 !border-white !bg-gray-400 dark:!border-gray-900" />
         <div className="flex items-center gap-2">
           {d.is_user_selected && (
-            <span className="inline-flex items-center rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-bold text-blue-500">◎</span>
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-bold text-blue-500">◎ 대표</span>
           )}
           <span className="text-sm font-medium text-foreground/70">{d.publisher || '알 수 없음'}</span>
           <span className="text-sm text-muted-foreground/50">·</span>
@@ -236,6 +236,7 @@ const nodeTypes = { origin: OriginNode, article: ArticleNode }
 export default function PropagationGraph({ nodes, edges, onNodeClick, className }: PropagationGraphProps) {
   const [showLegend, setShowLegend] = useState(false)
   const [showAllNodes, setShowAllNodes] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
 
@@ -261,6 +262,33 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
     [limitedNodes, limitedEdges, isDark],
   )
 
+  // Fit horizontally only: all nodes visible left-right, vertical overflow OK
+  const handleInit = useCallback((instance: { getNodes: () => Node[]; setViewport: (vp: { x: number; y: number; zoom: number }) => void }) => {
+    setTimeout(() => {
+      const allNodes = instance.getNodes()
+      if (allNodes.length === 0 || !containerRef.current) return
+
+      const cw = containerRef.current.clientWidth
+
+      let minX = Infinity, maxX = -Infinity
+      for (const n of allNodes) {
+        const w = (typeof n.style?.width === 'number' ? n.style.width : NODE_W)
+        minX = Math.min(minX, n.position.x)
+        maxX = Math.max(maxX, n.position.x + w)
+      }
+
+      const graphWidth = maxX - minX
+      const pad = 0.08
+      const zoom = Math.min(cw / (graphWidth * (1 + pad * 2)), 0.85)
+
+      const centerX = (minX + maxX) / 2
+      const viewportX = cw / 2 - centerX * zoom
+      const viewportY = 30
+
+      instance.setViewport({ x: viewportX, y: viewportY, zoom })
+    }, 60)
+  }, [])
+
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       const graphNode = node.data as unknown as GraphNode
@@ -282,7 +310,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
   }
 
   return (
-    <div className={`relative ${className || 'h-full'}`}>
+    <div ref={containerRef} className={`relative ${className || 'h-full'}`}>
       {/* Node limit warning */}
       {hasExcessNodes && (
         <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 backdrop-blur-sm">
@@ -305,8 +333,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
         edges={rfEdges}
         nodeTypes={nodeTypes}
         onNodeClick={handleNodeClick}
-        fitView
-        fitViewOptions={{ padding: 0.15, maxZoom: 0.85, nodes: rfNodes.filter((n) => n.type === 'origin') }}
+        onInit={handleInit}
         panOnScroll
         minZoom={0.15}
         maxZoom={1.5}
@@ -374,7 +401,7 @@ export default function PropagationGraph({ nodes, edges, onNodeClick, className 
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="text-xs font-bold text-blue-500">◎</span>
-                <span className="text-xs text-foreground/70">내가 선택한 기사</span>
+                <span className="text-xs text-foreground/70">대표 기사</span>
               </div>
             </div>
           </div>

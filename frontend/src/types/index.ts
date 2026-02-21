@@ -102,6 +102,7 @@ export interface TimelineItem {
   similarity_score: number
   lifecycle_stage: LifecycleStage
   url: string | null
+  summary: string | null
   is_origin: boolean
   is_user_selected: boolean
 }

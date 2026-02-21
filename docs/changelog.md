@@ -6,6 +6,20 @@
 
 ## 2026-02-21
 
+### feat: RSS 정책 대응 — 한겨레 NER 학습 제외, 운영 정책, description 활용
+- **한겨레 NER 학습 제외**: AI 학습 금지 명시 언론사(한겨레) 기사를 NER 학습 데이터 수집 및 GPT 평가 샘플에서 자동 제외 (`config.py`: `ner_excluded_publishers`, `tasks.py`, `evaluator.py`)
+- **운영 정책 페이지**: `/policy` 경로에 서비스 목적, 콘텐츠 이용 방침, AI 학습 정책, 저작권 존중 등 명시, 연락처 이메일 포함 (`PolicyPage.tsx`, `App.tsx`, `Header.tsx`)
+- **RSS description 수집**: 언론사 RSS의 description 필드를 파싱하여 크롤링 실패 시 summary 폴백으로 활용 (`news_feed.py`, `tasks.py`)
+- **description 미리보기 UI**: 타임라인 카드에 summary 텍스트 표시 (`TimelineChart.tsx`, `timeline.py` 스키마/API)
+- **수정 파일**: `config.py`, `tasks.py`, `evaluator.py`, `news_feed.py`, `timeline.py`(스키마+라우트), `App.tsx`, `Header.tsx`, `TimelineChart.tsx`, `types/index.ts`
+- **신규 파일**: `PolicyPage.tsx`
+
+### refactor: 추적 결과 화면 정리 + 헤더 레이아웃 변경
+- **기사 목록 제거**: 추적 결과(TimelinePage)에서 ArticleList 컴포넌트 제거 (타임라인으로 충분)
+- **정책 링크 위치 변경**: Header nav(추적, 트렌드) 우측의 테마토글·현황 영역으로 이동
+- **트렌드 이중 로딩 수정**: StrictMode 이중 마운트 시 `loadArticleTrends()` 중복 호출 방지 (`useRef` 가드)
+- **수정 파일**: `TimelinePage.tsx`, `Header.tsx`, `TrendsPage.tsx`
+
 ### fix: MLOps InfoBadge 추출 방식 설명 보정 + 평가 확장행 단일 열림
 - **추출 방식 툴팁 보정**: kiwipiepy 100%가 "모델 로딩 문제"로만 설명되던 것을 "Fine-tuning 전 초기 상태(정상)" 케이스 추가
 - **확장행 단일 열림**: 인라인 평가 테이블에서 행 클릭 시 기존 열린 행은 자동 접힘 (한 번에 하나만 열림)

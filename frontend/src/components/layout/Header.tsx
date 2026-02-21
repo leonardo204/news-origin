@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Newspaper, TrendingUp, BarChart3, Clock, Database, Zap, Loader2, Radio } from 'lucide-react'
+import { Newspaper, TrendingUp, BarChart3, Clock, Database, Zap, Loader2, Radio, Shield } from 'lucide-react'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { useTrackingStore } from '@/stores/useTrackingStore'
 import { useTrendStore } from '@/stores/useTrendStore'
@@ -153,6 +153,19 @@ export default function Header() {
           <div className="ml-0.5 hidden h-5 w-px bg-border sm:ml-1 sm:block" />
 
           <ThemeToggle />
+
+          <Link
+            to="/policy"
+            className={cn(
+              'flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs transition-colors sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-sm',
+              location.pathname === '/policy'
+                ? 'bg-secondary text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">정책</span>
+          </Link>
 
           <button
             ref={buttonRef}

@@ -214,6 +214,11 @@ async def _run_fetch_trending():
                 a["url"]: a.get("feed_category")
                 for a in feed_articles if "feed_category" in a
             }
+            # RSS summary 매핑 (publisher RSS description → 크롤링 실패 시 폴백)
+            url_rss_summary_map = {
+                a["url"]: a["rss_summary"]
+                for a in feed_articles if a.get("rss_summary")
+            }
 
             from app.services.category import resolve_category
 
@@ -248,6 +253,11 @@ async def _run_fetch_trending():
                     db.add(article)
                     await db.flush()
                     new_articles_count += 1
+
+                    # RSS summary 폴백: 크롤링 summary가 없을 때만 RSS description 사용
+                    rss_summary = url_rss_summary_map.get(original_url) or url_rss_summary_map.get(actual_url)
+                    if not article.summary and rss_summary:
+                        article.summary = rss_summary
 
                 # 임베딩이 없는 기사만 수집
                 if not article.qdrant_point_id:
@@ -316,7 +326,7 @@ async def _run_fetch_trending():
             try:
                 from app.services.evaluator import evaluate_batch_sample
                 eval_articles = [
-                    {"title": a.title, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
+                    {"title": a.title, "publisher": a.publisher, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
                     for a in articles_to_embed[:20]
                 ]
                 eval_results = evaluate_batch_sample(eval_articles, sample_size=5)
@@ -1230,10 +1240,14 @@ async def _run_collect_ner_training():
             evaluated_titles = {row[0] for row in evaluated_result.all()}
 
             # 키워드가 추출된 기사 중 미평가 기사 샘플링
+            # AI 학습 금지 언론사(한겨레 등) 제외
+            query = select(Article).where(
+                Article.metadata_.isnot(None),
+            )
+            if settings.ner_excluded_publishers:
+                query = query.where(~Article.publisher.in_(settings.ner_excluded_publishers))
             result = await db.execute(
-                select(Article).where(
-                    Article.metadata_.isnot(None),
-                ).order_by(sa_func.random()).limit(settings.ner_eval_sample_size * 2)
+                query.order_by(sa_func.random()).limit(settings.ner_eval_sample_size * 2)
             )
             candidates = result.scalars().all()
 

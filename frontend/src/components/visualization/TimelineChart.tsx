@@ -110,8 +110,8 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
 
                 {/* Card */}
                 <div
-                  className="rounded-lg border border-border/60 bg-card/50 p-3 transition-colors hover:bg-card"
-                  style={{ borderLeftColor: color, borderLeftWidth: 3 }}
+                  className={`rounded-lg border border-border/60 bg-card/50 p-3 transition-colors hover:bg-card ${item.is_user_selected && !item.is_origin ? 'ring-1 ring-blue-500/40' : ''}`}
+                  style={{ borderLeftColor: item.is_user_selected && !item.is_origin ? '#3b82f6' : color, borderLeftWidth: 3 }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 space-y-1">
@@ -129,7 +129,15 @@ export default function TimelineChart({ items, explosions }: TimelineChartProps)
                         {item.is_origin && (
                           <Badge stage="origin">기원</Badge>
                         )}
+                        {item.is_user_selected && !item.is_origin && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-bold text-blue-500">◎ 대표</span>
+                        )}
                       </div>
+                      {item.summary && (
+                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground/70">
+                          {item.summary}
+                        </p>
+                      )}
                     </div>
                     {item.url && (
                       <a

@@ -173,6 +173,14 @@ def evaluate_batch_sample(
     if not articles:
         return []
 
+    # AI 학습 금지 언론사(한겨레 등) 제외
+    from app.config import get_settings
+    excluded = get_settings().ner_excluded_publishers
+    if excluded:
+        articles = [a for a in articles if a.get("publisher") not in excluded]
+    if not articles:
+        return []
+
     sample = random.sample(articles, min(sample_size, len(articles)))
     results = []
 

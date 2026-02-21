@@ -108,6 +108,7 @@ class TimelineItem(BaseModel):
     similarity_score: float = 0.0
     lifecycle_stage: str | None = None
     url: str | None = None
+    summary: str | None = None
     is_origin: bool = False
     is_user_selected: bool = False
 

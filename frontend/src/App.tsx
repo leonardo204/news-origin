@@ -11,6 +11,7 @@ import NetworkStatus from '@/components/ui/NetworkStatus'
 // Lazy-load heavy pages (contain ECharts / G6)
 const TimelinePage = lazy(() => import('@/pages/TimelinePage'))
 const TrendsPage = lazy(() => import('@/pages/TrendsPage'))
+const PolicyPage = lazy(() => import('@/pages/PolicyPage'))
 
 // Lazy-load admin pages
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'))
@@ -101,6 +102,14 @@ export default function App() {
             element={
               <Suspense fallback={<TrendsPageFallback />}>
                 <TrendsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/policy"
+            element={
+              <Suspense fallback={<div />}>
+                <PolicyPage />
               </Suspense>
             }
           />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   TrendingUp,
@@ -75,7 +75,12 @@ export default function TrendsPage() {
   const selectedPublisher = searchParams.get('publisher') || null
 
   // 탭 진입 시 상태 초기화 + 데이터 1회 로딩
+  // React StrictMode 이중 마운트 방지 (ref는 unmount/remount 간 유지됨)
+  const initRef = useRef(false)
   useEffect(() => {
+    if (initRef.current) return
+    initRef.current = true
+
     // expandedClusterId가 이미 설정된 경우 (홈에서 토픽 클릭) 보존
     const preserveExpanded = useTrendStore.getState().expandedClusterId
     resetView()

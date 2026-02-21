@@ -92,6 +92,7 @@ make docker-down      # 인프라 중지
 ## NER MLOps Pipeline
 - **목적**: GPT-5 평가 데이터로 BERT NER 모델을 점진적으로 개선하는 폐쇄 루프
 - **데이터 수집**: 크롤링 배치마다 5건 샘플 평가 + 6시간 주기 30건 추가 수집
+- **학습 제외 언론사**: `ner_excluded_publishers` 설정으로 AI 학습 금지 명시 언론사(한겨레 등) 기사를 학습 데이터 수집 및 평가 샘플에서 자동 제외
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
 - **Fine-tuning**: 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거 (24시간 내 중복 방지)
@@ -148,6 +149,7 @@ make docker-down      # 인프라 중지
 - `GET /api/search/news` - 뉴스 검색
 - `GET /api/trends/*` - 트렌드 분석
 - `GET /api/health` - 헬스체크
+- `/policy` - 운영 정책 페이지 (프론트엔드 라우트)
 
 ## Host PC & Performance Constraints
 
