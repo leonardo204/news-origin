@@ -6,6 +6,14 @@
 
 ## 2026-02-22
 
+### fix: Celery 헬스체크 Redis 하트비트 fallback + 트래픽 KST 그룹핑
+- **Celery 헬스체크 개선**: `--pool=solo` 워커가 태스크 실행 중 `inspect().ping()` 응답 불가 → Redis 하트비트 fallback 추가
+  - `check_worker_memory` 태스크(5분 주기)에서 `celery:worker:heartbeat` 키를 Redis에 기록 (TTL 600초)
+  - 대시보드 overview 엔드포인트: inspect 실패 시 Redis 하트비트 존재 여부로 "정상" 판정
+- **트래픽 KST 그룹핑**: 일별/시간별 쿼리에 `timezone('Asia/Seoul')` 적용 — UTC 기준 그룹핑으로 KST 날짜 불일치 해결
+- **CLAUDE.md**: Docker 내부 Python 실행 시 `python3` 사용 규칙 명시
+- **수정 파일**: `admin.py`, `tasks.py`, `CLAUDE.md`
+
 ### feat: 대시보드 개요 페이지 트래픽/MLOps 요약 추가 + Admin 차트 안정화
 - **개요 페이지 트래픽 요약**: 오늘 요청수, 에러율(30일), 평균 응답시간(30일), 고유 방문자(30일)
 - **개요 페이지 MLOps 요약**: 현재 모델/F1, 평균 품질, 학습 데이터 진행도, 학습 준비도 프로그레스 바
