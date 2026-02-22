@@ -76,10 +76,12 @@ make docker-down      # 인프라 중지
 - 개발/프로덕션 기본값이 다름 (DB 비밀번호, 포트 등)
 - `APP_SECRET_KEY`는 프로덕션에서 반드시 변경
 
-### datetime timezone
-- 모든 datetime은 UTC 기준 (`enable_utc=True`)
-- **관리자/사용자에게 표시하는 모든 시간은 KST (Asia/Seoul)** — 프론트엔드 `toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })`, 이메일/리포트도 동일
-- Beat 스케줄의 crontab은 UTC 기준 (timezone="Asia/Seoul" 설정으로 보정)
+### datetime timezone (CRITICAL)
+- **Beat 스케줄**: `timezone="Asia/Seoul"` — 모든 crontab 값은 KST 기준. `crontab(hour=11)`은 11:00 KST에 실행됨
+- **DB 저장**: `datetime.now(timezone.utc)` — PostgreSQL 내부는 UTC 저장 (DB 비교/쿼리 일관성)
+- **표시/출력**: 모든 사용자/관리자 시간은 KST — 프론트엔드 `toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })`, 이메일/리포트도 동일
+- **`enable_utc=True`**: Celery 내부 메시지 타임스탬프만 UTC (crontab 해석에는 영향 없음, `timezone` 설정이 우선)
+- **주의**: `_next_cron_run()` 등 스케줄 표시 함수도 KST 기준으로 계산해야 beat와 일치
 
 ### ECharts 차트 옵션 반드시 useMemo (CRITICAL)
 - `ReactECharts`의 `option={{...}}` 인라인 객체 내 `formatter` 등 **함수가 포함되면** 매 렌더마다 새 참조 생성
@@ -104,14 +106,16 @@ make docker-down      # 인프라 중지
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
 - **Fine-tuning**: 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거 (24시간 내 중복 방지)
+  - `trigger_bert_finetune` 태스크가 Docker SDK로 `newsorigin-finetune` 컨테이너를 detach 모드로 시작 → 워커 블로킹 없음
   - 수동 실행도 가능: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
+  - celery-worker/backend에 Docker 소켓 마운트 필요 (`/var/run/docker.sock`, `DOCKER_GID` 환경변수)
 - **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교), 롤백
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008)
-- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 02:00 UTC = 11:00 KST, 자동 fine-tuning 포함)
+- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, 자동 fine-tuning 포함)
 - **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
-- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 6단계 시각화, 인라인 평가 활동 (키워드 비교 확장행), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
+- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
 
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
@@ -172,7 +176,7 @@ make docker-down      # 인프라 중지
 - **보존**: 90일 (기존 cleanup 태스크 연동)
 
 ## Admin Report System
-- **정기 리포트**: `generate_weekly_report` (월요일 09:00 KST), `generate_monthly_report` (매달 1일 09:00 KST)
+- **정기 리포트**: `generate_weekly_report` (월요일 09:00 KST), `generate_monthly_report` (매월 1일 09:00 KST)
   - 기간 비교 (전기 대비 변동률), 일별 추이, 한국어 카테고리, 상위 언론사/엔드포인트
   - GPT-5 AI 내러티브: 비전문가 관리자 관점 운영 요약 자동 생성 (빈 응답 시 최대 2회 재시도)
 - **비정기 리포트**: `check_system_alerts` (10분마다) — 에러율 급증, 트래픽 급증, 디스크/메모리 사용률
@@ -206,7 +210,7 @@ make docker-down      # 인프라 중지
 ### Docker mem_limit 설정 근거
 | 컨테이너 | 한도 | 실사용 | 비고 |
 |-----------|------|--------|------|
-| celery-worker | 1024m | ~956m (BERT NER 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + 오버헤드, 임베딩은 Azure API |
+| celery-worker | 1536m | ~1.3GB (BERT NER v0003 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + NER pipeline + 오버헤드, 임베딩은 Azure API |
 | qdrant | 512m | ~102m (현재) | 기사 누적 시 성장, 90일 보존 |
 | backend | 384m | ~133m | 단일 uvicorn 워커 |
 | celery-beat | 128m | ~48m | 스케줄러 전용 |

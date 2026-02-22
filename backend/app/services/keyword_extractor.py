@@ -54,6 +54,7 @@ class KeywordExtractor:
         self._kiwi = None
         self._use_bert_ner = False
         self._loaded = False
+        self._loaded_model_path: Optional[str] = None
 
     def get_model_version(self) -> str:
         """현재 로딩된 모델의 버전 반환"""
@@ -63,8 +64,24 @@ class KeywordExtractor:
         except Exception:
             return "base"
 
+    def _check_model_changed(self):
+        """active 심볼릭 링크가 변경되었으면 리로딩 강제"""
+        if not self._loaded:
+            return
+        try:
+            from app.services.model_manager import get_active_model_path
+            current_path = get_active_model_path()
+            if current_path and current_path != self._loaded_model_path:
+                logger.info(
+                    f"Model change detected: {self._loaded_model_path} → {current_path}, reloading"
+                )
+                self._loaded = False
+                self._ner_pipeline = None
+        except Exception:
+            pass
+
     def _load(self):
-        """모델 로딩 (최초 1회)"""
+        """모델 로딩 (최초 1회, 모델 변경 시 자동 리로딩)"""
         if self._loaded:
             return
 
@@ -91,6 +108,7 @@ class KeywordExtractor:
                     device=-1,  # CPU 전용
                 )
                 self._use_bert_ner = True
+                self._loaded_model_path = model_path
                 logger.info(f"BERT NER model loaded: {model_path} ({num_labels} labels)")
             else:
                 logger.warning(
@@ -132,6 +150,7 @@ class KeywordExtractor:
 
         Returns: {"keywords": [...], "entities": [...], "method": "..."}
         """
+        self._check_model_changed()
         self._load()
         title = self._strip_publisher_suffix(title)
 
@@ -145,6 +164,7 @@ class KeywordExtractor:
 
         [CRITICAL] 대량 기사 처리 시 사용
         """
+        self._check_model_changed()
         self._load()
         titles = [self._strip_publisher_suffix(t) for t in titles]
 
@@ -181,7 +201,7 @@ class KeywordExtractor:
                 "text": text,
                 "type": entity_type,
                 "weight": weight,
-                "score": round(ent.get("score", 0), 3),
+                "score": round(float(ent.get("score", 0)), 3),
             })
 
         return {

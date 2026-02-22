@@ -335,7 +335,7 @@ def run_finetune(dry_run: bool = False) -> dict:
         learning_rate=5e-5,
         weight_decay=0.01,
         warmup_ratio=0.1,
-        no_cuda=True,  # CPU 전용 (AMD GPU, CUDA 미지원)
+        use_cpu=True,  # CPU 전용 (AMD GPU, CUDA 미지원)
         save_total_limit=2,
         report_to="none",
     )
@@ -380,19 +380,19 @@ def run_finetune(dry_run: bool = False) -> dict:
 
     # 11. Quality gate 확인 + 자동 승격
     from app.services.model_manager import should_promote, promote_model
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy import select
+    from app.models.ner_training import NerModelVersion
+
+    # 승격용 DB 엔진/팩토리 (현재 F1 조회 + promote_model 공용)
+    _qg_engine = create_async_engine(settings.database_url, pool_size=2)
+    _qg_factory = async_sessionmaker(_qg_engine, class_=AsyncSession, expire_on_commit=False)
 
     # 현재 active 모델의 F1 조회
     current_f1 = None  # base 모델은 F1 없음
     try:
-        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-        from sqlalchemy import select
-        from app.models.ner_training import NerModelVersion
-
-        engine = create_async_engine(settings.database_url, pool_size=2)
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
         async def _get_active_f1():
-            async with factory() as db:
+            async with _qg_factory() as db:
                 result = await db.execute(
                     select(NerModelVersion.eval_f1_score).where(
                         NerModelVersion.is_active == True  # noqa: E712
@@ -405,14 +405,13 @@ def run_finetune(dry_run: bool = False) -> dict:
         try:
             current_f1 = loop.run_until_complete(_get_active_f1())
         finally:
-            loop.run_until_complete(engine.dispose())
             loop.close()
     except Exception:
         pass
 
     if should_promote(f1, current_f1):
         logger.info(f"Quality gate passed (new={f1:.4f}, current={current_f1}), promoting {version}")
-        promote_model(version)
+        promote_model(version, session_factory=_qg_factory)
 
         # 배포 인사이트 생성 (GPT-5)
         try:
@@ -430,6 +429,15 @@ def run_finetune(dry_run: bool = False) -> dict:
         except Exception as e:
             logger.warning(f"Insight generation failed (non-critical): {e}")
 
+        # 키워드 재추출 태스크 자동 트리거
+        try:
+            from celery import Celery
+            _celery = Celery(broker=settings.celery_broker_url)
+            _celery.send_task('app.workers.tasks.reextract_keywords_batch')
+            logger.info(f"reextract_keywords_batch task triggered after {version} promotion")
+        except Exception as e:
+            logger.warning(f"Failed to trigger reextract task (non-critical): {e}")
+
         try:
             from app.services.webhook import send_webhook
             send_webhook(
@@ -438,7 +446,7 @@ def run_finetune(dry_run: bool = False) -> dict:
                     f"버전: {version}\n"
                     f"F1: {f1:.4f} (이전: {current_f1 or 'N/A'})\n"
                     f"학습 데이터: {len(train_data)}건\n"
-                    f"워커 재시작 후 적용됩니다."
+                    f"키워드 재추출 태스크 자동 트리거됨."
                 ),
                 color=0x2ECC71,
             )
@@ -446,6 +454,13 @@ def run_finetune(dry_run: bool = False) -> dict:
             pass
     else:
         logger.warning(f"Quality gate failed (new={f1:.4f}, current={current_f1}), model saved but NOT promoted")
+
+    # DB 엔진 정리
+    _cleanup_loop = asyncio.new_event_loop()
+    try:
+        _cleanup_loop.run_until_complete(_qg_engine.dispose())
+    finally:
+        _cleanup_loop.close()
 
     return {
         "status": "ok",

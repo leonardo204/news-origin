@@ -6,6 +6,110 @@
 
 ## 2026-02-22
 
+### fix: Beat 스케줄 KST 기준 정합성 수정 — 주간/월간 리포트 실행 시각 오류
+- **문제**: `timezone="Asia/Seoul"` 설정으로 crontab 값이 KST로 해석되는데, 주간/월간 리포트가 UTC로 착각하고 `hour=0` 설정
+  - 의도: 월요일/매달 1일 09:00 KST → 실제: 00:00 KST에 실행 (9시간 빠름)
+  - `_next_cron_run()` 함수도 UTC로 계산하여 대시보드 예상 시간이 beat와 불일치
+- **수정 1** (`beat_schedule.py`): 주간/월간 리포트 `hour=0` → `hour=9` (09:00 KST)
+- **수정 2** (`admin.py`): `_next_cron_run()` KST 기준 계산으로 변경, `day_of_week` 파라미터 추가
+  - 학습 준비 확인: `hour=2`(UTC 착각) → `hour=11`(KST)
+  - 키워드 재추출 interval 표시: "13:00 KST" → "04:00 KST"
+- **수정 3** (`CLAUDE.md`): datetime timezone 문서 전면 정리 — Beat/DB/표시 각각의 기준 명시
+- **수정 파일**: `beat_schedule.py`, `admin.py`, `CLAUDE.md`
+
+### refactor: 관리자 대시보드 '수집' + '통계' → '수집 통계' 통합
+- **문제**: '수집'과 '통계' 페이지가 카테고리 분포, 언론사 순위, 일별 수집 추이 등 유사 내용 중복 제공
+- **해결**: 두 페이지를 `CollectionStatsPage.tsx`로 통합, 중복 제거
+  - 통계의 30일 ECharts 라인 차트 채택 (수집의 14일 심플 바 대체)
+  - 통계의 Top 15 언론사 채택 (수집의 Top 10 대체)
+  - 수집 고유 기능(스케줄, 피드 소스, 최근 기사) + 통계 고유 기능(개요 카드, 추적 유형) 모두 유지
+  - 두 API(`/crawl`, `/stats`) 병렬 호출
+- 네비게이션: '수집' + '통계' 2개 → '수집 통계' 1개로 축소
+- **삭제**: `CollectionPage.tsx`, `StatsPage.tsx`
+- **수정 파일**: `CollectionStatsPage.tsx`(신규), `App.tsx`, `AdminLayout.tsx`
+
+### feat: BERT NER 모델 자동 리로딩 + Fine-tuning 후 키워드 재추출 자동 트리거
+- **문제**: Fine-tuning으로 새 모델 승격 후에도 워커가 이전 모델을 계속 사용
+  - `KeywordExtractor` 싱글톤이 최초 로딩된 모델을 프로세스 종료까지 유지
+  - finetune 컨테이너(별도 프로세스)에서 심볼릭 링크 전환해도 워커에 반영 안 됨
+- **해결 1 — 자동 모델 감지** (`keyword_extractor.py`):
+  - `_loaded_model_path` 필드로 현재 로딩된 모델 경로 추적
+  - `_check_model_changed()` 메서드: `extract()`/`extract_batch()` 호출마다 active 심볼릭 링크 확인
+  - 심볼릭 링크 대상이 변경되었으면 `_loaded=False`, `_ner_pipeline=None`으로 리셋 → 다음 호출에서 자동 리로딩
+- **해결 2 — 자동 재추출 트리거** (`finetune_bert_ner.py`):
+  - `promote_model()` 성공 후 Celery broker로 `reextract_keywords_batch` 태스크 자동 전송
+  - 워커가 새 모델로 최근 7일 기사 키워드 자동 재추출
+  - webhook 메시지에 "키워드 재추출 태스크 자동 트리거됨" 반영
+- **해결 3 — 재추출 후 트렌드 캐시 워밍** (`tasks.py`):
+  - `reextract_keywords_batch` 완료 후 트렌드 캐시 무효화 + 3개 기간(24h/7d/30d) 재계산
+  - 새 키워드 기반 클러스터가 즉시 반영 (기존: 다음 크롤링까지 최대 30분 지연)
+  - 실행 결과(건수, 모델 버전, 완료 시각, 캐시 워밍 여부)를 Redis에 30일간 저장
+- **해결 4 — 대시보드 파이프라인 7단계 확장** (`admin.py`, `MLOpsPage.tsx`):
+  - "재클러스터링" 스테이지 추가: 재추출 후 캐시 워밍 완료 여부 표시
+  - Redis 저장 데이터 기반으로 두 스테이지(재추출/재클러스터링)에 건수·모델·시각 표시
+  - 파이프라인 InfoBadge 7단계 설명으로 업데이트
+- **수정 파일**: `keyword_extractor.py`, `finetune_bert_ner.py`, `tasks.py`, `admin.py`, `MLOpsPage.tsx`
+
+### fix: BERT NER v0003 키워드 추출 활성화 — float32 직렬화 + 메모리 한도 조정
+- **문제 1**: BERT NER 모델이 정상 로딩되었으나, `numpy.float32` 스코어가 JSONB 직렬화 실패
+  - `keyword_extractor.py`의 `_extract_with_bert()`에서 반환하는 score가 `numpy.float32` 타입
+  - PostgreSQL JSONB 컬럼에 저장 시 `TypeError: Object of type float32 is not JSON serializable`
+  - **해결**: `float(ent.get("score", 0))`로 Python native float 변환
+- **문제 2**: celery-worker `mem_limit: 1024m`이 BERT NER 로딩 후 부족 (~1.35GB 사용)
+  - **해결**: `mem_limit: 1536m`, `mem_reservation: 1024m`으로 상향
+- **문제 3**: `reextract_keywords_batch` time_limit이 600s로 5692개 기사 처리에 부족 (실제 ~2078s)
+  - **해결**: `soft_time_limit: 3600s`, `time_limit: 3660s`로 상향
+- **재추출 실행**: `reextract_keywords_batch`로 최근 7일 5692개 기사 키워드를 BERT NER v0003으로 재추출 완료
+  - 기존: 전체 6570개 기사 `kiwipiepy` → 변경 후: 5692개 `bert_ner` + 878개 `kiwipiepy` (7일 이전)
+- **참고**: 인라인 평가 활동의 `extraction_method`는 기사 크롤링 시점의 원본 메타데이터를 표시함 (재추출하지 않음)
+- **수정 파일**: `keyword_extractor.py`, `tasks.py`, `docker-compose.prod.yml`, `CLAUDE.md`
+
+### fix: MLOps 파이프라인 상태 동기화 — 모델 배포 + 학습 데이터 수집 복구
+- **문제 1**: `finetune_bert_ner.py`에서 `promote_model(version)` 호출 시 `session_factory` 미전달
+  - 파일시스템 심볼릭 링크(`active→v0003`)는 업데이트되었으나, DB에 `is_active=false, status=ready`로 남아 있음
+  - MLOps 대시보드에서 "모델 배포: 대기 중"으로 표시, 현재 모델 "base"로 오표시
+  - **해결**: `promote_model(version, session_factory=_qg_factory)` — DB 팩토리 전달하여 DB 상태 동기 업데이트
+- **문제 2**: `save_training_sample()`이 `asyncio.new_event_loop()` 중첩으로 실패
+  - `collect_ner_training_data` 태스크가 `run_async()` 이벤트 루프 내에서 `save_training_sample()`의 별도 이벤트 루프 생성 시도 → "Cannot run the event loop while another loop is running"
+  - 6시간 주기 NER 학습 데이터 수집이 전혀 저장되지 않던 상태
+  - **해결**: `save_training_sample()`을 `async def`로 변환, 호출부에서 `await` 사용
+- **문제 3**: 파이프라인 상태 로직에서 `ready` 모델 미배포 상태 미감지
+  - **해결**: `deploy` 스테이지에 `pending` 상태 추가, 프론트엔드에 보라색 "배포 대기" 뱃지 스타일 추가
+- **DB 복구**: v0003 모델 `is_active=true, status='active'`로 수동 업데이트
+- **수정 파일**: `ner_training_pipeline.py`, `tasks.py`, `finetune_bert_ner.py`, `admin.py`, `MLOpsPage.tsx`
+
+### feat: Fine-tuning 별도 컨테이너 전환 + 대시보드 모니터링
+- **문제**: `trigger_bert_finetune`가 worker 내에서 실행 시 `--pool=solo` 블로킹(~2h) + OOM 위험
+- **해결**: Docker SDK로 `newsorigin-finetune` 컨테이너를 detach 모드로 시작하여 워커 블로킹 제거
+  - `tasks.py`: `trigger_bert_finetune` — Docker SDK로 컨테이너 시작, 중복 실행 방지, 워커에서 image/network/volume 자동 추출
+  - `soft_time_limit` 7200s → 60s (시작만 하고 즉시 반환)
+- **Docker 소켓 마운트**: celery-worker + backend에 `/var/run/docker.sock` 마운트, `DOCKER_GID` group_add
+- **대시보드 모니터링**: `/api/admin/mlops` 응답에 `finetune_status` 추가
+  - Docker SDK로 컨테이너 상태(running/exited/not_found), 시작/종료 시각, exit_code, 로그 tail 조회
+  - 파이프라인 finetune 스테이지에 컨테이너 running 상태 자동 반영
+- **프론트엔드**: MLOpsPage에 Fine-tuning 컨테이너 상태 카드 추가
+  - running 시 펄스 애니메이션 + 보라색 테두리, exited 시 성공/실패 아이콘
+  - 시작/종료 시각 KST 표시, 최근 로그 10줄 미리보기
+- **의존성**: `docker>=7.0.0` 추가 (requirements.txt)
+- **수정 파일**: `requirements.txt`, `docker-compose.prod.yml`, `tasks.py`, `admin.py`, `MLOpsPage.tsx`, `CLAUDE.md`
+
+### fix: Fine-tuning 컨테이너 실행 오류 3건 수정
+- **PermissionError**: 볼륨(`bert_models`) root 소유 → `appuser` 쓰기 불가
+  - `tasks.py`: finetune 시작 전 chown init 컨테이너로 볼륨 권한 초기화 (UID 1000)
+- **no_cuda TypeError**: `transformers` v5+에서 `no_cuda` 인자 제거됨
+  - `finetune_bert_ner.py`: `no_cuda=True` → `use_cpu=True`
+- **accelerate ImportError**: `transformers` Trainer가 `accelerate>=1.1.0` 필수 의존
+  - `requirements.txt`: `accelerate>=1.1.0` 추가
+- **검증**: 수동 트리거 → v0003 학습 완료 (F1=0.734, Precision=0.829, Recall=0.659), Quality gate 통과, 모델 승격 확인
+- **수정 파일**: `tasks.py`, `finetune_bert_ner.py`, `requirements.txt`
+
+### fix: check_training_readiness Beat 스케줄 시간대 오류 수정
+- **원인**: `crontab(hour=2)` + `timezone="Asia/Seoul"` → 02:00 KST(새벽 2시) 실행, 의도한 11:00 KST가 아님
+- **증상**: Beat 컨테이너 시작(02:41 KST) 이후 당일 02:00을 놓쳐 `total_run_count: 0` (한 번도 실행 안 됨)
+- **수정**: `crontab(hour=11, minute=0)` — 매일 11:00 KST에 실행
+- **CLAUDE.md**: Beat crontab이 KST 기준임을 명확히 기술 (기존 "UTC 기준" 오기 수정)
+- **수정 파일**: `beat_schedule.py`, `CLAUDE.md`
+
 ### fix: Celery 헬스체크 Redis 하트비트 fallback + 트래픽 KST 그룹핑
 - **Celery 헬스체크 개선**: `--pool=solo` 워커가 태스크 실행 중 `inspect().ping()` 응답 불가 → Redis 하트비트 fallback 추가
   - `check_worker_memory` 태스크(5분 주기)에서 `celery:worker:heartbeat` 키를 Redis에 기록 (TTL 600초)

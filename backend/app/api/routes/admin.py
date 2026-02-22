@@ -1,8 +1,9 @@
 """
 # admin.py - Admin Dashboard API Routes
-# Version: 0.5.0
+# Version: 0.6.0
 # Description: 관리자 대시보드 엔드포인트 (인증, 시스템 현황, 크롤링 통계, MLOps, 로그)
 # Changes:
+#   - 0.6.0: /mlops에 finetune_status 추가 — Docker SDK로 finetune 컨테이너 상태/로그 모니터링
 #   - 0.5.0: /mlops에 quality_analytics 섹션 추가 (일별 품질 추이, 엔터티 오류, 방식 비율, 인사이트)
 #   - 0.4.0: MLOps 고도화 — 인라인 평가 활동, KST 예상 시간, 자동 finetune 상태, 예측 대시보드
 #   - 0.3.0: /crawl에 feed_sources 추가, /mlops에 schedule+pipeline 추가
@@ -44,6 +45,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _get_finetune_container_status() -> dict:
+    """Docker SDK로 newsorigin-finetune 컨테이너 상태 조회"""
+    try:
+        import docker
+    except ImportError:
+        return {"status": "unavailable", "error": "docker SDK not installed"}
+
+    try:
+        client = docker.from_env(timeout=5)
+        container = client.containers.get("newsorigin-finetune")
+        state = container.attrs.get("State", {})
+
+        result: dict = {
+            "status": container.status,  # running, exited, created, etc.
+            "started_at": state.get("StartedAt"),
+            "finished_at": state.get("FinishedAt"),
+            "exit_code": state.get("ExitCode"),
+        }
+
+        # 로그 마지막 10줄
+        try:
+            logs = container.logs(tail=10, timestamps=False).decode("utf-8", errors="replace")
+            result["logs_tail"] = logs.strip().split("\n") if logs.strip() else []
+        except Exception:
+            result["logs_tail"] = []
+
+        return result
+
+    except Exception as e:
+        err_type = type(e).__name__
+        if "NotFound" in err_type:
+            return {"status": "not_found"}
+        return {"status": "error", "error": str(e)[:200]}
+
 # 카테고리 한글 라벨 매핑
 CATEGORY_LABELS = {
     "headlines": "헤드라인",
@@ -61,9 +97,13 @@ KST = timezone(timedelta(hours=9))
 
 
 def _next_cron_run(*, minute: str | int = 0, hour: str | int = "*",
-                   day_of_month: str | int = "*") -> str:
-    """간단한 cron 패턴으로 다음 실행 시각을 KST 문자열로 반환"""
-    now_utc = datetime.now(timezone.utc)
+                   day_of_month: str | int = "*", day_of_week: str | int = "*") -> str:
+    """간단한 cron 패턴으로 다음 실행 시각을 KST 문자열로 반환 (입력값은 KST 기준)
+
+    Beat 스케줄이 timezone="Asia/Seoul"이므로 crontab 값이 KST 기준.
+    이 함수도 KST 기준으로 계산해야 beat와 일치.
+    """
+    now_kst = datetime.now(KST)
 
     def _expand(pattern: str | int, max_val: int) -> set[int]:
         if isinstance(pattern, int):
@@ -78,9 +118,10 @@ def _next_cron_run(*, minute: str | int = 0, hour: str | int = "*",
     min_vals = _expand(minute, 60)
     hr_vals = _expand(hour, 24)
     dom_check = None if day_of_month == "*" else _expand(day_of_month, 32)
+    dow_check = None if day_of_week == "*" else _expand(day_of_week, 7)
 
-    # 다음 실행 시각 찾기 (최대 31일 내)
-    candidate = now_utc.replace(second=0, microsecond=0)
+    # 다음 실행 시각 찾기 (최대 31일 내, KST 기준)
+    candidate = now_kst.replace(second=0, microsecond=0)
     for _ in range(31 * 24 * 60):
         candidate += timedelta(minutes=1)
         if candidate.minute not in min_vals:
@@ -89,8 +130,9 @@ def _next_cron_run(*, minute: str | int = 0, hour: str | int = "*",
             continue
         if dom_check is not None and candidate.day not in dom_check:
             continue
-        kst = candidate.astimezone(KST)
-        return kst.strftime("%m/%d %H:%M KST")
+        if dow_check is not None and candidate.weekday() not in dow_check:
+            continue
+        return candidate.strftime("%m/%d %H:%M KST")
 
     return "계산 불가"
 
@@ -581,11 +623,20 @@ async def mlops(username: str = Depends(require_admin)):
     has_finetuned = len(model_versions) > 0
     active_version = current_model["version"] if current_model else "base"
 
+    # ready 모델 존재 여부 (fine-tuning 완료 but 미배포)
+    has_ready_undeployed = any(
+        m["status"] == "ready" for m in model_versions
+    ) and active_version == "base"
+
     # stage status 결정
     collect_status = "done" if unused >= min_samples else ("active" if unused > 0 else "waiting")
     readiness_status = "ready" if unused >= min_samples else "collecting"
     finetune_status = "done" if has_finetuned else "waiting"
-    deploy_status = "active" if has_finetuned and active_version != "base" else "waiting"
+    deploy_status = (
+        "active" if has_finetuned and active_version != "base"
+        else "pending" if has_ready_undeployed
+        else "waiting"
+    )
     remaining = max(0, min_samples - unused)
 
     pipeline = {
@@ -610,11 +661,19 @@ async def mlops(username: str = Depends(require_admin)):
             },
             {
                 "id": "deploy", "label": "모델 배포", "status": deploy_status,
-                "detail": f"활성: {active_version}" if deploy_status == "active" else "대기 중",
+                "detail": (
+                    f"활성: {active_version}" if deploy_status == "active"
+                    else f"배포 대기: {model_versions[0]['version']}" if deploy_status == "pending"
+                    else "대기 중"
+                ),
             },
             {
                 "id": "reextract", "label": "키워드 재추출", "status": "done" if has_finetuned else "waiting",
-                "detail": "매월 자동 실행",
+                "detail": "모델 승격 시 자동 실행",
+            },
+            {
+                "id": "recluster", "label": "재클러스터링", "status": "waiting",
+                "detail": "재추출 후 자동 실행",
             },
         ],
         "summary": {
@@ -759,7 +818,7 @@ async def mlops(username: str = Depends(require_admin)):
             "task": "학습 준비 확인",
             "interval": "매일 11:00 KST",
             "detail": f"임계값: {settings.ner_training_min_samples}건",
-            "next_run_kst": _next_cron_run(minute=0, hour=2),
+            "next_run_kst": _next_cron_run(minute=0, hour=11),
         },
         {
             "task": "Fine-tuning",
@@ -769,11 +828,50 @@ async def mlops(username: str = Depends(require_admin)):
         },
         {
             "task": "키워드 재추출",
-            "interval": "매월 1일 13:00 KST",
+            "interval": "매월 1일 04:00 KST",
             "detail": f"최근 {settings.ner_reextract_days}일",
             "next_run_kst": _next_cron_run(minute=0, hour=4, day_of_month=1),
         },
     ]
+
+    # -- finetune container status --
+    finetune_status = await asyncio.to_thread(_get_finetune_container_status)
+
+    # pipeline finetune 스테이지에 컨테이너 상태 반영
+    if finetune_status.get("status") == "running":
+        for stage in pipeline["stages"]:
+            if stage["id"] == "finetune":
+                stage["status"] = "active"
+                stage["detail"] = "컨테이너 학습 중"
+                break
+
+    # -- reextract / recluster 스테이지 상태 반영 --
+    try:
+        from app.services.cache import cache_get
+        last_reextract = await cache_get("mlops:last_reextract")
+        if last_reextract:
+            from datetime import datetime as _dt
+            completed_at = last_reextract.get("completed_at", "")
+            reextracted = last_reextract.get("reextracted", 0)
+            model_ver = last_reextract.get("model_version", "?")
+            cache_warmed = last_reextract.get("cache_warmed", False)
+            # KST 변환
+            try:
+                utc_dt = _dt.fromisoformat(completed_at)
+                from zoneinfo import ZoneInfo
+                kst_str = utc_dt.astimezone(ZoneInfo("Asia/Seoul")).strftime("%m/%d %H:%M")
+            except Exception:
+                kst_str = ""
+
+            for stage in pipeline["stages"]:
+                if stage["id"] == "reextract":
+                    stage["status"] = "done"
+                    stage["detail"] = f"{reextracted}건 · {model_ver} · {kst_str}" if kst_str else f"{reextracted}건 · {model_ver}"
+                elif stage["id"] == "recluster":
+                    stage["status"] = "done" if cache_warmed else "waiting"
+                    stage["detail"] = f"완료 · {kst_str}" if cache_warmed and kst_str else "재추출 후 자동 실행"
+    except Exception:
+        pass
 
     return {
         "current_model": current_model,
@@ -789,6 +887,7 @@ async def mlops(username: str = Depends(require_admin)):
         "recent_evaluations": recent_evaluations,
         "predictions": predictions,
         "quality_analytics": quality_analytics,
+        "finetune_status": finetune_status,
     }
 
 

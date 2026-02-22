@@ -27,10 +27,9 @@ const PolicyPage = lazyWithReload(() => import('@/pages/PolicyPage'))
 const AdminLayout = lazyWithReload(() => import('@/pages/admin/AdminLayout'))
 const LoginPage = lazyWithReload(() => import('@/pages/admin/LoginPage'))
 const AdminOverview = lazyWithReload(() => import('@/pages/admin/OverviewPage'))
-const AdminCollection = lazyWithReload(() => import('@/pages/admin/CollectionPage'))
+const AdminCollectionStats = lazyWithReload(() => import('@/pages/admin/CollectionStatsPage'))
 const AdminMLOps = lazyWithReload(() => import('@/pages/admin/MLOpsPage'))
 const AdminSystem = lazyWithReload(() => import('@/pages/admin/SystemPage'))
-const AdminStats = lazyWithReload(() => import('@/pages/admin/StatsPage'))
 const AdminLogs = lazyWithReload(() => import('@/pages/admin/LogsPage'))
 const AdminSettings = lazyWithReload(() => import('@/pages/admin/SettingsPage'))
 const AdminTraffic = lazyWithReload(() => import('@/pages/admin/TrafficPage'))
@@ -90,10 +89,9 @@ export default function App() {
         <Route path="/admin/login" element={<Suspense fallback={<div />}><LoginPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<div />}><AdminLayout /></Suspense>}>
           <Route index element={<Suspense fallback={<div />}><AdminOverview /></Suspense>} />
-          <Route path="collection" element={<Suspense fallback={<div />}><AdminCollection /></Suspense>} />
+          <Route path="collection" element={<Suspense fallback={<div />}><AdminCollectionStats /></Suspense>} />
           <Route path="mlops" element={<Suspense fallback={<div />}><AdminMLOps /></Suspense>} />
           <Route path="system" element={<Suspense fallback={<div />}><AdminSystem /></Suspense>} />
-          <Route path="stats" element={<Suspense fallback={<div />}><AdminStats /></Suspense>} />
           <Route path="traffic" element={<Suspense fallback={<div />}><AdminTraffic /></Suspense>} />
           <Route path="reports" element={<Suspense fallback={<div />}><AdminReports /></Suspense>} />
           <Route path="logs" element={<Suspense fallback={<div />}><AdminLogs /></Suspense>} />

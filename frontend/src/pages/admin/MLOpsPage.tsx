@@ -15,12 +15,16 @@ import {
   Target,
   Rocket,
   RotateCcw,
+  Network,
   Search,
   TrendingUp,
   Activity,
   Zap,
   Sparkles,
   ChevronDown,
+  Container,
+  XCircle,
+  Terminal,
 } from 'lucide-react'
 import ReactECharts from 'echarts-for-react'
 import echarts from '@/lib/echarts'
@@ -70,6 +74,15 @@ interface Predictions {
   next_finetune_trigger: string
   current_phase: string
   timestamp_kst: string
+}
+
+interface FinetuneStatus {
+  status: string  // running, exited, not_found, error, unavailable
+  started_at?: string
+  finished_at?: string
+  exit_code?: number
+  logs_tail?: string[]
+  error?: string
 }
 
 interface QualityAnalytics {
@@ -131,6 +144,7 @@ interface MLOpsData {
   recent_evaluations?: RecentEvaluation[]
   predictions?: Predictions
   quality_analytics?: QualityAnalytics
+  finetune_status?: FinetuneStatus
 }
 
 function LoadingSkeleton() {
@@ -202,6 +216,7 @@ const STAGE_ICONS: Record<string, typeof Database> = {
   finetune: FlaskConical,
   deploy: Rocket,
   reextract: RotateCcw,
+  recluster: Network,
 }
 
 function getStageStyle(status: string) {
@@ -214,6 +229,8 @@ function getStageStyle(status: string) {
       return { ring: 'ring-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', badgeLabel: '준비됨' }
     case 'collecting':
       return { ring: 'ring-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', badgeLabel: '수집 중' }
+    case 'pending':
+      return { ring: 'ring-violet-400', bg: 'bg-violet-50 dark:bg-violet-900/30', text: 'text-violet-600 dark:text-violet-400', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300', badgeLabel: '배포 대기' }
     default:
       return { ring: 'ring-gray-300 dark:ring-gray-600', bg: 'bg-gray-50 dark:bg-gray-800', text: 'text-gray-400 dark:text-gray-500', badge: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400', badgeLabel: '대기' }
   }
@@ -642,7 +659,7 @@ export default function MLOpsPage() {
             <CardTitle className="flex items-center gap-2">
               <CircleDot className="h-5 w-5 text-blue-500" />
               MLOps 파이프라인
-              <InfoBadge content={"수집 → 평가 → 준비 확인 → Fine-tuning → 배포 → 재추출의 6단계 자동화 루프.\n크롤링 배치마다 GPT-5가 NER 추출 품질을 평가하고, 학습 데이터가 임계치에 도달하면 BERT 모델을 자동으로 재학습합니다."} />
+              <InfoBadge content={"수집 → 평가 → 준비 확인 → Fine-tuning → 배포 → 재추출 → 재클러스터링의 7단계 자동화 루프.\n크롤링 배치마다 GPT-5가 NER 추출 품질을 평가하고, 학습 데이터가 임계치에 도달하면 BERT 모델을 자동으로 재학습합니다.\n모델 승격 후 키워드 재추출 → 트렌드 재클러스터링까지 자동 완료됩니다."} />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -729,6 +746,70 @@ export default function MLOpsPage() {
                   <span className="text-emerald-500">Fine-tuning 준비 완료</span>
                 ) : null}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Finetune Container Status */}
+      {data.finetune_status && data.finetune_status.status !== 'not_found' && data.finetune_status.status !== 'unavailable' && (
+        <Card className={data.finetune_status.status === 'running' ? 'border-purple-300 dark:border-purple-700/50' : ''}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Container className={`h-5 w-5 ${data.finetune_status.status === 'running' ? 'animate-pulse text-purple-500' : 'text-gray-500'}`} />
+              Fine-tuning 컨테이너
+              {data.finetune_status.status === 'running' && (
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
+                  학습 중
+                </span>
+              )}
+              {data.finetune_status.status === 'exited' && (
+                <span className={`ml-2 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  data.finetune_status.exit_code === 0
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                }`}>
+                  {data.finetune_status.exit_code === 0
+                    ? <><CheckCircle2 className="h-3 w-3" /> 완료</>
+                    : <><XCircle className="h-3 w-3" /> 실패 (code: {data.finetune_status.exit_code})</>
+                  }
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {/* Meta info */}
+              <div className="flex flex-wrap gap-4 text-sm">
+                {data.finetune_status.started_at && !data.finetune_status.started_at.startsWith('0001') && (
+                  <div className="text-gray-500 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">시작:</span>{' '}
+                    {new Date(data.finetune_status.started_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+                  </div>
+                )}
+                {data.finetune_status.status === 'exited' && data.finetune_status.finished_at && !data.finetune_status.finished_at.startsWith('0001') && (
+                  <div className="text-gray-500 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">종료:</span>{' '}
+                    {new Date(data.finetune_status.finished_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+                  </div>
+                )}
+              </div>
+
+              {/* Logs tail */}
+              {data.finetune_status.logs_tail && data.finetune_status.logs_tail.length > 0 && (
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                    <Terminal className="h-3 w-3" />
+                    최근 로그
+                  </p>
+                  <div className="max-h-40 overflow-auto rounded-lg bg-gray-900 p-3 font-mono text-xs leading-relaxed text-gray-300">
+                    {data.finetune_status.logs_tail.map((line, i) => (
+                      <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

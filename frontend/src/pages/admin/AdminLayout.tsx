@@ -4,7 +4,6 @@ import { useTheme } from '@/hooks/useTheme'
 import { useAdminStore } from '@/stores/useAdminStore'
 import {
   LayoutDashboard,
-  Rss,
   Brain,
   Server,
   BarChart3,
@@ -30,10 +29,9 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { path: '/admin', label: '개요', icon: LayoutDashboard, exact: true },
-  { path: '/admin/collection', label: '수집', icon: Rss },
+  { path: '/admin/collection', label: '수집 통계', icon: BarChart3 },
   { path: '/admin/mlops', label: 'MLOps', icon: Brain },
   { path: '/admin/system', label: '시스템', icon: Server },
-  { path: '/admin/stats', label: '통계', icon: BarChart3 },
   { path: '/admin/traffic', label: '트래픽', icon: Activity },
   { path: '/admin/reports', label: '리포트', icon: Mail },
   { path: '/admin/logs', label: '로그', icon: FileText },

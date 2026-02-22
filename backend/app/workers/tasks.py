@@ -1,6 +1,6 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.9.0
+# Version: 0.10.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
@@ -11,6 +11,7 @@
 #   - 0.7.0: 캐시 무효화 통합, distributed lock, run_async 헬퍼
 #   - 0.8.0: 임베딩 실패 기사 DB 미저장 정책 - 임베딩 없는 기사는 검색/클러스터링 불가하므로 저장하지 않음
 #   - 0.9.0: 임베딩 실패 재시도 큐, 워커 메모리 모니터링, 캐시 워밍 폴백 강화
+#   - 0.10.0: trigger_bert_finetune Docker SDK 전환 — 별도 컨테이너 detach 실행, 워커 블로킹 제거
 """
 
 import asyncio
@@ -1300,7 +1301,7 @@ async def _run_collect_ner_training():
 
                 bio_tags = convert_to_bio_tags(article.title, correction.corrected_entities)
 
-                sample_id = save_training_sample(
+                sample_id = await save_training_sample(
                     session_factory=session_factory,
                     article_id=str(article.id),
                     title=article.title,
@@ -1426,25 +1427,146 @@ async def _run_check_readiness():
         await worker_engine.dispose()
 
 
-@celery_app.task(bind=True, soft_time_limit=7200, time_limit=7260)
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
 def trigger_bert_finetune(self):
     """
-    BERT NER fine-tuning 트리거 (수동 호출용)
+    BERT NER fine-tuning 트리거 — 별도 Docker 컨테이너로 실행
 
-    별도 컨테이너에서 실행하는 것을 권장하지만,
-    워커에서도 실행 가능하도록 제공 (메모리 주의)
+    Docker SDK로 newsorigin-finetune 컨테이너를 detach 모드로 시작.
+    워커 블로킹 없이 즉시 반환 (~2h 학습은 별도 컨테이너에서 진행).
+    대시보드 /admin/mlops에서 컨테이너 상태 실시간 모니터링 가능.
     """
+    import os
+
+    CONTAINER_NAME = "newsorigin-finetune"
+
     try:
-        from scripts.finetune_bert_ner import run_finetune
-        result = run_finetune()
-        logger.info(f"Fine-tuning completed: {result}")
-        return result
+        import docker
+    except ImportError:
+        logger.error("docker SDK not installed — pip install docker>=7.0.0")
+        return {"status": "error", "error": "docker SDK not installed"}
+
+    try:
+        client = docker.from_env()
+
+        # 중복 실행 방지: 기존 컨테이너 상태 확인
+        try:
+            existing = client.containers.get(CONTAINER_NAME)
+            if existing.status == "running":
+                logger.warning(f"Finetune container already running: {existing.short_id}")
+                return {
+                    "status": "skipped",
+                    "reason": "already_running",
+                    "container_id": existing.short_id,
+                }
+            # exited/created 상태면 제거 후 새로 시작
+            existing.remove(force=True)
+            logger.info(f"Removed stale finetune container: {existing.short_id}")
+        except docker.errors.NotFound:
+            pass
+
+        # 현재 워커 컨테이너에서 image, network, volume 정보 자동 추출
+        import socket
+        hostname = socket.gethostname()
+        worker_image = None
+        network_name = None
+        volume_name = None
+
+        try:
+            worker = client.containers.get(hostname)
+            # image
+            tags = worker.image.tags
+            worker_image = tags[0] if tags else worker.image.id
+            # network (docker-compose 기본 네트워크)
+            nets = list(worker.attrs["NetworkSettings"]["Networks"].keys())
+            network_name = nets[0] if nets else None
+            # bert_models 볼륨 이름
+            for mount in worker.attrs.get("Mounts", []):
+                if mount.get("Destination") == "/app/models/bert-ner" and mount.get("Type") == "volume":
+                    volume_name = mount["Name"]
+                    break
+        except Exception as e:
+            logger.warning(f"Worker container inspect failed (using fallback): {e}")
+
+        if not worker_image:
+            # fallback: newsorigin-finetune 이미지 또는 worker 이미지 추정
+            for candidate in ["news-origin-finetune", "news-origin-celery-worker", "news-origin-backend"]:
+                try:
+                    client.images.get(candidate)
+                    worker_image = candidate
+                    break
+                except docker.errors.ImageNotFound:
+                    continue
+            if not worker_image:
+                return {"status": "error", "error": "finetune image not found"}
+
+        # 환경변수 (워커 환경에서 필요한 변수만 전달)
+        env_keys = [
+            "DATABASE_URL", "BERT_MODEL_NAME", "NER_MODEL_BASE_DIR",
+            "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_MODEL_NAME", "AZURE_OPENAI_API_VERSION",
+            "APP_SECRET_KEY", "WEBHOOK_URL",
+        ]
+        env_vars = {k: os.environ[k] for k in env_keys if k in os.environ}
+
+        # 볼륨 설정
+        volumes = {}
+        if volume_name:
+            volumes[volume_name] = {"bind": "/app/models/bert-ner", "mode": "rw"}
+
+        # 볼륨 권한 초기화 (appuser UID=1000이 쓰기 가능하도록)
+        if volume_name:
+            try:
+                client.containers.run(
+                    image=worker_image,
+                    command="chown -R 1000:1000 /app/models/bert-ner",
+                    user="root",
+                    volumes={volume_name: {"bind": "/app/models/bert-ner", "mode": "rw"}},
+                    remove=True,
+                )
+                logger.info("Finetune volume permissions initialized (chown appuser)")
+            except Exception as e:
+                logger.warning(f"Volume permission init failed (may already be correct): {e}")
+
+        # 컨테이너 시작 (detach 모드)
+        run_kwargs = {
+            "image": worker_image,
+            "command": "python3 -m scripts.finetune_bert_ner",
+            "name": CONTAINER_NAME,
+            "detach": True,
+            "environment": env_vars,
+            "volumes": volumes,
+            "mem_limit": "2g",
+            "auto_remove": False,
+        }
+        if network_name:
+            run_kwargs["network"] = network_name
+
+        container = client.containers.run(**run_kwargs)
+        logger.info(f"Finetune container started: {container.short_id} (image: {worker_image})")
+
+        try:
+            from app.services.webhook import send_webhook
+            send_webhook(
+                title="Fine-tuning 시작",
+                description=f"별도 컨테이너에서 BERT NER fine-tuning 시작 ({container.short_id})",
+                color=0x9B59B6,
+            )
+        except Exception:
+            pass
+
+        return {
+            "status": "started",
+            "container_id": container.short_id,
+            "image": worker_image,
+        }
+
     except Exception as e:
-        logger.error(f"Fine-tuning failed: {e}", exc_info=True)
+        logger.error(f"Failed to start finetune container: {e}", exc_info=True)
         return {"status": "error", "error": str(e)[:200]}
 
 
-@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
+@celery_app.task(bind=True, soft_time_limit=3600, time_limit=3660)
 def reextract_keywords_batch(self):
     """
     모델 교체 후 최근 기사 키워드 재추출 태스크
@@ -1502,6 +1624,43 @@ async def _run_reextract():
             await db.commit()
 
         logger.info(f"Re-extracted keywords for {reextracted}/{len(articles)} articles")
+
+        # 트렌드 캐시 무효화 + 워밍 (새 키워드 기반 클러스터 즉시 반영)
+        cache_warmed = False
+        try:
+            from app.services.cache import invalidate_all_trend_caches, cache_set
+            from app.core.trend_clustering import build_article_clusters
+            await invalidate_all_trend_caches()
+
+            warm_count = 0
+            async with session_factory() as warm_db:
+                for period in ("24h", "7d", "30d"):
+                    try:
+                        result = await build_article_clusters(warm_db, period, min_cluster_size=1)
+                        cache_key = f"trends:article-clusters:{period}:1"
+                        await cache_set(cache_key, result.model_dump(), ttl=3600)
+                        warm_count += 1
+                        logger.info(f"Reextract cache warmed: {period}")
+                    except Exception as e:
+                        logger.warning(f"Reextract cache warming failed for {period}: {e}")
+            cache_warmed = warm_count > 0
+        except Exception as e:
+            logger.warning(f"Reextract cache invalidation failed (non-critical): {e}")
+
+        # MLOps 대시보드용 최근 재추출 결과 저장
+        try:
+            from app.services.cache import cache_set as _cache_set
+            model_ver = extractor.get_model_version() if extractor else "unknown"
+            await _cache_set("mlops:last_reextract", {
+                "reextracted": reextracted,
+                "total": len(articles),
+                "model_version": model_ver,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "cache_warmed": cache_warmed,
+            }, ttl=86400 * 30)
+        except Exception:
+            pass
+
         return {"status": "ok", "reextracted": reextracted, "total": len(articles)}
 
     finally:

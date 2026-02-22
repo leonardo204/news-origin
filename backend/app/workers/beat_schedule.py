@@ -63,20 +63,20 @@ beat_schedule = {
     },
     "check-training-readiness-daily": {
         "task": "app.workers.tasks.check_training_readiness",
-        "schedule": crontab(hour=2, minute=0),  # 매일 02:00 KST
+        "schedule": crontab(hour=11, minute=0),  # 매일 11:00 KST
     },
     "reextract-keywords-on-demand": {
         "task": "app.workers.tasks.reextract_keywords_batch",
-        "schedule": crontab(day_of_month=1, hour=4, minute=0),  # 월 1회 (수동 트리거 권장)
+        "schedule": crontab(day_of_month=1, hour=4, minute=0),  # 매월 1일 04:00 KST
     },
-    # Admin 리포트 스케줄
+    # Admin 리포트 스케줄 (모든 crontab 값은 KST 기준 — timezone="Asia/Seoul")
     "generate-weekly-report": {
         "task": "app.workers.tasks.generate_weekly_report",
-        "schedule": crontab(hour=0, minute=0, day_of_week=1),  # 월요일 09:00 KST (UTC 00:00)
+        "schedule": crontab(hour=9, minute=0, day_of_week=1),  # 월요일 09:00 KST
     },
     "generate-monthly-report": {
         "task": "app.workers.tasks.generate_monthly_report",
-        "schedule": crontab(hour=0, minute=0, day_of_month=1),  # 매달 1일 09:00 KST (UTC 00:00)
+        "schedule": crontab(hour=9, minute=0, day_of_month=1),  # 매달 1일 09:00 KST
     },
     "check-system-alerts-every-10min": {
         "task": "app.workers.tasks.check_system_alerts",

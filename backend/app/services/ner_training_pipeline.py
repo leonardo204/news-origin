@@ -73,7 +73,7 @@ def convert_to_bio_tags(title: str, entities: list[dict]) -> list[tuple[str, str
     return list(zip(title, tags))
 
 
-def save_training_sample(
+async def save_training_sample(
     session_factory,
     article_id: Optional[str],
     title: str,
@@ -86,16 +86,16 @@ def save_training_sample(
     extraction_method: str = "unknown",
 ) -> Optional[str]:
     """
-    ner_training_samples 테이블에 학습 데이터 저장 (동기)
+    ner_training_samples 테이블에 학습 데이터 저장 (async)
+
+    Celery 태스크 내 async 컨텍스트에서 호출되므로 async로 직접 실행.
 
     Returns:
         저장된 샘플 ID (실패 시 None)
     """
-    import asyncio
+    from app.models.ner_training import NerTrainingSample
 
-    async def _save():
-        from app.models.ner_training import NerTrainingSample
-
+    try:
         sample = NerTrainingSample(
             article_id=uuid.UUID(article_id) if article_id else None,
             title=title,
@@ -112,15 +112,9 @@ def save_training_sample(
             db.add(sample)
             await db.commit()
             return str(sample.id)
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_save())
     except Exception as e:
         logger.error(f"Failed to save training sample: {e}")
         return None
-    finally:
-        loop.close()
 
 
 async def save_evaluation_results(

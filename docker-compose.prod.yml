@@ -103,6 +103,10 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    group_add:
+      - "${DOCKER_GID:-123}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +164,9 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
     volumes:
       - bert_models:/app/models/bert-ner
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    group_add:
+      - "${DOCKER_GID:-123}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,8 +180,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    mem_limit: 1024m
-    mem_reservation: 768m
+    mem_limit: 1536m
+    mem_reservation: 1024m
     cpus: 1.0
     restart: always
 
@@ -183,13 +190,15 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     container_name: newsorigin-finetune
-    command: python -m scripts.finetune_bert_ner
+    command: python3 -m scripts.finetune_bert_ner
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
       - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
       - NER_MODEL_BASE_DIR=/app/models/bert-ner
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_MODEL_NAME=${AZURE_OPENAI_MODEL_NAME:-gpt-5}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-01-01-preview}
       - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - WEBHOOK_URL=${WEBHOOK_URL:-}
     volumes:
