@@ -6,6 +6,14 @@
 
 ## 2026-02-22
 
+### fix: BERT NER 빈 추출 결과 시 kiwipiepy fallback 추가
+- **문제**: BERT NER 모델이 로딩되어 있지만 특정 제목에서 score < 0.5 엔터티만 반환 → 빈 키워드로 저장
+  - GPT-5 평가에서 0점, 대시보드 인라인 평가에 "데이터 수집 전" 오표시
+- **수정** (`keyword_extractor.py`): `extract()`, `extract_batch()` 에서 BERT 결과가 빈 경우 kiwipiepy fallback
+  - kiwipiepy는 lazy 로딩 (BERT 정상 동작 시 메모리 사용 없음)
+- **수정** (`MLOpsPage.tsx`): "데이터 수집 전" → "추출 결과 없음"으로 레이블 변경
+- **수정 파일**: `keyword_extractor.py`, `MLOpsPage.tsx`
+
 ### fix: Beat 스케줄 KST 기준 정합성 수정 — 주간/월간 리포트 실행 시각 오류
 - **문제**: `timezone="Asia/Seoul"` 설정으로 crontab 값이 KST로 해석되는데, 주간/월간 리포트가 UTC로 착각하고 `hour=0` 설정
   - 의도: 월요일/매달 1일 09:00 KST → 실제: 00:00 KST에 실행 (9시간 빠름)

@@ -155,7 +155,14 @@ class KeywordExtractor:
         title = self._strip_publisher_suffix(title)
 
         if self._use_bert_ner:
-            return self._extract_with_bert(title)
+            result = self._extract_with_bert(title)
+            # BERT가 엔터티를 하나도 추출 못하면 kiwipiepy fallback
+            if not result["entities"]:
+                logger.debug(f"BERT NER returned empty entities for '{title[:50]}', falling back to kiwipiepy")
+                if not self._kiwi:
+                    self._load_kiwi()
+                return self._extract_with_kiwi(title)
+            return result
         return self._extract_with_kiwi(title)
 
     def extract_batch(self, titles: list[str]) -> list[dict]:
@@ -169,7 +176,18 @@ class KeywordExtractor:
         titles = [self._strip_publisher_suffix(t) for t in titles]
 
         if self._use_bert_ner:
-            return [self._extract_with_bert(t) for t in titles]
+            results = []
+            kiwi_fallback_loaded = False
+            for t in titles:
+                result = self._extract_with_bert(t)
+                if not result["entities"]:
+                    if not kiwi_fallback_loaded and not self._kiwi:
+                        self._load_kiwi()
+                        kiwi_fallback_loaded = True
+                    results.append(self._extract_with_kiwi(t))
+                else:
+                    results.append(result)
+            return results
         return [self._extract_with_kiwi(t) for t in titles]
 
     def _extract_with_bert(self, title: str) -> dict:

@@ -1111,7 +1111,7 @@ export default function MLOpsPage() {
                                         <span className="text-[9px] opacity-60">{e.type}</span>
                                       </span>
                                     )) : (
-                                      <span className="text-xs italic text-gray-400">데이터 수집 전</span>
+                                      <span className="text-xs italic text-gray-400">추출 결과 없음</span>
                                     )}
                                   </div>
                                 </div>
