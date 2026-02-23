@@ -6,6 +6,15 @@
 
 ## 2026-02-23
 
+### fix: Fine-tuning 이벤트 루프 충돌 + Docker Redis 연결 수정
+- **문제 1**: `promote_model()`이 호출자의 `session_factory`를 재사용하나, 내부에서 `asyncio.new_event_loop()` 생성 → 다른 루프에 바인딩된 커넥션 풀 사용 → `Future attached to a different loop` 에러
+  - 심볼릭 링크 전환은 성공하지만 DB 상태 업데이트(active/retired) 실패
+- **문제 2**: finetune 컨테이너에 `CELERY_BROKER_URL` 미설정 → `redis://localhost:16379/1` 기본값 사용 → Docker 네트워크에서 Redis 연결 실패 → reextract 태스크 트리거 불가
+- **수정 1** (`model_manager.py` v0.2.0): `promote_model()`이 자체 엔진/세션 생성·폐기 — 외부 session_factory 의존 제거
+- **수정 2** (`finetune_bert_ner.py` v0.3.0): `_qg_factory` 공유 제거, DB 작업마다 독립 엔진 생성 패턴 적용
+- **수정 3** (`docker-compose.prod.yml`): finetune 컨테이너에 `CELERY_BROKER_URL=redis://redis:6379/1` + `redis` depends_on 추가
+- **수정 파일**: `model_manager.py`, `finetune_bert_ner.py`, `docker-compose.prod.yml`
+
 ### refactor: Fine-tuning 24시간 중복 방지 조건 삭제 + v0004 수동 트리거
 - **변경** (`tasks.py`): `check_training_readiness`에서 24시간 내 모델 생성 여부 확인 로직 제거
   - 기존: `NerModelVersion.created_at >= now - 24h` 조건으로 중복 트리거 방지

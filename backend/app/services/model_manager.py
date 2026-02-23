@@ -1,8 +1,9 @@
 """
 # model_manager.py - BERT NER Model Version Manager
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: 모델 버전 관리, 심볼릭 링크 전환, quality gate 검증
 # Changes:
+#   - 0.2.0: promote_model 자체 DB 엔진 생성으로 이벤트 루프 충돌 해결
 #   - 0.1.0: 버전 조회, 승격, 롤백, quality gate
 #
 # 디렉토리 구조:
@@ -88,7 +89,7 @@ def promote_model(version: str, session_factory=None) -> bool:
 
     Args:
         version: 승격할 모델 버전 (예: "v0002")
-        session_factory: DB 세션 팩토리
+        session_factory: (deprecated, 무시됨) 자체 엔진 생성으로 대체
 
     Returns:
         성공 여부
@@ -113,13 +114,17 @@ def promote_model(version: str, session_factory=None) -> bool:
         logger.error(f"Failed to update symlink: {e}")
         return False
 
-    # DB 상태 업데이트
-    if session_factory:
-        async def _update_db():
-            from sqlalchemy import select, update
-            from app.models.ner_training import NerModelVersion
+    # DB 상태 업데이트 — 자체 엔진/세션 생성 (이벤트 루프 충돌 방지)
+    async def _update_db():
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from sqlalchemy import update
+        from app.config import get_settings
+        from app.models.ner_training import NerModelVersion
 
-            async with session_factory() as db:
+        engine = create_async_engine(get_settings().database_url, pool_size=2)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with factory() as db:
                 # 기존 active 모델 retired 처리
                 await db.execute(
                     update(NerModelVersion)
@@ -133,27 +138,27 @@ def promote_model(version: str, session_factory=None) -> bool:
                     .values(is_active=True, status="active")
                 )
                 await db.commit()
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(_update_db())
-        except Exception as e:
-            logger.error(f"DB update failed during model promotion: {e}")
         finally:
-            loop.close()
+            await engine.dispose()
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_update_db())
+    except Exception as e:
+        logger.error(f"DB update failed during model promotion: {e}")
+    finally:
+        loop.close()
 
     return True
 
 
-def rollback_model(session_factory=None) -> bool:
+def rollback_model() -> bool:
     """
     이전 active 모델로 롤백
 
     Returns:
         성공 여부
     """
-    import asyncio
-
     base_dir = _get_base_dir()
 
     # 버전 디렉토리 목록 (숫자순 정렬)
@@ -179,7 +184,7 @@ def rollback_model(session_factory=None) -> bool:
         prev_version = versions[-2]
 
     logger.warning(f"Rolling back model from {current} to {prev_version}")
-    return promote_model(prev_version, session_factory)
+    return promote_model(prev_version)
 
 
 def should_promote(

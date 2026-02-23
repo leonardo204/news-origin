@@ -201,10 +201,13 @@ services:
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-01-01-preview}
       - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - CELERY_BROKER_URL=redis://redis:6379/1
     volumes:
       - bert_models:/app/models/bert-ner
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     mem_limit: 2048m
     profiles:

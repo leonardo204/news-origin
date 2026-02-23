@@ -1,8 +1,9 @@
 """
 # finetune_bert_ner.py - BERT NER Fine-tuning Script
-# Version: 0.2.0
+# Version: 0.3.0
 # Description: GPT 교정 데이터로 BERT NER 모델 fine-tuning
 # Changes:
+#   - 0.3.0: 이벤트 루프 충돌 해결 — DB 작업마다 자체 엔진 생성/폐기
 #   - 0.2.0: 모델 승격 후 GPT-5 배포 인사이트 자동 생성
 #   - 0.1.0: DB 학습 데이터 로드, HuggingFace Trainer NER fine-tuning, 모델 저장
 #
@@ -380,26 +381,27 @@ def run_finetune(dry_run: bool = False) -> dict:
 
     # 11. Quality gate 확인 + 자동 승격
     from app.services.model_manager import should_promote, promote_model
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-    from sqlalchemy import select
-    from app.models.ner_training import NerModelVersion
 
-    # 승격용 DB 엔진/팩토리 (현재 F1 조회 + promote_model 공용)
-    _qg_engine = create_async_engine(settings.database_url, pool_size=2)
-    _qg_factory = async_sessionmaker(_qg_engine, class_=AsyncSession, expire_on_commit=False)
-
-    # 현재 active 모델의 F1 조회
+    # 현재 active 모델의 F1 조회 (자체 엔진 생성 — 이벤트 루프 충돌 방지)
     current_f1 = None  # base 모델은 F1 없음
     try:
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from sqlalchemy import select
+        from app.models.ner_training import NerModelVersion
+
         async def _get_active_f1():
-            async with _qg_factory() as db:
-                result = await db.execute(
-                    select(NerModelVersion.eval_f1_score).where(
-                        NerModelVersion.is_active == True  # noqa: E712
+            _engine = create_async_engine(settings.database_url, pool_size=2)
+            _factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+            try:
+                async with _factory() as db:
+                    result = await db.execute(
+                        select(NerModelVersion.eval_f1_score).where(
+                            NerModelVersion.is_active == True  # noqa: E712
+                        )
                     )
-                )
-                row = result.scalar_one_or_none()
-                return row
+                    return result.scalar_one_or_none()
+            finally:
+                await _engine.dispose()
 
         loop = asyncio.new_event_loop()
         try:
@@ -411,7 +413,7 @@ def run_finetune(dry_run: bool = False) -> dict:
 
     if should_promote(f1, current_f1):
         logger.info(f"Quality gate passed (new={f1:.4f}, current={current_f1}), promoting {version}")
-        promote_model(version, session_factory=_qg_factory)
+        promote_model(version)
 
         # 배포 인사이트 생성 (GPT-5)
         try:
@@ -454,13 +456,6 @@ def run_finetune(dry_run: bool = False) -> dict:
             pass
     else:
         logger.warning(f"Quality gate failed (new={f1:.4f}, current={current_f1}), model saved but NOT promoted")
-
-    # DB 엔진 정리
-    _cleanup_loop = asyncio.new_event_loop()
-    try:
-        _cleanup_loop.run_until_complete(_qg_engine.dispose())
-    finally:
-        _cleanup_loop.close()
 
     return {
         "status": "ok",
