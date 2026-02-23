@@ -1,6 +1,6 @@
 """
 # trend_clustering.py - Article Trend Clustering Service
-# Version: 0.6.0
+# Version: 0.7.0
 # Description: 가중치 복합 스코어링 기반 기사 클러스터링으로 트렌딩 토픽 추출
 # Changes:
 #   - 0.1.0: Greedy 클러스터링 알고리즘, 메타데이터 계산
@@ -10,6 +10,7 @@
 #            임베딩 유사도 + 키워드 겹침 게이트, 전이적 병합으로 동일 토픽 통합
 #   - 0.5.0: Qdrant 벡터 검색 배치화 (search_similar_batch)
 #   - 0.6.0: numpy 코사인 유사도 최적화 (10-50x 성능 향상)
+#   - 0.7.0: 7d/30d 일균등 샘플링 (stratified time sampling) — period별 다른 클러스터 결과
 """
 
 import logging
@@ -240,6 +241,52 @@ def _merge_similar_clusters(
     return merged
 
 
+async def _stratified_time_sample(
+    db: AsyncSession,
+    since: datetime,
+    article_limit: int,
+) -> list:
+    """기간별 일균등 샘플링 — 모든 날짜에서 골고루 기사 추출
+
+    7d/30d에서 ORDER BY created_at DESC LIMIT N을 쓰면 최근 1~2일 기사만
+    반환되어 기간 전체를 대표하지 못함. 날짜별로 균등 샘플링하여 해결.
+
+    Returns: list of Article IDs (UUID)
+    """
+    id_result = await db.execute(
+        select(Article.id, Article.created_at)
+        .where(Article.qdrant_point_id.isnot(None), Article.created_at >= since)
+        .order_by(Article.created_at.desc())
+    )
+    all_rows = id_result.all()
+
+    if not all_rows:
+        return []
+
+    # 날짜별 버킷 분배 (UTC 기준 — 내부 샘플링용, API 응답에 노출되지 않음)
+    day_buckets: dict[str, list] = {}
+    for row in all_rows:
+        day_key = row.created_at.strftime("%Y-%m-%d")
+        if day_key not in day_buckets:
+            day_buckets[day_key] = []
+        day_buckets[day_key].append(row.id)
+
+    # 날짜당 균등 샘플링 (최소 30건 보장)
+    # per_day는 날짜당 상한 — 실제 반환 수는 [:article_limit] 캡이 최종 권한
+    num_days = max(len(day_buckets), 1)
+    per_day = max(article_limit // num_days, 30)
+
+    sampled_ids = []
+    for day_key in sorted(day_buckets.keys(), reverse=True):
+        sampled_ids.extend(day_buckets[day_key][:per_day])
+
+    logger.info(
+        f"Stratified sampling: {len(all_rows)} articles across {num_days} days, "
+        f"{per_day}/day, sampled {min(len(sampled_ids), article_limit)}"
+    )
+    return sampled_ids[:article_limit]
+
+
 async def build_article_clusters(
     db: AsyncSession,
     period: str = "24h",
@@ -271,26 +318,32 @@ async def build_article_clusters(
     )
     real_total_articles = total_count_result.scalar() or 0
 
-    result = await db.execute(
-        select(
-            Article.id,
-            Article.url,
-            Article.title,
-            Article.publisher,
-            Article.published_at,
-            Article.created_at,
-            Article.qdrant_point_id,
-            category_col.label("feed_category"),
-            Article.metadata_,
+    base_columns = [
+        Article.id, Article.url, Article.title, Article.publisher,
+        Article.published_at, Article.created_at, Article.qdrant_point_id,
+        category_col.label("feed_category"), Article.metadata_,
+    ]
+
+    if period == "24h":
+        # 단기간: 최신 기사 우선 (기존 방식)
+        result = await db.execute(
+            select(*base_columns)
+            .where(Article.qdrant_point_id.isnot(None), Article.created_at >= since)
+            .order_by(Article.created_at.desc())
+            .limit(article_limit)
         )
-        .where(
-            Article.qdrant_point_id.isnot(None),
-            Article.created_at >= since,
+        rows = result.all()
+    else:
+        # 장기간 (7d/30d): 일균등 샘플링으로 기간 전체 대표
+        sampled_ids = await _stratified_time_sample(db, since, article_limit)
+        if not sampled_ids:
+            return _empty_response(period)
+        result = await db.execute(
+            select(*base_columns)
+            .where(Article.id.in_(sampled_ids))
+            .order_by(Article.created_at.desc())
         )
-        .order_by(Article.created_at.desc())
-        .limit(article_limit)
-    )
-    rows = result.all()
+        rows = result.all()
 
     if not rows:
         return _empty_response(period)
