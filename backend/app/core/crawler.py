@@ -1,9 +1,10 @@
 """
 # crawler.py - News Article Crawler Engine
-# Version: 0.1.0
+# Version: 0.2.0
 # Description: trafilatura/newspaper4k 기반 뉴스 기사 크롤링 및 메타데이터 추출
 # Changes:
 #   - 0.1.0: Initial implementation with trafilatura + newspaper4k fallback
+#   - 0.2.0: _parse_date() 이상치 검증 — 7일 이상 과거 날짜는 None 반환하여 RSS 폴백 유도
 """
 
 import asyncio
@@ -272,18 +273,36 @@ def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
-    """날짜 문자열 파싱 (다양한 포맷 대응, UTC-aware 반환)"""
+    """
+    날짜 문자열 파싱 (다양한 포맷 대응, UTC-aware 반환)
+
+    이상치 검증: 현재 시각 대비 7일 이상 과거이면 None 반환하여
+    RSS published_at 폴백을 유도 (trafilatura 날짜 추출 버그 방지)
+    """
     if not date_str:
         return None
+    dt = None
     try:
         # ISO format
         dt = datetime.fromisoformat(date_str)
-        return _ensure_utc(dt)
+        dt = _ensure_utc(dt)
     except ValueError:
-        pass
-    try:
-        # YYYY-MM-DD
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return dt.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
+        try:
+            # YYYY-MM-DD
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            dt = dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+    # 이상치 검증: 현재 시각 대비 7일 이상 과거이면 의심 날짜로 판단
+    if dt is not None:
+        now = datetime.now(timezone.utc)
+        if (now - dt).days > 7:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Suspicious date from trafilatura: {date_str} "
+                f"({(now - dt).days}d ago) — returning None for RSS fallback"
+            )
+            return None
+
+    return dt

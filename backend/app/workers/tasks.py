@@ -1,6 +1,6 @@
 """
 # tasks.py - Celery Async Tasks
-# Version: 0.10.0
+# Version: 0.11.0
 # Description: 기사 분석 파이프라인 + 백그라운드 크롤링
 # Changes:
 #   - 0.2.0: 기사 분석 파이프라인 (크롤링 → 임베딩 → 유사도 → 타임라인)
@@ -12,6 +12,7 @@
 #   - 0.8.0: 임베딩 실패 기사 DB 미저장 정책 - 임베딩 없는 기사는 검색/클러스터링 불가하므로 저장하지 않음
 #   - 0.9.0: 임베딩 실패 재시도 큐, 워커 메모리 모니터링, 캐시 워밍 폴백 강화
 #   - 0.10.0: trigger_bert_finetune Docker SDK 전환 — 별도 컨테이너 detach 실행, 워커 블로킹 제거
+#   - 0.11.0: RSS published_at 폴백 — trafilatura 날짜 추출 버그 방지, RSS 날짜 우선 사용
 """
 
 import asyncio
@@ -221,6 +222,11 @@ async def _run_fetch_trending():
                 a["url"]: a["rss_summary"]
                 for a in feed_articles if a.get("rss_summary")
             }
+            # RSS published_at 매핑 (trafilatura 날짜 추출 버그 방지용 폴백)
+            url_published_at_map = {
+                a["url"]: a["published_at"]
+                for a in feed_articles if a.get("published_at")
+            }
 
             from app.services.category import resolve_category
 
@@ -260,6 +266,22 @@ async def _run_fetch_trending():
                     rss_summary = url_rss_summary_map.get(original_url) or url_rss_summary_map.get(actual_url)
                     if not article.summary and rss_summary:
                         article.summary = rss_summary
+
+                    # RSS published_at 폴백: trafilatura 날짜 추출 버그 방지
+                    # - trafilatura 날짜가 없거나
+                    # - RSS 날짜와 7일 이상 차이나면 RSS 날짜로 대체
+                    rss_pub = url_published_at_map.get(original_url) or url_published_at_map.get(actual_url)
+                    if rss_pub:
+                        if not article.published_at:
+                            article.published_at = rss_pub
+                        else:
+                            delta = abs((article.published_at - rss_pub).days)
+                            if delta > 7:
+                                logger.warning(
+                                    f"published_at deviation: trafilatura={article.published_at.date()}, "
+                                    f"rss={rss_pub.date()}, delta={delta}d — using RSS date"
+                                )
+                                article.published_at = rss_pub
 
                 # 임베딩이 없는 기사만 수집
                 if not article.qdrant_point_id:

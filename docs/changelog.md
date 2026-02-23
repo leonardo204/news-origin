@@ -6,6 +6,19 @@
 
 ## 2026-02-23
 
+### fix: 기사 published_at 날짜 오표시 — trafilatura 날짜 추출 버그 방지
+- **문제**: trafilatura 이전 버전이 한국 뉴스 사이트에서 `published_at`을 `2026-02-01`로 잘못 추출
+  - 386개 기사가 실제 발행일(2/20~2/23)과 다른 날짜(2/1)로 DB에 저장됨
+  - RSS 피드에서 정확한 `published_at`을 제공하지만 크롤러 날짜만 사용하여 무시됨
+- **수정 1** (`tasks.py` v0.11.0): RSS `published_at` 폴백 추가
+  - `url_published_at_map` 생성 — RSS 날짜를 기본으로 사용
+  - trafilatura 날짜가 없거나 RSS 날짜와 7일 이상 차이나면 RSS 날짜로 대체
+- **수정 2** (`crawler.py` v0.2.0): `_parse_date()` 이상치 검증
+  - 현재 시각 대비 7일 이상 과거 날짜는 `None` 반환하여 RSS 폴백 유도
+- **수정 3** (`requirements.txt`): `trafilatura>=1.8.0` → `trafilatura==2.0.0` 버전 고정
+- **데이터 보정**: 386개 기사의 `published_at`을 `created_at`으로 보정 (SQL UPDATE)
+- **수정 파일**: `tasks.py`, `crawler.py`, `requirements.txt`
+
 ### fix: Fine-tuning 이벤트 루프 충돌 + Docker Redis 연결 수정
 - **문제 1**: `promote_model()`이 호출자의 `session_factory`를 재사용하나, 내부에서 `asyncio.new_event_loop()` 생성 → 다른 루프에 바인딩된 커넥션 풀 사용 → `Future attached to a different loop` 에러
   - 심볼릭 링크 전환은 성공하지만 DB 상태 업데이트(active/retired) 실패

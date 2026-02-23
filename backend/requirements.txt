@@ -19,7 +19,7 @@ redis>=5.0.0
 celery>=5.3.6
 
 # News Crawling
-trafilatura>=1.8.0
+trafilatura==2.0.0
 newspaper4k>=0.9.3
 httpx>=0.26.0
 googlenewsdecoder>=0.1.2

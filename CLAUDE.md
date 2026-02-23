@@ -96,8 +96,12 @@ make docker-down      # 인프라 중지
 3. 카테고리당 최대 15건, 실행당 최대 50건
 4. DB 중복 체크 → 본문 크롤링 → **BERT NER 키워드 추출** (제목에서 언론사 접미사 자동 제거) → **Azure 임베딩 생성** → PostgreSQL + Qdrant 저장
 5. **임베딩 실패 시 DB 미저장 정책**: 임베딩 없는 기사는 벡터 검색/클러스터링이 불가하므로 DB에 저장하지 않음 (tasks.py v0.8.0)
-6. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
-7. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
+6. **RSS published_at 폴백** (tasks.py v0.11.0): trafilatura 날짜 추출 버그 방지
+   - RSS 피드의 `published_at`을 기본 사용, trafilatura 날짜와 7일 이상 차이 시 RSS 날짜로 대체
+   - `crawler.py` `_parse_date()`: 현재 대비 7일 이상 과거 날짜는 None 반환 → RSS 폴백 유도
+   - `trafilatura==2.0.0` 버전 고정 (requirements.txt)
+7. **GPT-5 샘플링 품질 평가** (배치당 5건, `max_completion_tokens` 사용)
+8. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
 
 ## NER MLOps Pipeline
 - **목적**: GPT-5 평가 데이터로 BERT NER 모델을 점진적으로 개선하는 폐쇄 루프
