@@ -7,8 +7,10 @@ import {
   RefreshCw,
   Clock,
   Monitor,
+  Container,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
+import InfoBadge from '@/components/ui/InfoBadge'
 import { fetchSystem } from '@/services/adminApi'
 
 interface SystemData {
@@ -33,6 +35,13 @@ interface SystemData {
     free_gb: number
   }
   python_version: string
+  containers?: {
+    name: string
+    status: string
+    memory_mb: number
+    memory_limit_mb: number
+    memory_percent: number
+  }[]
 }
 
 function LoadingSkeleton() {
@@ -118,6 +127,32 @@ function GaugeRing({
       <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{detail}</p>
     </div>
   )
+}
+
+const CONTAINER_NAMES: Record<string, string> = {
+  backend: 'Backend API',
+  celery: 'Celery Worker',
+  'celery-beat': 'Celery Beat',
+  postgres: 'PostgreSQL',
+  redis: 'Redis',
+  qdrant: 'Qdrant',
+  nginx: 'Nginx',
+  frontend: 'Frontend',
+  finetune: 'Fine-tune',
+  flower: 'Flower',
+}
+
+const CONTAINER_DESCRIPTIONS: Record<string, string> = {
+  backend: 'FastAPI + Uvicorn 단일 워커\n적정: 120~200MB',
+  celery: 'BERT NER 모델 상주, 크롤링/임베딩 처리\n적정: 1.2~1.8GB (모델 로딩 후)',
+  'celery-beat': '스케줄러 전용, 태스크 실행 없음\n적정: 40~60MB',
+  postgres: '기사/학습 데이터/리포트 저장\n적정: 80~150MB (캐시 포함)',
+  redis: 'Celery 브로커 + API 캐시 + 하트비트\n적정: 4~15MB (maxmemory 32MB)',
+  qdrant: '기사 임베딩 벡터 검색 엔진\n적정: 100~300MB (기사 수에 비례)',
+  nginx: '리버스 프록시 + 정적 파일 + 캐시\n적정: 3~10MB',
+  frontend: 'Vite 빌드 결과 정적 서빙\n적정: 8~15MB',
+  finetune: 'BERT NER fine-tuning (필요 시만 실행)\n적정: ~1.5GB (학습 중)',
+  flower: 'Celery 모니터링 대시보드\n적정: 40~60MB',
 }
 
 export default function SystemPage() {
@@ -372,6 +407,69 @@ export default function SystemPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Container Memory */}
+      {data.containers && data.containers.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Container className="h-5 w-5 text-indigo-500" />
+              컨테이너 메모리
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {data.containers.map((c) => {
+                const barColor =
+                  c.memory_percent > 80
+                    ? 'bg-red-500'
+                    : c.memory_percent > 60
+                      ? 'bg-yellow-500'
+                      : 'bg-emerald-500'
+                const textColor =
+                  c.memory_percent > 80
+                    ? 'text-red-500'
+                    : c.memory_percent > 60
+                      ? 'text-yellow-500'
+                      : 'text-emerald-500'
+                const statusDot =
+                  c.status === 'running'
+                    ? 'bg-emerald-500'
+                    : 'bg-red-500'
+                return (
+                  <div key={c.name}>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`h-2 w-2 rounded-full ${statusDot}`} />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {CONTAINER_NAMES[c.name] || c.name}
+                        </span>
+                        {CONTAINER_DESCRIPTIONS[c.name] && (
+                          <InfoBadge content={CONTAINER_DESCRIPTIONS[c.name]} />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-400">
+                          {c.memory_mb.toFixed(0)} / {c.memory_limit_mb.toFixed(0)} MB
+                        </span>
+                        <span className={`text-sm font-semibold ${textColor}`}>
+                          {c.memory_percent.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                        style={{ width: `${Math.min(c.memory_percent, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

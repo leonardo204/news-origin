@@ -6,6 +6,36 @@
 
 ## 2026-02-22
 
+### fix: BERT NER per-title fallback이 전역 상태 덮어쓰는 버그 수정
+- **문제**: BERT NER 모델이 정상 로딩(`_use_bert_ner=True`)된 후, 첫 번째 빈 결과 기사에서 kiwipiepy fallback 호출 시 `_load_kiwi()`가 `_use_bert_ner=False`로 전역 리셋
+  - 이후 모든 기사가 kiwipiepy로 처리되어 BERT 모델이 사실상 비활성화
+  - 대시보드에 `use_bert: false`로 표시 (실제로는 BERT 로딩 성공 상태)
+- **수정** (`keyword_extractor.py`): `_ensure_kiwi()` 메서드 신설 — kiwipiepy lazy 로딩만 수행, `_use_bert_ner` 플래그 유지
+  - `extract()`, `extract_batch()`의 per-title fallback에서 `_load_kiwi()` → `_ensure_kiwi()` 전환
+  - `_load_kiwi()`는 BERT 완전 실패 시에만 사용 (기존 동작 유지)
+- **수정** (`tasks.py`): NER 상태에 `kiwi_loaded` 필드 추가 — kiwipiepy fallback 사용 여부 추적
+- **수정 파일**: `keyword_extractor.py`, `tasks.py`
+
+### feat: 서비스 상태 InfoBadge 툴팁 + NER 모델 상태 표시 + 컨테이너별 메모리
+- **서비스 InfoBadge**: 개요 페이지 서비스 상태에 각 컨테이너 역할 설명 툴팁 추가 (InfoBadge 재사용)
+- **NER 모델 상태**: 워커 `check_worker_memory`에서 Redis에 NER 로딩 상태 저장 → 개요에 5번째 서비스로 표시
+  - BERT 정상: 녹색 "v0003 (BERT)", kiwipiepy 폴백: 노란색, 로딩 중: 노란색
+- **컨테이너 메모리**: `/api/admin/system`에 Docker SDK로 `newsorigin-*` 컨테이너별 메모리 stats 추가
+  - `ThreadPoolExecutor` 병렬 수집 + `asyncio.to_thread` + 12s timeout으로 API 블로킹 방지
+  - 시스템 페이지에 프로그레스 바 UI (색상: <60% 초록, 60-80% 노란, >80% 빨간)
+  - 컨테이너별 InfoBadge 툴팁 (역할 설명 + 적정 메모리 범위)
+- **MLOps 인라인 평가**: kiwipiepy fallback 사유 표시 ("빈 결과 폴백" / "모델 미로딩"), GPT 평가 reasoning 표시
+- **수정 파일**: `tasks.py`, `admin.py`, `OverviewPage.tsx`, `SystemPage.tsx`, `MLOpsPage.tsx`
+
+### fix: BERT NER score 임계값 설정화 + Worker 메모리 임계값 상향
+- **문제 1**: BERT NER v0003 모델의 confidence score가 0.25~0.50 범위로 출력되나, 하드코딩된 `score < 0.5` 필터에 의해 거의 모든 엔터티 탈락 → 전 기사 kiwipiepy fallback
+- **문제 2**: Worker 메모리 ~1.3GB 사용 중 CRITICAL 임계값 950MB로 불필요한 알림 발생 (호스트 11GB 가용)
+- **수정 1** (`config.py`): `ner_score_threshold: float = 0.25` 설정 추가
+- **수정 2** (`keyword_extractor.py`): 하드코딩 `0.5` → `settings.ner_score_threshold` 참조
+- **수정 3** (`tasks.py`): WARN 800→1400MB, CRITICAL 950→1700MB
+- **수정 4** (`docker-compose.prod.yml`): celery-worker mem_limit 1536m→2048m, mem_reservation 1024m→1536m
+- **수정 파일**: `config.py`, `keyword_extractor.py`, `tasks.py`, `docker-compose.prod.yml`, `CLAUDE.md`
+
 ### fix: BERT NER 빈 추출 결과 시 kiwipiepy fallback 추가
 - **문제**: BERT NER 모델이 로딩되어 있지만 특정 제목에서 score < 0.5 엔터티만 반환 → 빈 키워드로 저장
   - GPT-5 평가에서 0점, 대시보드 인라인 평가에 "데이터 수집 전" 오표시

@@ -103,6 +103,9 @@ make docker-down      # 인프라 중지
 - **목적**: GPT-5 평가 데이터로 BERT NER 모델을 점진적으로 개선하는 폐쇄 루프
 - **데이터 수집**: 크롤링 배치마다 5건 샘플 평가 + 6시간 주기 30건 추가 수집
 - **학습 제외 언론사**: `ner_excluded_publishers` 설정으로 AI 학습 금지 명시 언론사(한겨레 등) 기사를 학습 데이터 수집 및 평가 샘플에서 자동 제외
+- **NER score 임계값**: `ner_score_threshold` (기본 0.25) — BERT NER v0003 모델의 score 분포(0.25~0.50)에 대응, 이전 하드코딩 0.5에서 설정화
+- **per-title kiwipiepy fallback**: BERT가 빈 결과 반환 시 해당 제목만 kiwipiepy로 처리, `_ensure_kiwi()` 사용 (BERT 전역 상태 유지). `_load_kiwi()`는 BERT 완전 실패 시에만 사용
+- **NER 상태 모니터링**: `check_worker_memory`에서 Redis `celery:worker:ner_status`에 BERT/kiwipiepy 로딩 상태 저장 (600s TTL)
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
 - **Fine-tuning**: 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거 (24시간 내 중복 방지)
@@ -115,7 +118,9 @@ make docker-down      # 인프라 중지
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008)
 - **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, 자동 fine-tuning 포함)
 - **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
-- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
+- **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행 + fallback 사유 + GPT reasoning), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
+- **관리자 개요 (`/admin`)**: 서비스 상태 5종 (DB/Redis/Qdrant/Celery/NER 모델) + InfoBadge 역할 설명 툴팁, NER 모델 상태 (BERT ok/kiwipiepy warning/로딩 중)
+- **시스템 모니터링 (`/admin/system`)**: 호스트 리소스 + 컨테이너별 메모리 사용량 (Docker SDK, ThreadPoolExecutor 병렬 수집), 프로그레스 바 + InfoBadge 설명
 
 ## Clustering Algorithm (v0.4.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
@@ -210,11 +215,11 @@ make docker-down      # 인프라 중지
 ### Docker mem_limit 설정 근거
 | 컨테이너 | 한도 | 실사용 | 비고 |
 |-----------|------|--------|------|
-| celery-worker | 1536m | ~1.3GB (BERT NER v0003 로딩 후) | PyTorch ~300MB + BERT NER ~440MB + NER pipeline + 오버헤드, 임베딩은 Azure API |
+| celery-worker | 2048m | ~1.8GB (BERT NER v0003 + 배치 피크) | PyTorch ~300MB + BERT NER ~440MB + NER pipeline + 배치 오버헤드, 임베딩은 Azure API |
 | qdrant | 512m | ~102m (현재) | 기사 누적 시 성장, 90일 보존 |
 | backend | 384m | ~133m | 단일 uvicorn 워커 |
 | celery-beat | 128m | ~48m | 스케줄러 전용 |
-| postgres | 128m | ~46m | DB 크기 ~10MB |
+| postgres | 256m | ~110m | DB 크기 ~10MB, 캐시 사용량 증가 |
 | redis | 64m | ~4m | maxmemory 32mb |
 | nginx | 64m | ~4m | proxy_cache 포함 |
 | finetune | 2048m | ~1.5GB (학습 시) | profiles: finetune, 필요 시만 실행 |

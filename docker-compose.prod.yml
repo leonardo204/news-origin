@@ -19,7 +19,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 128m
+    mem_limit: 256m
     restart: always
 
   qdrant:
@@ -180,8 +180,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    mem_limit: 1536m
-    mem_reservation: 1024m
+    mem_limit: 2048m
+    mem_reservation: 1536m
     cpus: 1.0
     restart: always
 

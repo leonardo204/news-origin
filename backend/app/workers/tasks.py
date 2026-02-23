@@ -15,6 +15,7 @@
 """
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -1189,8 +1190,8 @@ def check_worker_memory(self):
     mem_info = process.memory_info()
     rss_mb = mem_info.rss / (1024 * 1024)
 
-    WARN_THRESHOLD_MB = 800
-    CRITICAL_THRESHOLD_MB = 950
+    WARN_THRESHOLD_MB = 1400
+    CRITICAL_THRESHOLD_MB = 1700
 
     status = "ok"
     if rss_mb >= CRITICAL_THRESHOLD_MB:
@@ -1215,6 +1216,22 @@ def check_worker_memory(self):
         from app.config import get_settings
         _r = _redis.Redis.from_url(get_settings().redis_url)
         _r.setex("celery:worker:heartbeat", 600, f"{rss_mb:.0f}")
+
+        # NER 모델 로딩 상태도 함께 저장 (개요 대시보드 서비스 상태 표시용)
+        try:
+            from app.services.keyword_extractor import get_extractor
+            ext = get_extractor()
+            ner_info = {
+                "loaded": ext._loaded,
+                "use_bert": ext._use_bert_ner if ext._loaded else None,
+                "kiwi_loaded": ext._kiwi is not None,
+                "model_path": ext._loaded_model_path,
+                "model_version": ext.get_model_version() if ext._loaded else None,
+            }
+            _r.setex("celery:worker:ner_status", 600, json.dumps(ner_info))
+        except Exception:
+            pass
+
         _r.close()
     except Exception:
         pass

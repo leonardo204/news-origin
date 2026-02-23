@@ -302,6 +302,36 @@ async def overview(username: str = Depends(require_admin)):
     except Exception:
         services["celery"] = "error"
 
+    # -- NER model status --
+    ner_detail: dict = {"version": None, "method": None}
+    try:
+        from app.services.cache import get_redis
+        _r = await get_redis()
+        if _r:
+            raw = await _r.get("celery:worker:ner_status")
+            if raw:
+                import json as _json
+                info = _json.loads(raw)
+                if info.get("loaded"):
+                    if info.get("use_bert"):
+                        services["ner_model"] = "ok"
+                        ner_detail = {
+                            "version": info.get("model_version") or "base",
+                            "method": "bert_ner",
+                        }
+                    else:
+                        services["ner_model"] = "warning"
+                        ner_detail = {"version": None, "method": "kiwipiepy"}
+                else:
+                    services["ner_model"] = "warning"
+                    ner_detail = {"version": None, "method": "pending"}
+            else:
+                services["ner_model"] = "unknown"
+        else:
+            services["ner_model"] = "unknown"
+    except Exception:
+        services["ner_model"] = "unknown"
+
     # -- traffic summary --
     traffic_info: dict = {
         "today": 0, "error_rate": 0.0, "avg_duration": 0.0, "unique_ips": 0,
@@ -374,6 +404,7 @@ async def overview(username: str = Depends(require_admin)):
         "crawl": crawl_info,
         "system": system_info,
         "services": services,
+        "ner_detail": ner_detail,
         "traffic": traffic_info,
         "mlops": mlops_info,
     }
@@ -593,6 +624,8 @@ async def mlops(username: str = Depends(require_admin)):
                     NerTrainingSample.title,
                     NerTrainingSample.gpt_quality_score,
                     NerTrainingSample.extraction_method,
+                    NerTrainingSample.extraction_model_version,
+                    NerTrainingSample.gpt_reasoning,
                     NerTrainingSample.created_at,
                     NerTrainingSample.original_entities,
                     NerTrainingSample.gpt_corrected_entities,
@@ -606,6 +639,8 @@ async def mlops(username: str = Depends(require_admin)):
                     "title": r.title[:60] if r.title else "",
                     "quality_score": round(float(r.gpt_quality_score), 2) if r.gpt_quality_score else 0,
                     "method": r.extraction_method or "unknown",
+                    "model_version": r.extraction_model_version or "base",
+                    "reasoning": r.gpt_reasoning[:200] if r.gpt_reasoning else None,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                     "original_entities": r.original_entities or [],
                     "corrected_entities": r.gpt_corrected_entities or [],
@@ -897,7 +932,18 @@ async def mlops(username: str = Depends(require_admin)):
 
 @router.get("/system")
 async def system_info(username: str = Depends(require_admin)):
-    """호스트 시스템 리소스 현황"""
+    """호스트 시스템 리소스 현황 + 컨테이너별 메모리"""
+    result: dict = {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "uptime_seconds": 0.0,
+        "cpu": {"percent": 0.0, "count": 0, "freq_mhz": 0.0},
+        "memory": {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "available_gb": 0.0},
+        "disk": {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "free_gb": 0.0},
+        "python_version": sys.version,
+        "containers": [],
+    }
+
     try:
         boot_time = psutil.boot_time()
         uptime = datetime.now(timezone.utc).timestamp() - boot_time
@@ -906,9 +952,7 @@ async def system_info(username: str = Depends(require_admin)):
         disk = psutil.disk_usage("/")
         freq = psutil.cpu_freq()
 
-        return {
-            "hostname": platform.node(),
-            "platform": platform.platform(),
+        result.update({
             "uptime_seconds": round(uptime, 1),
             "cpu": {
                 "percent": psutil.cpu_percent(interval=0.1),
@@ -927,19 +971,54 @@ async def system_info(username: str = Depends(require_admin)):
                 "percent": disk.percent,
                 "free_gb": round(disk.free / (1024 ** 3), 2),
             },
-            "python_version": sys.version,
-        }
+        })
     except Exception as e:
         logger.warning(f"system info failed: {e}")
-        return {
-            "hostname": platform.node(),
-            "platform": platform.platform(),
-            "uptime_seconds": 0.0,
-            "cpu": {"percent": 0.0, "count": 0, "freq_mhz": 0.0},
-            "memory": {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "available_gb": 0.0},
-            "disk": {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "free_gb": 0.0},
-            "python_version": sys.version,
-        }
+
+    # Docker container stats (병렬 조회 — 컨테이너당 ~2s이므로 ThreadPoolExecutor 사용)
+    try:
+        def _get_container_stats() -> list[dict]:
+            import docker
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _stat_one(c):
+                try:
+                    stats = c.stats(stream=False)
+                    mem_usage = stats["memory_stats"].get("usage", 0)
+                    mem_limit = stats["memory_stats"].get("limit", 0)
+                    return {
+                        "name": c.name.replace("newsorigin-", ""),
+                        "status": c.status,
+                        "memory_mb": round(mem_usage / 1024 / 1024, 1),
+                        "memory_limit_mb": round(mem_limit / 1024 / 1024, 1),
+                        "memory_percent": round(mem_usage / mem_limit * 100, 1) if mem_limit else 0,
+                    }
+                except Exception:
+                    return {
+                        "name": c.name.replace("newsorigin-", ""),
+                        "status": c.status,
+                        "memory_mb": 0, "memory_limit_mb": 0, "memory_percent": 0,
+                    }
+
+            client = docker.from_env(timeout=5)
+            try:
+                targets = [c for c in client.containers.list() if c.name.startswith("newsorigin-")]
+                results = []
+                with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+                    futures = {pool.submit(_stat_one, c): c for c in targets}
+                    for f in as_completed(futures, timeout=8):
+                        results.append(f.result())
+                return results
+            finally:
+                client.close()
+
+        result["containers"] = await asyncio.wait_for(
+            asyncio.to_thread(_get_container_stats), timeout=12.0
+        )
+    except Exception as e:
+        logger.warning(f"container stats failed: {e}")
+
+    return result
 
 
 # ---------------------------------------------------------------------------

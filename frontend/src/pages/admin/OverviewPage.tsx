@@ -13,6 +13,7 @@ import {
   FlaskConical,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
+import InfoBadge from '@/components/ui/InfoBadge'
 import { fetchOverview } from '@/services/adminApi'
 
 interface OverviewData {
@@ -38,6 +39,11 @@ interface OverviewData {
     redis: string
     qdrant: string
     celery: string
+    ner_model?: string
+  }
+  ner_detail?: {
+    version: string | null
+    method: string | null
   }
   traffic?: {
     today: number
@@ -141,11 +147,39 @@ function getCrawlStatusBadge(status: string) {
   }
 }
 
+function getNerLabel(
+  status: string,
+  detail?: { version: string | null; method: string | null },
+): string {
+  if (status === 'ok' && detail?.method === 'bert_ner') {
+    return `${detail.version || 'base'} (BERT)`
+  }
+  if (status === 'warning' && detail?.method === 'kiwipiepy') {
+    return 'kiwipiepy 폴백'
+  }
+  if (status === 'warning' && detail?.method === 'pending') {
+    return '로딩 중'
+  }
+  if (status === 'unknown') {
+    return '확인 중'
+  }
+  return '미로딩'
+}
+
 const SERVICE_NAMES: Record<string, string> = {
   database: 'PostgreSQL',
   redis: 'Redis',
   qdrant: 'Qdrant',
   celery: 'Celery Worker',
+  ner_model: 'NER 모델',
+}
+
+const SERVICE_DESCRIPTIONS: Record<string, string> = {
+  database: 'PostgreSQL 15 — 기사, 학습 데이터, 리포트 저장\n90일 보존 정책, UTC 기준 저장',
+  redis: 'Redis 7 — Celery 브로커, API 캐시, 워커 하트비트\nmaxmemory 32MB',
+  qdrant: 'Qdrant — 기사 임베딩 벡터 검색\ntext-embedding-3-large 1024차원',
+  celery: 'Celery Worker — 크롤링, NER 추출, 임베딩 생성\n--pool=solo, BERT NER 모델 상주',
+  ner_model: 'BERT NER 모델 로딩 상태\n워커가 5분마다 Redis에 상태 갱신',
 }
 
 export default function OverviewPage() {
@@ -470,25 +504,33 @@ export default function OverviewPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(data.services).map(([key, status]) => (
-              <div
-                key={key}
-                className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-              >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {Object.entries(data.services).map(([key, status]) => {
+              const nerLabel = key === 'ner_model' ? getNerLabel(status, data.ner_detail) : null
+              return (
                 <div
-                  className={`h-3 w-3 rounded-full shadow-lg ${getServiceDot(status)}`}
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {SERVICE_NAMES[key] || key}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {getServiceLabel(status)}
-                  </p>
+                  key={key}
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+                >
+                  <div
+                    className={`h-3 w-3 shrink-0 rounded-full shadow-lg ${getServiceDot(status)}`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {SERVICE_NAMES[key] || key}
+                      </p>
+                      {SERVICE_DESCRIPTIONS[key] && (
+                        <InfoBadge content={SERVICE_DESCRIPTIONS[key]} />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {nerLabel || getServiceLabel(status)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </CardContent>
       </Card>

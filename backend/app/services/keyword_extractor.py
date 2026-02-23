@@ -90,6 +90,9 @@ class KeywordExtractor:
         active_path = get_active_model_path()
         model_path = active_path or settings.bert_ner_model_path or settings.bert_model_name
 
+        # WARNING 레벨 로그 (Celery 워커에서 반드시 출력됨)
+        logger.warning(f"[NER] Loading model: {model_path} (active_path={active_path})")
+
         # BERT NER 모델 로딩 시도
         try:
             from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
@@ -109,25 +112,32 @@ class KeywordExtractor:
                 )
                 self._use_bert_ner = True
                 self._loaded_model_path = model_path
-                logger.info(f"BERT NER model loaded: {model_path} ({num_labels} labels)")
+                logger.warning(f"[NER] BERT NER model loaded OK: {model_path} ({num_labels} labels, threshold={settings.ner_score_threshold})")
             else:
                 logger.warning(
-                    f"Model {model_path} has only {num_labels} labels, "
+                    f"[NER] Model {model_path} has only {num_labels} labels, "
                     "falling back to kiwipiepy"
                 )
                 self._load_kiwi()
         except Exception as e:
-            logger.warning(f"BERT NER model load failed ({e}), falling back to kiwipiepy")
+            logger.warning(f"[NER] BERT NER model load FAILED ({e}), falling back to kiwipiepy")
             self._load_kiwi()
 
         self._loaded = True
 
     def _load_kiwi(self):
-        """kiwipiepy 형태소 분석기 로딩"""
+        """kiwipiepy 형태소 분석기 로딩 (BERT 완전 실패 시 전환용)"""
         from kiwipiepy import Kiwi
         self._kiwi = Kiwi()
         self._use_bert_ner = False
-        logger.info("kiwipiepy morphological analyzer loaded as fallback")
+        logger.warning("kiwipiepy morphological analyzer loaded (BERT disabled)")
+
+    def _ensure_kiwi(self):
+        """kiwipiepy lazy 로딩 (BERT 빈 결과 fallback용, _use_bert_ner 유지)"""
+        if not self._kiwi:
+            from kiwipiepy import Kiwi
+            self._kiwi = Kiwi()
+            logger.info("kiwipiepy loaded as per-title fallback (BERT still primary)")
 
     @staticmethod
     def _strip_publisher_suffix(title: str) -> str:
@@ -156,11 +166,10 @@ class KeywordExtractor:
 
         if self._use_bert_ner:
             result = self._extract_with_bert(title)
-            # BERT가 엔터티를 하나도 추출 못하면 kiwipiepy fallback
+            # BERT가 엔터티를 하나도 추출 못하면 kiwipiepy fallback (BERT는 유지)
             if not result["entities"]:
                 logger.debug(f"BERT NER returned empty entities for '{title[:50]}', falling back to kiwipiepy")
-                if not self._kiwi:
-                    self._load_kiwi()
+                self._ensure_kiwi()
                 return self._extract_with_kiwi(title)
             return result
         return self._extract_with_kiwi(title)
@@ -177,13 +186,10 @@ class KeywordExtractor:
 
         if self._use_bert_ner:
             results = []
-            kiwi_fallback_loaded = False
             for t in titles:
                 result = self._extract_with_bert(t)
                 if not result["entities"]:
-                    if not kiwi_fallback_loaded and not self._kiwi:
-                        self._load_kiwi()
-                        kiwi_fallback_loaded = True
+                    self._ensure_kiwi()
                     results.append(self._extract_with_kiwi(t))
                 else:
                     results.append(result)
@@ -210,7 +216,7 @@ class KeywordExtractor:
             weight = ENTITY_WEIGHTS.get(entity_type, 1.0)
 
             # 신뢰도 낮은 엔터티 필터링
-            if ent.get("score", 0) < 0.5:
+            if ent.get("score", 0) < settings.ner_score_threshold:
                 continue
 
             seen.add(text)

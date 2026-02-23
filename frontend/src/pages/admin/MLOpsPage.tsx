@@ -61,6 +61,8 @@ interface RecentEvaluation {
   title: string
   quality_score: number
   method: string
+  model_version?: string
+  reasoning?: string | null
   created_at: string
   original_entities: NerEntity[]
   corrected_entities: NerEntity[]
@@ -1081,9 +1083,20 @@ export default function MLOpsPage() {
                             </span>
                           </td>
                           <td className="py-2.5 pr-4">
-                            <span className="inline-flex rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                              {ev.method}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`inline-flex rounded px-1.5 py-0.5 text-xs ${
+                                ev.method === 'bert_ner'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                              }`}>
+                                {ev.method === 'bert_ner' ? 'BERT' : 'kiwipiepy'}
+                              </span>
+                              {ev.method === 'kiwipiepy' && (
+                                <span className="text-[10px] text-gray-400" title={ev.model_version && ev.model_version !== 'base' ? 'BERT 모델이 로딩되었으나 해당 제목에서 빈 결과 반환' : 'BERT 모델 미로딩'}>
+                                  {ev.model_version && ev.model_version !== 'base' ? '빈 결과 폴백' : '모델 미로딩'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="whitespace-nowrap py-2.5 text-right text-xs text-gray-400">
                             {ev.created_at ? formatTimeAgo(ev.created_at) : '-'}
@@ -1138,6 +1151,12 @@ export default function MLOpsPage() {
                                   </div>
                                 </div>
                               </div>
+                              {ev.reasoning && (
+                                <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                                  <span className="font-semibold text-gray-600 dark:text-gray-300">GPT 평가: </span>
+                                  {ev.reasoning}
+                                </p>
+                              )}
                             </td>
                           </tr>
                         )}
