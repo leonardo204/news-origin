@@ -1,8 +1,9 @@
 """
 # mlops_insight.py - MLOps Deployment Insight Generator
-# Version: 0.1.0
+# Version: 0.1.1
 # Description: 모델 배포 시 GPT-5로 품질 분석 인사이트 생성
 # Changes:
+#   - 0.1.1: GPT 빈 응답 시 최대 2회 재시도
 #   - 0.1.0: generate_deployment_insight 구현
 """
 
@@ -212,15 +213,22 @@ def _call_gpt_for_insight(
 5. 다음 사이클에서 기대되는 개선 항목
 6. 데이터 간 연관 관계 (품질 추이 ↔ 모델 성능 ↔ 오류 패턴)"""
 
-    try:
-        return call_gpt_sync(
-            prompt=prompt,
-            system_message="당신은 NER MLOps 파이프라인 품질 분석 전문가입니다. 간결하고 실용적인 인사이트를 생성합니다.",
-            max_tokens=2048,
-        )
-    except Exception as e:
-        logger.error(f"GPT insight generation failed: {e}")
-        return None
+    for attempt in range(2):
+        try:
+            result = call_gpt_sync(
+                prompt=prompt,
+                system_message="당신은 NER MLOps 파이프라인 품질 분석 전문가입니다. 간결하고 실용적인 인사이트를 생성합니다.",
+                max_tokens=2048,
+            )
+            if result and result.strip():
+                logger.info(f"GPT 배포 인사이트 생성 완료 (시도 {attempt + 1}, {len(result)}자)")
+                return result
+            logger.warning(f"GPT 배포 인사이트 빈 응답 (시도 {attempt + 1})")
+        except Exception as e:
+            logger.warning(f"GPT insight generation failed (attempt {attempt + 1}): {e}")
+
+    logger.error("GPT 배포 인사이트 생성 실패 (2회 재시도 후)")
+    return None
 
 
 async def _save_insight(factory: async_sessionmaker, version: str, insight: str) -> None:
