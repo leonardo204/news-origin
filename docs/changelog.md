@@ -6,6 +6,13 @@
 
 ## 2026-02-23
 
+### refactor: Fine-tuning 24시간 중복 방지 조건 삭제 + v0004 수동 트리거
+- **변경** (`tasks.py`): `check_training_readiness`에서 24시간 내 모델 생성 여부 확인 로직 제거
+  - 기존: `NerModelVersion.created_at >= now - 24h` 조건으로 중복 트리거 방지
+  - 변경: 임계치 초과 시 항상 자동 트리거 (finetune 컨테이너 자체가 중복 실행 방지)
+- **수동 트리거**: v0004 학습 시작 (Train 273건, Val 69건, unused 361건)
+- **수정 파일**: `tasks.py`
+
 ### fix: 트렌드 토픽 기간별 필터링 미작동 수정 (v0.7.0)
 - **문제**: 24h/7d/30d 기간 전환 시 동일한 클러스터 결과 반환
   - `ORDER BY created_at DESC LIMIT N`으로 모든 기간이 최근 1~2일 기사만 클러스터링
