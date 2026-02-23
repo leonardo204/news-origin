@@ -42,8 +42,15 @@ ALPHA = 0.6                          # 임베딩 유사도 가중치
 BETA = 0.4                           # 키워드 유사도 가중치
 CLUSTER_MERGE_EMB_THRESHOLD = 0.52   # 클러스터 seed 간 임베딩 유사도 병합 임계값
 MAX_COMPONENT_ARTICLES = 30          # 병합 시 component 최대 기사 수 (초과 시 확장 중단)
-MAX_ARTICLES_FOR_CLUSTERING = 500
 MAX_CLUSTERS = 20
+
+# 기간별 클러스터링 기사 상한 — 24h에 이미 1000+건이 축적되므로
+# 기간별 다른 상한을 적용해야 period 전환 시 다른 결과 반환
+ARTICLES_LIMIT_BY_PERIOD = {
+    "24h": 500,
+    "7d": 1000,
+    "30d": 1500,
+}
 MAX_ARTICLES_PER_CLUSTER_RESPONSE = 10
 
 
@@ -252,9 +259,18 @@ async def build_article_clusters(
     hours_map = {"24h": 24, "7d": 168, "30d": 720}
     hours = hours_map.get(period, 24)
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    article_limit = ARTICLES_LIMIT_BY_PERIOD.get(period, 500)
 
     # 1. DB에서 임베딩 완료 기사 + 메타데이터(키워드 포함) 조회
     category_col = Article.metadata_["category"].astext
+
+    # 기간 내 전체 기사 수 (LIMIT 전)
+    total_count_result = await db.execute(
+        select(func.count(Article.id))
+        .where(Article.qdrant_point_id.isnot(None), Article.created_at >= since)
+    )
+    real_total_articles = total_count_result.scalar() or 0
+
     result = await db.execute(
         select(
             Article.id,
@@ -272,7 +288,7 @@ async def build_article_clusters(
             Article.created_at >= since,
         )
         .order_by(Article.created_at.desc())
-        .limit(MAX_ARTICLES_FOR_CLUSTERING)
+        .limit(article_limit)
     )
     rows = result.all()
 
@@ -566,7 +582,7 @@ async def build_article_clusters(
 
     return ArticleTrendsResponse(
         clusters=topic_clusters,
-        total_articles=len(all_articles),
+        total_articles=real_total_articles,
         total_clusters=len(topic_clusters),
         period=period,
         generated_at=datetime.now(timezone.utc),

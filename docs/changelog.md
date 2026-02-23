@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-02-23
+
+### fix: 트렌드 토픽 기간별 필터링 미작동 수정
+- **문제**: 24h/7d/30d 기간 전환 시 동일한 클러스터 결과 반환
+  - `MAX_ARTICLES_FOR_CLUSTERING = 500` 고정 상한 + `.order_by(created_at.desc()).limit(500)` 때문에 모든 기간이 동일한 최신 500개 기사만 클러스터링
+  - 24h에 이미 1,350건 축적 → 7d/30d도 같은 500건 선택
+- **수정** (`trend_clustering.py`): 기간별 기사 상한 분리 (`ARTICLES_LIMIT_BY_PERIOD`)
+  - 24h: 500, 7d: 1,000, 30d: 1,500
+  - `total_articles` 별도 COUNT 쿼리로 실제 기간 내 전체 기사 수 표시
+- **결과**: 24h=1,350 / 7d=6,193 / 30d=7,731 기사, 기간별 서로 다른 클러스터 토픽
+- **수정 파일**: `trend_clustering.py`
+
+---
+
 ## 2026-02-22
 
 ### fix: BERT NER per-title fallback이 전역 상태 덮어쓰는 버그 수정
