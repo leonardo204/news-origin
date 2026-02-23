@@ -122,7 +122,7 @@ make docker-down      # 인프라 중지
 - **관리자 개요 (`/admin`)**: 서비스 상태 5종 (DB/Redis/Qdrant/Celery/NER 모델) + InfoBadge 역할 설명 툴팁, NER 모델 상태 (BERT ok/kiwipiepy warning/로딩 중)
 - **시스템 모니터링 (`/admin/system`)**: 호스트 리소스 + 컨테이너별 메모리 사용량 (Docker SDK, ThreadPoolExecutor 병렬 수집), 프로그레스 바 + InfoBadge 설명
 
-## Clustering Algorithm (v0.4.0)
+## Clustering Algorithm (v0.7.0)
 - **그래프 기반 클러스터 병합**: Connected Components via BFS
 - **임베딩 유사도 게이트**: cosine_sim >= 0.52 (CLUSTER_MERGE_EMB_THRESHOLD)
 - **키워드 오버랩 게이트**: 정확 일치 또는 부분 문자열 매칭 (한국어 엔터티 변형 대응)
@@ -130,6 +130,12 @@ make docker-down      # 인프라 중지
   - `keyword_extractor.py`: NER 추출 전 제목에서 언론사 접미사 제거 (`_strip_publisher_suffix`)
   - `trend_clustering.py`: 클러스터링 시 기사 집합에서 언론사명 수집 → 키워드 매칭/사유 생성에서 제외 (`_collect_publisher_names`, `_filter_keywords_data`)
 - **최대 컴포넌트 제한**: MAX_COMPONENT_ARTICLES = 30 (메가 클러스터 방지)
+- **기간별 일균등 샘플링** (v0.7.0): `_stratified_time_sample()` — 7d/30d에서 날짜별 버킷 균등 추출
+  - 24h: 최신 500건 (기존 ORDER BY created_at DESC LIMIT)
+  - 7d: 날짜당 ~143건 × 7일 = 1,000건, 30d: 날짜당 ~50건 × 30일 = 1,500건
+  - `ARTICLES_LIMIT_BY_PERIOD`: 24h=500, 7d=1000, 30d=1500
+  - `total_articles`: 별도 COUNT 쿼리로 기간 내 실제 전체 기사 수 표시
+- **DB 인덱스**: `ix_articles_created_at` (Alembic 011) — 기간별 조회 성능 최적화
 - **마이그레이션**: `python -m scripts.migrate_embeddings` (관계 초기화 + 재임베딩)
 
 ## 2단계 추적 시스템 (Tracking Pipeline)
