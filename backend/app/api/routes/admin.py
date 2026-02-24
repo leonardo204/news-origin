@@ -1181,7 +1181,7 @@ async def _resolve_geo_ips(ips: list[str]) -> dict[str, dict]:
         import json
         import urllib.request
         req = urllib.request.Request(
-            "http://ip-api.com/batch?fields=query,status,country,countryCode,city",
+            "http://ip-api.com/batch?fields=query,status,country,countryCode,regionName,city,district",
             data=json.dumps(ip_list[:100]).encode(),
             headers={"Content-Type": "application/json"},
         )
@@ -1193,10 +1193,17 @@ async def _resolve_geo_ips(ips: list[str]) -> dict[str, dict]:
         from app.services.cache import cache_set as _cache_set
         for item in data:
             if item.get("status") == "success":
+                # 지역명 조합: "Seoul Gwangjin-gu" 형태
+                city = item.get("city", "")
+                district = item.get("district", "")
+                region = item.get("regionName", "")
+                # 도시+구 조합 (구가 있으면 "서울 광진구", 없으면 "서울")
+                location = f"{city} {district}".strip() if district else city
                 geo = {
                     "country": item.get("country", "Unknown"),
                     "countryCode": item.get("countryCode", ""),
-                    "city": item.get("city", ""),
+                    "city": location,
+                    "region": region,
                 }
                 results[item["query"]] = geo
                 try:
@@ -1474,14 +1481,18 @@ async def traffic(
                 country_agg[country]["unique_ips"] += 1
                 city = geo.get("city", "")
                 if city:
-                    country_agg[country]["cities"][city] = country_agg[country]["cities"].get(city, 0) + count
+                    if city not in country_agg[country]["cities"]:
+                        country_agg[country]["cities"][city] = {"count": 0, "unique_ips": 0}
+                    country_agg[country]["cities"][city]["count"] += count
+                    country_agg[country]["cities"][city]["unique_ips"] += 1
 
             geo_distribution = sorted(country_agg.values(), key=lambda x: -x["count"])
             for entry in geo_distribution:
                 entry["cities"] = sorted(
-                    [{"city": c, "count": n} for c, n in entry["cities"].items()],
+                    [{"city": c, "count": d["count"], "unique_ips": d["unique_ips"]}
+                     for c, d in entry["cities"].items()],
                     key=lambda x: -x["count"],
-                )[:5]
+                )[:10]
     except Exception as e:
         logger.warning(f"traffic geo_distribution failed: {e}")
 

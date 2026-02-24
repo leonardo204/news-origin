@@ -6,6 +6,8 @@ import {
   Globe,
   RefreshCw,
   TrendingUp,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { fetchTraffic } from '@/services/adminApi'
@@ -61,6 +63,7 @@ interface ErrorEntry {
 interface GeoCity {
   city: string
   count: number
+  unique_ips: number
 }
 
 interface GeoEntry {
@@ -151,6 +154,7 @@ export default function TrafficPage() {
   const [data, setData] = useState<TrafficData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [expandedGeo, setExpandedGeo] = useState<Set<string>>(new Set())
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // --- Theme (before early returns for useMemo) ---
@@ -572,7 +576,7 @@ export default function TrafficPage() {
           </CardContent>
         </Card>
 
-        {/* Geo Distribution */}
+        {/* Geo Distribution — Hierarchical */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -582,38 +586,81 @@ export default function TrafficPage() {
           </CardHeader>
           <CardContent>
             {geo.length > 0 ? (
-              <div className="space-y-3">
-                {geo.map((g) => (
-                  <div key={g.country}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+              <div className="space-y-1">
+                {geo.map((g) => {
+                  const isExpanded = expandedGeo.has(g.country)
+                  const hasCities = g.cities.length > 0
+                  const maxCityCount = hasCities ? Math.max(...g.cities.map((c) => c.count), 1) : 1
+                  return (
+                    <div key={g.country}>
+                      {/* Country row */}
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        onClick={() => {
+                          if (!hasCities) return
+                          setExpandedGeo((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(g.country)) next.delete(g.country)
+                            else next.add(g.country)
+                            return next
+                          })
+                        }}
+                      >
+                        {hasCities ? (
+                          isExpanded ? (
+                            <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+                          )
+                        ) : (
+                          <span className="w-3.5 flex-shrink-0" />
+                        )}
                         <span className="text-base leading-none">{countryFlag(g.countryCode)}</span>
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <span className="flex-1 text-sm font-medium text-gray-700 dark:text-gray-300">
                           {g.country}
                         </span>
-                        {g.cities.length > 0 && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500">
-                            {g.cities.map((c) => c.city).join(', ')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
                         <span className="text-xs text-gray-400 dark:text-gray-500">
                           {g.unique_ips} IP
                         </span>
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        <span className="min-w-[4rem] text-right text-sm font-medium text-gray-900 dark:text-gray-100">
                           {g.count.toLocaleString('ko-KR')}건
                         </span>
-                      </div>
+                        <div className="ml-2 h-1.5 w-24 flex-shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                          <div
+                            className="h-full rounded-full bg-purple-500 transition-all duration-500"
+                            style={{ width: `${(g.count / maxGeoCount) * 100}%` }}
+                          />
+                        </div>
+                      </button>
+
+                      {/* Expanded cities */}
+                      {isExpanded && hasCities && (
+                        <div className="mb-2 ml-9 space-y-0.5 border-l-2 border-purple-100 pl-3 dark:border-purple-900/50">
+                          {g.cities.map((c) => (
+                            <div key={c.city} className="flex items-center gap-2 py-1">
+                              <span className="flex-1 text-xs text-gray-600 dark:text-gray-400">
+                                {c.city}
+                              </span>
+                              <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                {c.unique_ips} IP
+                              </span>
+                              <span className="min-w-[3.5rem] text-right text-xs font-medium text-gray-700 dark:text-gray-300">
+                                {c.count.toLocaleString('ko-KR')}건
+                              </span>
+                              <div className="ml-1 h-1 w-16 flex-shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                                <div
+                                  className="h-full rounded-full bg-purple-300 dark:bg-purple-700 transition-all duration-500"
+                                  style={{ width: `${(c.count / maxCityCount) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                      <div
-                        className="h-full rounded-full bg-purple-500 transition-all duration-500"
-                        style={{ width: `${(g.count / maxGeoCount) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <p className="py-12 text-center text-sm text-gray-400">지역 데이터 없음</p>
