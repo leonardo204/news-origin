@@ -1,24 +1,38 @@
 """
 # model_manager.py - BERT NER Model Version Manager
-# Version: 0.2.0
+# Version: 0.3.0
 # Description: 모델 버전 관리, 심볼릭 링크 전환, quality gate 검증
 # Changes:
+#   - 0.3.0: 날짜 기반 버전 (v20260224), should_promote metric_type 인식
 #   - 0.2.0: promote_model 자체 DB 엔진 생성으로 이벤트 루프 충돌 해결
 #   - 0.1.0: 버전 조회, 승격, 롤백, quality gate
 #
 # 디렉토리 구조:
 # /app/models/bert-ner/
-# +-- v0001/          (klue/bert-base baseline)
-# +-- v0002/          (1차 fine-tune)
-# +-- active -> v0002 (심볼릭 링크)
+# +-- v0004/          (기존 sequential 버전)
+# +-- v20260224/      (날짜 기반 버전)
+# +-- v20260224_2/    (같은 날 2번째)
+# +-- active -> v20260224 (심볼릭 링크)
 """
 
 import logging
 import os
+import re
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# 버전 디렉토리 패턴: v + 숫자 (v0001, v20260224, v20260224_2)
+_VERSION_PATTERN = re.compile(r"^v\d+(_\d+)?$")
+
+KST = timezone(timedelta(hours=9))
+
+
+def _is_version_dir(name: str) -> bool:
+    """버전 디렉토리 이름인지 확인 (v0001, v20260224, v20260224_2 등)"""
+    return bool(_VERSION_PATTERN.match(name))
 
 
 def _get_base_dir() -> Path:
@@ -67,20 +81,42 @@ def get_active_model_path() -> Optional[str]:
 
 
 def get_next_version() -> str:
-    """다음 모델 버전 문자열 생성 (v0001, v0002, ...)"""
+    """
+    다음 모델 버전 문자열 생성 (날짜 기반)
+
+    형식: v20260224 (첫 번째), v20260224_2 (같은 날 두 번째), ...
+    """
     base_dir = _get_base_dir()
+    today = datetime.now(KST).strftime("%Y%m%d")
+    base_version = f"v{today}"
+
     if not base_dir.exists():
-        return "v0001"
+        return base_version
 
-    existing = []
+    # 오늘 날짜로 시작하는 기존 버전 찾기
+    existing_today = []
     for d in base_dir.iterdir():
-        if d.is_dir() and d.name.startswith("v") and d.name[1:].isdigit():
-            existing.append(int(d.name[1:]))
+        if d.is_dir() and d.name == base_version:
+            existing_today.append(1)
+        elif d.is_dir() and d.name.startswith(f"{base_version}_"):
+            suffix = d.name[len(base_version) + 1:]
+            if suffix.isdigit():
+                existing_today.append(int(suffix))
 
-    if not existing:
-        return "v0001"
+    if not existing_today:
+        return base_version
 
-    return f"v{max(existing) + 1:04d}"
+    return f"{base_version}_{max(existing_today) + 1}"
+
+
+def _list_version_dirs(base_dir: Path) -> list[str]:
+    """버전 디렉토리 목록 (정렬됨) — 기존 v0001과 새 v20260224 모두 포함"""
+    if not base_dir.exists():
+        return []
+    return sorted([
+        d.name for d in base_dir.iterdir()
+        if d.is_dir() and _is_version_dir(d.name)
+    ])
 
 
 def promote_model(version: str, session_factory=None) -> bool:
@@ -88,7 +124,7 @@ def promote_model(version: str, session_factory=None) -> bool:
     모델 승격: 심볼릭 링크 전환 + DB 상태 업데이트
 
     Args:
-        version: 승격할 모델 버전 (예: "v0002")
+        version: 승격할 모델 버전 (예: "v20260224")
         session_factory: (deprecated, 무시됨) 자체 엔진 생성으로 대체
 
     Returns:
@@ -160,12 +196,7 @@ def rollback_model() -> bool:
         성공 여부
     """
     base_dir = _get_base_dir()
-
-    # 버전 디렉토리 목록 (숫자순 정렬)
-    versions = sorted([
-        d.name for d in base_dir.iterdir()
-        if d.is_dir() and d.name.startswith("v") and d.name[1:].isdigit()
-    ])
+    versions = _list_version_dirs(base_dir)
 
     if len(versions) < 2:
         logger.error("Not enough versions to rollback")
@@ -191,6 +222,7 @@ def should_promote(
     new_f1: float,
     current_f1: Optional[float],
     min_improvement: float = 0.01,
+    current_metric_type: Optional[str] = None,
 ) -> bool:
     """
     Quality gate: 새 모델이 승격 조건을 충족하는지 검증
@@ -199,12 +231,18 @@ def should_promote(
         new_f1: 새 모델의 검증 F1 점수
         current_f1: 현재 활성 모델의 F1 점수 (없으면 None)
         min_improvement: 최소 F1 개선 폭
+        current_metric_type: 현재 모델의 메트릭 유형 ("token"|"entity"|None)
 
     Returns:
         승격 여부
     """
     if current_f1 is None:
         # 기존 모델이 없으면 (base model) F1 > 0.5 이면 승격
+        return new_f1 > 0.5
+
+    # 메트릭 유형 전환 (token→entity): entity-level F1은 token-level보다 낮으므로 직접 비교 불가
+    # 이전 모델이 entity 메트릭이 아니면 "첫 모델" 경로 적용
+    if current_metric_type != "entity":
         return new_f1 > 0.5
 
     return new_f1 >= current_f1 + min_improvement
@@ -224,11 +262,7 @@ def cleanup_old_versions(keep_count: int = 3) -> int:
         return 0
 
     current = get_current_version()
-
-    versions = sorted([
-        d.name for d in base_dir.iterdir()
-        if d.is_dir() and d.name.startswith("v") and d.name[1:].isdigit()
-    ])
+    versions = _list_version_dirs(base_dir)
 
     if len(versions) <= keep_count:
         return 0

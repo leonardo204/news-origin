@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     ner_max_model_versions: int = 3
     ner_excluded_publishers: list[str] = ["한겨레"]  # AI 학습 금지 명시 언론사
     ner_score_threshold: float = 0.25  # BERT NER 엔터티 신뢰도 임계값
+    ner_training_max_samples: int = 2000  # 학습 데이터 상한 (고품질 우선 선택)
+    ner_training_min_quality: float = 0.5  # 학습 데이터 최소 품질 임계값
+
+    # Continual Learning
+    ner_continual_learning: bool = True  # 이전 active 모델에서 이어서 학습
+    ner_learning_rate_base: float = 5e-5  # base 모델 학습 LR
+    ner_learning_rate_finetune: float = 2e-5  # fine-tuned 모델 이어 학습 LR
+    ner_max_epochs: int = 10  # 최대 학습 에폭
+    ner_early_stopping_patience: int = 2  # 조기 종료 인내 횟수
 
     # Admin Dashboard
     admin_username: str = ""

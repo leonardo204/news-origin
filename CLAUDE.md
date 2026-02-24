@@ -112,14 +112,20 @@ make docker-down      # 인프라 중지
 - **NER 상태 모니터링**: `check_worker_memory`에서 Redis `celery:worker:ner_status`에 BERT/kiwipiepy 로딩 상태 저장 (600s TTL)
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
-- **Fine-tuning**: 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거
+- **Fine-tuning** (`finetune_bert_ner.py` v0.4.0): 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거
   - `trigger_bert_finetune` 태스크가 Docker SDK로 `newsorigin-finetune` 컨테이너를 detach 모드로 시작 → 워커 블로킹 없음
   - 수동 실행도 가능: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
   - celery-worker/backend에 Docker 소켓 마운트 필요 (`/var/run/docker.sock`, `DOCKER_GID` 환경변수)
-- **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교), 롤백
+  - **누적 학습**: `is_used_for_training` 필터 제거, 전체 누적 데이터 사용 (`ner_training_max_samples=2000` 상한, 고품질 우선)
+  - **Entity-level 메트릭**: `seqeval` 엔터티 단위 F1 (토큰 단위에서 전환), `metric_type` 컬럼으로 구분
+  - **Continual Learning**: `ner_continual_learning=True` 시 이전 active 모델에서 이어서 학습 (라벨 불일치 시 base fallback)
+  - **Adaptive LR**: base 학습 `ner_learning_rate_base=5e-5`, 이어 학습 `ner_learning_rate_finetune=2e-5`
+  - **Early Stopping**: `ner_max_epochs=10`, `ner_early_stopping_patience=2`
+  - **Stratified Split**: 엔터티 유형 기반 층화 train/val 분할 (희소 클래스 fallback)
+- **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교, metric_type 인식), 롤백
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
-- **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008)
+- **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008), `metric_type` 컬럼 (Alembic 012)
 - **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, 자동 fine-tuning 포함)
 - **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
 - **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행 + fallback 사유 + GPT reasoning), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁

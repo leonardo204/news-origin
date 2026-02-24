@@ -38,7 +38,7 @@ class NerModelVersion(Base):
     __tablename__ = "ner_model_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    version = Column(String(20), unique=True, nullable=False)  # v0001, v0002
+    version = Column(String(20), unique=True, nullable=False)  # v20260224, v20260224_2
     base_model = Column(String(100), nullable=True)
     model_path = Column(Text, nullable=True)
     training_samples_count = Column(Integer, nullable=True)
@@ -47,5 +47,6 @@ class NerModelVersion(Base):
     eval_recall = Column(Float, nullable=True)
     status = Column(String(20), default="training", nullable=False)  # training|ready|active|retired
     is_active = Column(Boolean, default=False, nullable=False)
+    metric_type = Column(String(20), nullable=True)  # "token" | "entity" (seqeval)
     deployment_insight = Column(Text, nullable=True)  # GPT-5 생성 배포 인사이트
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

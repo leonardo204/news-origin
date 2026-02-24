@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-02-24
+
+### feat: NER Fine-tuning 파이프라인 전면 개선 (v0.4.0)
+- **문제**: v0005 모델이 v0004 대비 F1 하락 (0.8372 → 0.8006)으로 배포 거부. 원인: 매 학습마다 새 샘플만 사용하고 base 모델부터 처음부터 학습 → 이전 지식 소실
+- **Phase 1 — 핵심 수정**:
+  - **누적 학습 데이터 사용**: `load_training_data()`에서 `is_used_for_training == False` 필터 제거 → 전체 누적 데이터 사용
+  - **Entity-level 메트릭 (seqeval)**: 토큰 단위 F1 → `seqeval` 엔터티 단위 F1로 전환, `NerModelVersion.metric_type` 컬럼 추가 (Alembic 012)
+  - **메트릭 전환 처리**: `should_promote()`에서 이전 모델 `metric_type != "entity"`이면 "첫 모델" 경로 적용 (직접 비교 불가)
+  - **학습 데이터 상한**: `ner_training_max_samples=2000`, `gpt_quality_score DESC` 정렬로 고품질 우선 선택
+  - **학습 품질 임계값 분리**: `ner_training_min_quality=0.5` (기존 수집 임계값 0.1과 분리)
+- **Phase 2 — 고도화**:
+  - **Continual Learning**: `ner_continual_learning=True` 시 이전 active 모델에서 이어서 학습, 라벨 불일치 시 자동 fallback
+  - **Adaptive Learning Rate**: base 모델 5e-5, fine-tuned 이어 학습 2e-5
+  - **Early Stopping**: `ner_max_epochs=10`, `ner_early_stopping_patience=2`, HuggingFace `EarlyStoppingCallback`
+  - **Stratified Train/Val Split**: 엔터티 유형 기반 층화 분할, 희소 클래스 < 2건 시 random fallback
+- **설정 추가** (`config.py`): `ner_training_max_samples`, `ner_training_min_quality`, `ner_continual_learning`, `ner_learning_rate_base`, `ner_learning_rate_finetune`, `ner_max_epochs`, `ner_early_stopping_patience`
+- **모델 버전 체계 변경**: 순차 번호 `v0001` → 날짜 기반 `v20260224` (같은 날 재학습 시 `v20260224_2`), 기존 버전과 호환
+- **수정 파일**: `finetune_bert_ner.py`, `config.py`, `model_manager.py`, `ner_training.py`, `012_add_metric_type.py`
+
+---
+
 ## 2026-02-23
 
 ### fix: 기사 published_at 날짜 오표시 — trafilatura 날짜 추출 버그 방지
