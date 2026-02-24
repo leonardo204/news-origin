@@ -23,6 +23,13 @@
 - **모델 버전 체계 변경**: 순차 번호 `v0001` → 날짜 기반 `v20260224` (같은 날 재학습 시 `v20260224_2`), 기존 버전과 호환
 - **수정 파일**: `finetune_bert_ner.py`, `config.py`, `model_manager.py`, `ner_training.py`, `012_add_metric_type.py`
 
+### feat: 트래픽 방문자 지역 계층 구조 — 국가 > 도시/구
+- **백엔드**: ip-api.com 필드에 `regionName`, `district` 추가 → "서울 광진구" 형태 지역명 조합
+  - 도시별 `unique_ips` 집계 추가, cities 제한 5→10개
+- **프론트엔드**: 국가별 클릭 펼침/접힘 UI (ChevronDown/Right), 하위 도시별 요청수 + IP수 + 프로그레스 바
+- **기존 GeoIP 캐시**: Redis 24h TTL 만료 후 새 필드 포함 데이터로 자동 갱신
+- **수정 파일**: `admin.py`, `TrafficPage.tsx`
+
 ---
 
 ## 2026-02-23

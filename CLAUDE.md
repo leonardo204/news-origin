@@ -193,7 +193,8 @@ make docker-down      # 인프라 중지
 - **제외 IP**: 사설/Docker/로컬호스트/예약 IP (`ipaddress` 모듈 `is_private|is_loopback|is_reserved`)
 - **IP 추출 우선순위**: CF-Connecting-IP → X-Forwarded-For(첫 번째) → X-Real-IP → `request.client.host`
 - **배치 INSERT**: `RequestLogWriter` — `deque(maxlen=10_000)` → 5초/50건마다 DB flush
-- **GeoIP**: ip-api.com 배치 API, Redis 24시간 캐시
+- **GeoIP**: ip-api.com 배치 API (country, regionName, city, district), Redis 24시간 캐시
+  - 지역명 조합: `city + district` → "서울 광진구" 형태, 국가 > 도시/구 계층 구조 UI
 - **보존**: 90일 (기존 cleanup 태스크 연동)
 
 ## Admin Report System
@@ -207,7 +208,7 @@ make docker-down      # 인프라 중지
 - **DB 테이블**: `admin_reports` (Alembic 010), content_json에 섹션별 통계 저장
 - **설정**: `config.py` — `smtp_*`, `admin_email`, `alert_*_threshold`, `alert_cooldown_minutes`
 - **report_generator.py**: 각 섹션(크롤링/트래픽/MLOps/시스템/에러) 독립 try/except + rollback
-- **관리자 대시보드**: `/admin/traffic` — 에어리어 차트, GeoIP 분포, 상태코드, 엔드포인트 통계
+- **관리자 대시보드**: `/admin/traffic` — 에어리어 차트, GeoIP 계층 분포 (국가 펼침 → 도시/구별 바), 상태코드, 엔드포인트 통계
 
 ## Host PC & Performance Constraints
 
