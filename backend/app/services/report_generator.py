@@ -1,8 +1,9 @@
 """
 # report_generator.py - Admin Report Generator
-# Version: 0.2.0
-# Description: 정기(주간/월간) + 비정기(알림) 리포트 콘텐츠 생성
+# Version: 0.3.0
+# Description: 정기(주간/월간) + 비정기(알림) + MLOps Fine-tuning 리포트 콘텐츠 생성
 # Changes:
+#   - 0.3.0: generate_finetune_report() — Fine-tuning 완료 리포트 생성 + 이메일 발송
 #   - 0.2.0: 기간 비교, 일별 추이, GPT-5 내러티브, 한국어 카테고리, 상세 시스템/알림 정보
 #   - 0.1.0: 초기 구현
 """
@@ -478,6 +479,216 @@ def _generate_narrative(content: dict, report_type: str, period_label: str) -> s
             logger.warning(f"GPT narrative failed (attempt {attempt + 1}): {e}")
 
     logger.warning("GPT 내러티브 생성 실패: 2회 시도 모두 빈 응답")
+    return None
+
+
+def generate_finetune_report(
+    result: dict,
+    current_f1: float | None,
+    current_metric_type: str | None,
+) -> str | None:
+    """
+    Fine-tuning 완료 리포트 생성 + 이메일 발송. Returns report_id or None.
+
+    동기 wrapper — finetune 컨테이너에서 직접 호출, 자체 async engine 생성/폐기.
+    (mlops_insight.py의 generate_deployment_insight()와 동일 패턴)
+    """
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, pool_size=2)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _generate():
+        try:
+            promoted = result.get("promoted", False)
+            version = result.get("version", "unknown")
+            f1 = result.get("f1", 0)
+            precision = result.get("precision", 0)
+            recall = result.get("recall", 0)
+
+            # content_json 구성
+            content: dict = {
+                "training": {
+                    "version": version,
+                    "base_model": result.get("base_model", "klue/bert-base"),
+                    "continual_learning": result.get("continual_learning", False),
+                    "train_samples": result.get("train_samples", 0),
+                    "val_samples": result.get("val_samples", 0),
+                },
+                "evaluation": {
+                    "f1": f1,
+                    "precision": precision,
+                    "recall": recall,
+                    "metric_type": result.get("metric_type", "entity"),
+                },
+                "quality_gate": {
+                    "promoted": promoted,
+                    "current_f1": current_f1,
+                    "current_metric_type": current_metric_type,
+                    "f1_improvement": round(f1 - current_f1, 4) if current_f1 is not None else None,
+                    "decision_reason": (
+                        f"품질 기준 충족 ({f1:.4f} >= {current_f1:.4f} + 0.01)"
+                        if promoted and current_f1 is not None
+                        else "품질 기준 충족 (첫 모델)" if promoted
+                        else f"품질 기준 미달 ({f1:.4f} < {current_f1:.4f} + 0.01)"
+                        if current_f1 is not None
+                        else f"품질 기준 미달 (F1: {f1:.4f})"
+                    ),
+                },
+            }
+
+            # promoted인 경우 deployment_insight 조회
+            if promoted:
+                try:
+                    async with factory() as db:
+                        row = await db.execute(
+                            select(NerModelVersion.deployment_insight).where(
+                                NerModelVersion.version == version
+                            )
+                        )
+                        insight = row.scalar_one_or_none()
+                        if insight:
+                            content["deployment_insight"] = insight
+                except Exception as e:
+                    logger.warning(f"Failed to fetch deployment insight: {e}")
+
+            # GPT-5 내러티브 생성
+            try:
+                narrative = _generate_finetune_narrative(content, promoted)
+                content["narrative"] = narrative
+            except Exception as e:
+                logger.warning(f"Fine-tuning narrative generation failed: {e}")
+                content["narrative"] = None
+
+            # AdminReport 생성
+            title = f"[MLOps] Fine-tuning {'완료' if promoted else '결과'} — {version}"
+            summary_parts = [
+                f"모델: {version} (F1: {f1:.4f})",
+                f"학습: {result.get('train_samples', 0)}건, 검증: {result.get('val_samples', 0)}건",
+                f"승격: {'완료' if promoted else '거부'}" + (
+                    f" (이전: {current_f1:.4f}, 개선: {f1 - current_f1:+.4f})"
+                    if current_f1 is not None else ""
+                ),
+            ]
+
+            async with factory() as db:
+                report = AdminReport(
+                    id=uuid.uuid4(),
+                    report_type="mlops",
+                    title=title,
+                    summary="\n".join(summary_parts),
+                    content_json=content,
+                    category="mlops",
+                    severity="info" if promoted else "warning",
+                )
+                db.add(report)
+                await db.commit()
+                await db.refresh(report)
+
+                report_id = str(report.id)
+
+                # 이메일 발송
+                try:
+                    from app.services.email_sender import send_report_email
+
+                    sent = send_report_email(
+                        title=report.title,
+                        summary=report.summary,
+                        report_type="mlops",
+                        severity=report.severity,
+                        report_id=report_id,
+                        narrative=content.get("narrative"),
+                    )
+                    if sent:
+                        report.email_sent = True
+                        from datetime import datetime, timezone
+                        report.email_sent_at = datetime.now(timezone.utc)
+                        await db.commit()
+                except Exception as e:
+                    logger.warning(f"Fine-tuning report email failed: {e}")
+                    try:
+                        report.email_error = str(e)[:200]
+                        await db.commit()
+                    except Exception:
+                        pass
+
+            logger.info(f"Fine-tuning report generated: {title}")
+            return report_id
+        finally:
+            await engine.dispose()
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_generate())
+    except Exception as e:
+        logger.error(f"generate_finetune_report failed: {e}")
+        return None
+    finally:
+        loop.close()
+
+
+def _generate_finetune_narrative(content: dict, promoted: bool) -> str | None:
+    """GPT-5로 Fine-tuning 결과 비전문가 관리자용 내러티브 생성"""
+    from app.config import get_settings
+    from app.services.azure_openai import call_gpt_sync
+
+    settings = get_settings()
+    if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
+        return None
+
+    training = content.get("training", {})
+    evaluation = content.get("evaluation", {})
+    quality_gate = content.get("quality_gate", {})
+
+    data_text = f"""## Fine-tuning 결과
+- 모델 버전: {training.get('version', 'N/A')}
+- 기반 모델: {training.get('base_model', 'N/A')}
+- 이어 학습 여부: {'예' if training.get('continual_learning') else '아니오'}
+- 학습 데이터: {training.get('train_samples', 0)}건, 검증 데이터: {training.get('val_samples', 0)}건
+
+## 평가 결과 ({evaluation.get('metric_type', 'entity')}-level)
+- F1 Score: {evaluation.get('f1', 0):.4f}
+- Precision: {evaluation.get('precision', 0):.4f}
+- Recall: {evaluation.get('recall', 0):.4f}
+
+## 품질 검증
+- 승격 여부: {'승격 완료' if promoted else '승격 거부'}
+- 이전 모델 F1: {quality_gate.get('current_f1', 'N/A')}
+- F1 개선폭: {quality_gate.get('f1_improvement', 'N/A')}
+- 판정 사유: {quality_gate.get('decision_reason', 'N/A')}"""
+
+    prompt = f"""당신은 뉴스 분석 플랫폼 'News Origin'의 AI 키워드 추출 모델 학습 결과 리포트 작성자입니다.
+다음 Fine-tuning 결과를 바탕으로, IT 비전문가 관리자가 쉽게 이해할 수 있는 요약을 작성하세요.
+
+{data_text}
+
+작성 규칙:
+1. 한국어로 작성, 500자 이내
+2. 전문 용어는 괄호 안에 쉬운 설명 추가 (예: "F1 스코어(모델 정확도 지표)")
+3. 학습이 잘 되었는지, 이전 대비 개선되었는지 명확히 안내
+4. {'모델이 자동으로 교체되었다는 점을 안내' if promoted else '모델이 교체되지 않았으며 이전 모델을 계속 사용한다는 점을 안내'}
+5. 관리자가 추가 조치가 필요한지 여부를 알려주세요"""
+
+    for attempt in range(2):
+        try:
+            result = call_gpt_sync(
+                prompt=prompt,
+                system_message="당신은 AI 모델 학습 결과를 비전문가에게 설명하는 전문가입니다. 명확하고 친절하게 작성합니다.",
+                max_tokens=1024,
+            )
+            if result and result.strip():
+                logger.info(f"Fine-tuning narrative generated (attempt {attempt + 1}, {len(result)}chars)")
+                return result.strip()
+            logger.warning(f"Fine-tuning narrative empty response (attempt {attempt + 1})")
+        except Exception as e:
+            logger.warning(f"Fine-tuning narrative failed (attempt {attempt + 1}): {e}")
+
+    logger.warning("Fine-tuning narrative generation failed after 2 attempts")
     return None
 
 

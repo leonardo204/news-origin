@@ -579,6 +579,30 @@ def run_finetune(dry_run: bool = False) -> dict:
         logger.warning(f"Quality gate failed (new={f1:.4f}, current={current_f1}, "
                         f"metric_type={current_metric_type}), model saved but NOT promoted")
 
+    # 13. Fine-tuning 리포트 생성 + 이메일 발송
+    try:
+        from app.services.report_generator import generate_finetune_report
+        report_id = generate_finetune_report(
+            result={
+                "version": version,
+                "f1": round(f1, 4),
+                "precision": round(precision, 4),
+                "recall": round(recall, 4),
+                "metric_type": "entity",
+                "train_samples": len(train_data),
+                "val_samples": len(val_data),
+                "continual_learning": is_continual,
+                "base_model": base_model,
+                "promoted": promoted,
+            },
+            current_f1=current_f1,
+            current_metric_type=current_metric_type,
+        )
+        if report_id:
+            logger.info(f"Fine-tuning report generated: {report_id}")
+    except Exception as e:
+        logger.warning(f"Fine-tuning report generation failed (non-critical): {e}")
+
     return {
         "status": "ok",
         "version": version,

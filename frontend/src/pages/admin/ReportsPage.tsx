@@ -45,7 +45,7 @@ interface ReportDetail extends ReportSummary {
 }
 
 /* ─── Constants ─── */
-const TYPE_LABELS: Record<string, string> = { weekly: '주간', monthly: '월간', alert: '알림' }
+const TYPE_LABELS: Record<string, string> = { weekly: '주간', monthly: '월간', alert: '알림', mlops: 'MLOps' }
 const SEVERITY_CONFIG: Record<string, { color: string; darkColor: string; icon: typeof Info }> = {
   info: { color: 'bg-blue-100 text-blue-700', darkColor: 'dark:bg-blue-500/10 dark:text-blue-400', icon: Info },
   warning: { color: 'bg-amber-100 text-amber-700', darkColor: 'dark:bg-amber-500/10 dark:text-amber-400', icon: AlertTriangle },
@@ -383,6 +383,86 @@ function ErrorsSection({ data }: { data: Record<string, unknown> }) {
   )
 }
 
+/* ─── Fine-tuning Report Renderer ─── */
+function FinetuneReportSection({ content }: { content: Record<string, unknown> }) {
+  const training = content.training as { version: string; base_model: string; continual_learning: boolean; train_samples: number; val_samples: number } | undefined
+  const evaluation = content.evaluation as { f1: number; precision: number; recall: number; metric_type: string } | undefined
+  const qualityGate = content.quality_gate as { promoted: boolean; current_f1: number | null; current_metric_type: string | null; f1_improvement: number | null; decision_reason: string } | undefined
+  const deploymentInsight = content.deployment_insight as string | undefined
+
+  return (
+    <div className="space-y-3">
+      {/* 학습 설정 */}
+      {training && (
+        <SectionCard title="학습 설정" icon={Activity}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatBox label="모델 버전" value={training.version} />
+            <StatBox label="학습 데이터" value={`${fmtNum(training.train_samples)}건`} />
+            <StatBox label="검증 데이터" value={`${fmtNum(training.val_samples)}건`} />
+            <StatBox label="기반 모델" value={training.base_model.split('/').pop() || training.base_model} sub={
+              <span className="text-[10px] text-gray-400">{training.continual_learning ? '이어 학습' : '처음부터 학습'}</span>
+            } />
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 평가 결과 */}
+      {evaluation && (
+        <SectionCard title="평가 결과" icon={Activity}>
+          <div className="grid grid-cols-3 gap-2">
+            <StatBox label="F1 Score" value={evaluation.f1.toFixed(4)} sub={
+              <span className="text-[10px] text-gray-400">{evaluation.metric_type === 'entity' ? 'entity-level' : 'token-level'}</span>
+            } />
+            <StatBox label="Precision" value={evaluation.precision.toFixed(4)} />
+            <StatBox label="Recall" value={evaluation.recall.toFixed(4)} />
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 품질 검증 */}
+      {qualityGate && (
+        <SectionCard title="품질 검증 (Quality Gate)" icon={qualityGate.promoted ? CheckCircle2 : XCircle}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <StatBox label="승격 여부" value={qualityGate.promoted ? '승격 완료' : '승격 거부'} sub={
+              qualityGate.promoted
+                ? <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 dark:text-green-400"><CheckCircle2 className="h-3 w-3" />품질 기준 충족</span>
+                : <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600 dark:text-red-400"><XCircle className="h-3 w-3" />기준 미달</span>
+            } />
+            <StatBox label="이전 모델 F1" value={qualityGate.current_f1 != null ? qualityGate.current_f1.toFixed(4) : 'N/A (첫 모델)'} sub={
+              qualityGate.current_metric_type
+                ? <span className="text-[10px] text-gray-400">{qualityGate.current_metric_type}</span>
+                : undefined
+            } />
+            <StatBox label="F1 개선폭" value={qualityGate.f1_improvement != null ? `${qualityGate.f1_improvement >= 0 ? '+' : ''}${qualityGate.f1_improvement.toFixed(4)}` : '-'} sub={
+              qualityGate.f1_improvement != null
+                ? <ChangeIndicator rate={qualityGate.current_f1 && qualityGate.current_f1 > 0 ? mathRound(qualityGate.f1_improvement / qualityGate.current_f1 * 100, 1) : null} />
+                : undefined
+            } />
+          </div>
+          {qualityGate.decision_reason && (
+            <div className="mt-2 rounded bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-gray-800/50 dark:text-gray-300">
+              {qualityGate.decision_reason}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {/* 배포 인사이트 */}
+      {deploymentInsight && (
+        <div className="rounded-lg border border-purple-100 bg-purple-50/50 px-4 py-3 dark:border-purple-500/20 dark:bg-purple-500/5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-400">
+            <Sparkles className="h-3.5 w-3.5" />
+            배포 인사이트
+          </div>
+          <div className="whitespace-pre-line text-xs leading-relaxed text-purple-900 dark:text-purple-200">
+            {deploymentInsight}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── Alert Detail Renderer ─── */
 function AlertDetailSection({ content, category }: { content: Record<string, unknown>; category: string }) {
   const recommendation = content.recommendation as string | undefined
@@ -462,7 +542,9 @@ function ReportDetailView({ report, onBack }: { report: ReportDetail; onBack: ()
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
               report.report_type === 'alert'
                 ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400'
-                : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
+                : report.report_type === 'mlops'
+                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400'
+                  : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
             }`}>
               {TYPE_LABELS[report.report_type] || report.report_type}
             </span>
@@ -519,6 +601,8 @@ function ReportDetailView({ report, onBack }: { report: ReportDetail; onBack: ()
           {/* Content sections — branch by report type */}
           {report.report_type === 'alert' ? (
             <AlertDetailSection content={report.content_json} category={report.category} />
+          ) : report.report_type === 'mlops' ? (
+            <FinetuneReportSection content={report.content_json} />
           ) : (
             <div className="space-y-3">
               {report.content_json?.period != null && typeof report.content_json.period === 'object' && (
@@ -624,6 +708,7 @@ export default function ReportsPage() {
               <option value="weekly">주간</option>
               <option value="monthly">월간</option>
               <option value="alert">알림</option>
+              <option value="mlops">MLOps</option>
             </select>
           </div>
           <select
@@ -690,9 +775,11 @@ export default function ReportsPage() {
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                       r.report_type === 'alert'
                         ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
+                        : r.report_type === 'mlops'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
                     }`}>
-                      {r.report_type === 'alert' ? <AlertTriangle className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
+                      {r.report_type === 'alert' ? <AlertTriangle className="h-3 w-3" /> : r.report_type === 'mlops' ? <Activity className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
                       {TYPE_LABELS[r.report_type] || r.report_type}
                     </span>
                   </div>

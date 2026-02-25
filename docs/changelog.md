@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-02-25
+
+### feat: Fine-tuning 완료 후 MLOps 리포트 자동 생성 + 이메일 발송
+- **목적**: Fine-tuning 완료 시 (품질 게이트 통과/실패 모두) 학습 결과 리포트를 자동 생성하고 관리자에게 이메일로 발송
+- **`report_generator.py` (v0.3.0)**: `generate_finetune_report()` + `_generate_finetune_narrative()` 추가
+  - 동기 wrapper — finetune 컨테이너에서 직접 호출, 자체 async engine 생성/폐기 (mlops_insight.py 패턴)
+  - content_json: training(설정) + evaluation(F1/Precision/Recall) + quality_gate(승격 여부) + deployment_insight + GPT-5 narrative
+  - 승격 시 severity="info", 거부 시 severity="warning"
+  - GPT-5 비전문가 관리자용 한국어 500자 내러티브 (빈 응답 시 2회 재시도)
+- **`finetune_bert_ner.py`**: 품질 게이트 판정 후 리포트 생성 호출 (try/except로 감싸 실패 시 fine-tuning 결과에 무영향)
+- **`email_sender.py`**: `type_label`에 `"mlops": "MLOps 학습 리포트"` 추가
+- **`ReportsPage.tsx`**: MLOps 리포트 타입 지원
+  - TYPE_LABELS + 필터 드롭다운에 `mlops` 추가
+  - 보라색 뱃지 + Activity 아이콘
+  - `FinetuneReportSection` 컴포넌트: 학습 설정, 평가 결과(3열 F1/P/R), 품질 검증(승격 아이콘), 배포 인사이트(보라색 카드)
+- **수정 파일**: `report_generator.py`, `finetune_bert_ner.py`, `email_sender.py`, `ReportsPage.tsx`
+
+---
+
 ## 2026-02-24
 
 ### feat: NER Fine-tuning 파이프라인 전면 개선 (v0.4.0)

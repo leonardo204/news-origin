@@ -40,6 +40,7 @@ def _build_html_email(
         "weekly": "주간 리포트",
         "monthly": "월간 리포트",
         "alert": "알림 리포트",
+        "mlops": "MLOps 학습 리포트",
     }.get(report_type, report_type)
 
     now_kst = datetime.now(KST)

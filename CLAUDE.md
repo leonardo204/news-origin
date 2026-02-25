@@ -128,6 +128,7 @@ make docker-down      # 인프라 중지
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008), `metric_type` 컬럼 (Alembic 012)
 - **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, 자동 fine-tuning 포함)
 - **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
+- **Fine-tuning 리포트**: 품질 게이트 판정 후 `report_generator.py`의 `generate_finetune_report()`가 MLOps 리포트 자동 생성 + 이메일 발송 (승격/거부 모두)
 - **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행 + fallback 사유 + GPT reasoning), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
 - **관리자 개요 (`/admin`)**: 서비스 상태 5종 (DB/Redis/Qdrant/Celery/NER 모델) + InfoBadge 역할 설명 툴팁, NER 모델 상태 (BERT ok/kiwipiepy warning/로딩 중)
 - **시스템 모니터링 (`/admin/system`)**: 호스트 리소스 + 컨테이너별 메모리 사용량 (Docker SDK, ThreadPoolExecutor 병렬 수집), 프로그레스 바 + InfoBadge 설명
@@ -207,8 +208,13 @@ make docker-down      # 인프라 중지
 - **게시판 UI**: `/admin/reports` — 전통적 게시판 스타일 (목록 ↔ 상세 전환), 섹션별 전용 렌더러 (차트/프로그레스 바/테이블)
 - **DB 테이블**: `admin_reports` (Alembic 010), content_json에 섹션별 통계 저장
 - **설정**: `config.py` — `smtp_*`, `admin_email`, `alert_*_threshold`, `alert_cooldown_minutes`
-- **report_generator.py**: 각 섹션(크롤링/트래픽/MLOps/시스템/에러) 독립 try/except + rollback
+- **MLOps 리포트**: Fine-tuning 완료 시 `generate_finetune_report()` 자동 호출 (`report_type="mlops"`)
+  - content_json: training(설정) + evaluation(F1/P/R) + quality_gate(승격 여부) + deployment_insight + GPT-5 narrative
+  - 승격 시 severity="info", 거부 시 severity="warning"
+  - finetune 컨테이너에서 직접 호출 (자체 async engine 생성/폐기, mlops_insight.py 패턴)
+- **report_generator.py**: 정기(크롤링/트래픽/MLOps/시스템/에러) + MLOps 리포트, 각 섹션 독립 try/except + rollback
 - **관리자 대시보드**: `/admin/traffic` — 에어리어 차트, GeoIP 계층 분포 (국가 펼침 → 도시/구별 바), 상태코드, 엔드포인트 통계
+- **리포트 게시판**: `/admin/reports` — MLOps 타입 필터, 보라색 뱃지, FinetuneReportSection(학습 설정/평가 결과/품질 검증/배포 인사이트)
 
 ## Host PC & Performance Constraints
 
