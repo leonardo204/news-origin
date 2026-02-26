@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-02-26
+
+### fix: finetune 컨테이너 SMTP 환경변수 누락 — MLOps 리포트 이메일 미발송
+- **문제**: Fine-tuning 완료 후 MLOps 리포트는 정상 생성되나 "SMTP 미설정 — 미발송" 상태
+- **원인**: `docker-compose.prod.yml`의 finetune 컨테이너에 `SMTP_*`, `ADMIN_EMAIL`, `CORS_ORIGINS` 환경변수 미설정
+  - `send_report_email()`이 `smtp_host`, `smtp_user`, `smtp_pass`, `admin_email` 4개 모두 필요한데 빈 문자열 기본값으로 남아 있음
+- **수정**: finetune 컨테이너 environment에 SMTP 7개 + CORS_ORIGINS 환경변수 추가
+- **수정 파일**: `docker-compose.prod.yml`
+
+---
+
 ## 2026-02-25
 
 ### feat: Fine-tuning 완료 후 MLOps 리포트 자동 생성 + 이메일 발송

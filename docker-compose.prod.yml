@@ -202,6 +202,14 @@ services:
       - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
       - WEBHOOK_URL=${WEBHOOK_URL:-}
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
     volumes:
       - bert_models:/app/models/bert-ner
     depends_on:
