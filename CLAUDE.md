@@ -116,6 +116,7 @@ make docker-down      # 인프라 중지
   - `trigger_bert_finetune` 태스크가 Docker SDK로 `newsorigin-finetune` 컨테이너를 detach 모드로 시작 → 워커 블로킹 없음
   - 수동 실행도 가능: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
   - celery-worker/backend에 Docker 소켓 마운트 필요 (`/var/run/docker.sock`, `DOCKER_GID` 환경변수)
+  - finetune 컨테이너에 `SMTP_*`, `ADMIN_EMAIL`, `CORS_ORIGINS` 환경변수 필수 (리포트 이메일 발송용, 누락 시 "SMTP 미설정" 스킵)
   - **누적 학습**: `is_used_for_training` 필터 제거, 전체 누적 데이터 사용 (`ner_training_max_samples=2000` 상한, 고품질 우선)
   - **Entity-level 메트릭**: `seqeval` 엔터티 단위 F1 (토큰 단위에서 전환), `metric_type` 컬럼으로 구분
   - **Continual Learning**: `ner_continual_learning=True` 시 이전 active 모델에서 이어서 학습 (라벨 불일치 시 base fallback)
