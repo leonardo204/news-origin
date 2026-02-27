@@ -122,7 +122,7 @@ def send_report_email(
         plain_parts.append("[AI 운영 요약]")
         plain_parts.append(narrative)
         plain_parts.append("")
-    plain_parts.append(summary)
+    plain_parts.append(summary or "")
     msg.attach(MIMEText("\n".join(plain_parts), "plain", "utf-8"))
 
     # HTML version

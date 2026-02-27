@@ -4,14 +4,26 @@
 
 ---
 
+## 2026-02-27
+
+### fix: email_sender.py — summary가 None일 때 plain text 이메일 생성 실패
+- **문제**: `send_report_email()`에서 `summary`가 `None`이면 `"\n".join(plain_parts)`에서 TypeError 발생
+- **원인**: MLOps 리포트에서 GPT narrative 생성 실패 시 summary=None으로 전달 가능
+- **수정**: `plain_parts.append(summary or "")` — None 방어
+- **수정 파일**: `email_sender.py`
+
+---
+
 ## 2026-02-26
 
 ### fix: finetune 컨테이너 SMTP 환경변수 누락 — MLOps 리포트 이메일 미발송
 - **문제**: Fine-tuning 완료 후 MLOps 리포트는 정상 생성되나 "SMTP 미설정 — 미발송" 상태
-- **원인**: `docker-compose.prod.yml`의 finetune 컨테이너에 `SMTP_*`, `ADMIN_EMAIL`, `CORS_ORIGINS` 환경변수 미설정
-  - `send_report_email()`이 `smtp_host`, `smtp_user`, `smtp_pass`, `admin_email` 4개 모두 필요한데 빈 문자열 기본값으로 남아 있음
-- **수정**: finetune 컨테이너 environment에 SMTP 7개 + CORS_ORIGINS 환경변수 추가
-- **수정 파일**: `docker-compose.prod.yml`
+- **원인 1**: `docker-compose.prod.yml`의 finetune 컨테이너에 SMTP 환경변수 미설정 (수동 실행 시)
+- **원인 2 (근본)**: `trigger_bert_finetune` Docker SDK `env_keys` 리스트에 SMTP 변수 누락 (자동 실행 시)
+  - Docker SDK는 `docker-compose.prod.yml`을 읽지 않고, celery-worker의 `os.environ`에서 `env_keys` 리스트의 변수만 복사
+  - SMTP_HOST 등이 리스트에 없어 finetune 컨테이너에 전달되지 않음
+- **수정**: `tasks.py` `env_keys`에 SMTP 7개 + CORS_ORIGINS 추가, `docker-compose.prod.yml`도 동일하게 유지
+- **수정 파일**: `tasks.py`, `docker-compose.prod.yml`
 
 ---
 

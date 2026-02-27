@@ -1531,6 +1531,10 @@ def trigger_bert_finetune(self):
             "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY",
             "AZURE_OPENAI_MODEL_NAME", "AZURE_OPENAI_API_VERSION",
             "APP_SECRET_KEY", "WEBHOOK_URL",
+            # SMTP (Fine-tuning 리포트 이메일 발송용)
+            "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS",
+            "SMTP_FROM_EMAIL", "SMTP_USE_TLS", "ADMIN_EMAIL",
+            "CORS_ORIGINS",
         ]
         env_vars = {k: os.environ[k] for k in env_keys if k in os.environ}
 
