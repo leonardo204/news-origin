@@ -221,31 +221,39 @@ def rollback_model() -> bool:
 def should_promote(
     new_f1: float,
     current_f1: Optional[float],
-    min_improvement: float = 0.01,
+    min_f1_threshold: float = 0.90,
     current_metric_type: Optional[str] = None,
 ) -> bool:
     """
     Quality gate: 새 모델이 승격 조건을 충족하는지 검증
 
+    판정 기준:
+        1. 절대 임계값: F1 >= min_f1_threshold (기본 0.90)
+        2. 비회귀: F1 >= 현재 active 모델의 F1 (같거나 높으면 승격)
+
     Args:
         new_f1: 새 모델의 검증 F1 점수
         current_f1: 현재 활성 모델의 F1 점수 (없으면 None)
-        min_improvement: 최소 F1 개선 폭
+        min_f1_threshold: 최소 F1 절대 임계값
         current_metric_type: 현재 모델의 메트릭 유형 ("token"|"entity"|None)
 
     Returns:
         승격 여부
     """
+    # 절대 임계값 미달 시 무조건 탈락
+    if new_f1 < min_f1_threshold:
+        return False
+
     if current_f1 is None:
-        # 기존 모델이 없으면 (base model) F1 > 0.5 이면 승격
-        return new_f1 > 0.5
+        # 기존 모델이 없으면 (base model) 절대 임계값만 통과하면 승격
+        return True
 
-    # 메트릭 유형 전환 (token→entity): entity-level F1은 token-level보다 낮으므로 직접 비교 불가
-    # 이전 모델이 entity 메트릭이 아니면 "첫 모델" 경로 적용
+    # 메트릭 유형 전환 (token→entity): 직접 비교 불가, 절대 임계값만 적용
     if current_metric_type != "entity":
-        return new_f1 > 0.5
+        return True
 
-    return new_f1 >= current_f1 + min_improvement
+    # 비회귀: 현재 모델 대비 같거나 높으면 승격
+    return new_f1 >= current_f1
 
 
 def cleanup_old_versions(keep_count: int = 3) -> int:

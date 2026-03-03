@@ -528,10 +528,14 @@ def run_finetune(dry_run: bool = False) -> dict:
     except Exception:
         pass
 
-    promoted = should_promote(f1, current_f1, current_metric_type=current_metric_type)
+    promoted = should_promote(
+        f1, current_f1,
+        min_f1_threshold=settings.ner_min_f1_threshold,
+        current_metric_type=current_metric_type,
+    )
     if promoted:
-        logger.info(f"Quality gate passed (new={f1:.4f}, current={current_f1}, "
-                     f"metric_type_transition={current_metric_type}→entity), promoting {version}")
+        logger.info(f"Quality gate passed (new={f1:.4f} >= current={current_f1}, "
+                     f"threshold={settings.ner_min_f1_threshold}), promoting {version}")
         promote_model(version)
 
         # 배포 인사이트 생성 (GPT-5)
@@ -576,8 +580,8 @@ def run_finetune(dry_run: bool = False) -> dict:
         except Exception:
             pass
     else:
-        logger.warning(f"Quality gate failed (new={f1:.4f}, current={current_f1}, "
-                        f"metric_type={current_metric_type}), model saved but NOT promoted")
+        logger.warning(f"Quality gate failed (new={f1:.4f} < current={current_f1}, "
+                        f"threshold={settings.ner_min_f1_threshold}), model saved but NOT promoted")
 
     # 13. Fine-tuning 리포트 생성 + 이메일 발송
     try:

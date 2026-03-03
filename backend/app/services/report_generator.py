@@ -532,12 +532,12 @@ def generate_finetune_report(
                     "current_metric_type": current_metric_type,
                     "f1_improvement": round(f1 - current_f1, 4) if current_f1 is not None else None,
                     "decision_reason": (
-                        f"품질 기준 충족 ({f1:.4f} >= {current_f1:.4f} + 0.01)"
+                        f"비회귀 통과 ({f1:.4f} >= {current_f1:.4f})"
                         if promoted and current_f1 is not None
                         else "품질 기준 충족 (첫 모델)" if promoted
-                        else f"품질 기준 미달 ({f1:.4f} < {current_f1:.4f} + 0.01)"
+                        else f"회귀 감지 ({f1:.4f} < {current_f1:.4f})"
                         if current_f1 is not None
-                        else f"품질 기준 미달 (F1: {f1:.4f})"
+                        else f"절대 임계값 미달 (F1: {f1:.4f})"
                     ),
                 },
             }

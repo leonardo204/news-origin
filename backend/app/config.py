@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     ner_learning_rate_finetune: float = 2e-5  # fine-tuned 모델 이어 학습 LR
     ner_max_epochs: int = 10  # 최대 학습 에폭
     ner_early_stopping_patience: int = 2  # 조기 종료 인내 횟수
+    ner_min_f1_threshold: float = 0.90  # 모델 승격 최소 F1 절대 임계값
 
     # Admin Dashboard
     admin_username: str = ""

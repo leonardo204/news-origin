@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-03-03
+
+### fix: NER 모델 quality gate를 절대 임계값 + 비회귀 방식으로 변경
+- **문제**: F1 diff 기반 승격 기준(+1%p)이 고성능 구간(0.93+)에서 달성 불가 → v20260226 이후 모든 모델 승격 실패
+- **변경**: `should_promote()` 판정 기준 전환
+  - 기존: `new_f1 >= current_f1 + min_improvement` (diff 기반, 기본 1%p)
+  - 변경: `new_f1 >= min_f1_threshold` (절대 임계값, 기본 0.90) AND `new_f1 >= current_f1` (비회귀)
+- **설정**: `config.py`에 `ner_min_f1_threshold` 추가 (기존 `ner_min_f1_improvement` 대체)
+- **수동 조치**: v20260303 (F1=0.9436) 수동 승격 (v20260226 대비 +0.42%p)
+- **수정 파일**: `model_manager.py`, `finetune_bert_ner.py`, `report_generator.py`, `config.py`
+
+---
+
 ## 2026-02-27
 
 ### fix: email_sender.py — summary가 None일 때 plain text 이메일 생성 실패

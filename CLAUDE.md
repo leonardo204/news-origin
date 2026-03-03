@@ -123,7 +123,7 @@ make docker-down      # 인프라 중지
   - **Adaptive LR**: base 학습 `ner_learning_rate_base=5e-5`, 이어 학습 `ner_learning_rate_finetune=2e-5`
   - **Early Stopping**: `ner_max_epochs=10`, `ner_early_stopping_patience=2`
   - **Stratified Split**: 엔터티 유형 기반 층화 train/val 분할 (희소 클래스 fallback)
-- **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (F1 비교, metric_type 인식), 롤백
+- **모델 관리**: `model_manager.py` — 심볼릭 링크 전환, quality gate (절대 임계값 `ner_min_f1_threshold` + 비회귀), 롤백
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008), `metric_type` 컬럼 (Alembic 012)
