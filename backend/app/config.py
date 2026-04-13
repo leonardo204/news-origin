@@ -83,7 +83,9 @@ class Settings(BaseSettings):
     ner_model_base_dir: str = "/app/models/bert-ner"
     ner_eval_sample_size: int = 30
     ner_eval_min_quality: float = 0.1
-    ner_training_min_samples: int = 200
+    ner_training_min_samples: int = 500
+    ner_min_retrain_interval_days: int = 7  # 마지막 fine-tuning 이후 최소 대기 일수
+    ner_drift_correction_rate_threshold: float = 0.20  # GPT 교정률 임계값 (20%)
     ner_reextract_days: int = 7
     ner_max_model_versions: int = 3
     ner_excluded_publishers: list[str] = ["한겨레"]  # AI 학습 금지 명시 언론사

@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-03-10
+
+### feat: MLOps fine-tuning 트리거를 이벤트 기반 drift detection으로 전환
+- **문제**: F1 0.99+ 수렴 상태에서 매일 fine-tuning 실행 → 리소스 낭비 (CPU 2시간 + 2GB) 후 거부
+- **변경**: 고정 주기(매일) → 3조건 AND 이벤트 기반 트리거
+  - ① 미사용 데이터 >= 500건 (`ner_training_min_samples` 200→500 상향)
+  - ② 마지막 fine-tuning 이후 >= 7일 경과 (`ner_min_retrain_interval_days`)
+  - ③ GPT 교정률 >= 20% (`ner_drift_correction_rate_threshold`) — 최근 7일 `original_entities` vs `gpt_corrected_entities` 불일치 비율
+- **효과**: 모델 성능이 충분하고 데이터 분포 변화가 없으면 불필요한 재학습 자동 스킵
+- **반환값 확장**: `status`에 `drift_low`/`cooldown` 추가, `correction_rate`/`days_since_last_finetune`/`skip_reason` 필드 추가
+- **수정 파일**: `config.py`, `tasks.py`, `CLAUDE.md`
+
+---
+
 ## 2026-03-03
 
 ### fix: NER 모델 quality gate를 절대 임계값 + 비회귀 방식으로 변경
