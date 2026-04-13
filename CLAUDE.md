@@ -1,3 +1,12 @@
+# Claude Code 개발 가이드
+
+> 공통 규칙(Agent Delegation, 커밋 정책, Context DB 등)은 글로벌 설정(`~/.claude/CLAUDE.md`)을 따릅니다.
+> 글로벌 미설치 시: `curl -fsSL https://raw.githubusercontent.com/leonardo204/dotclaude/main/install.sh | bash`
+
+---
+
+## PROJECT
+
 # News Origin - Claude Code Guide
 
 ## Project Overview
@@ -104,6 +113,27 @@ make docker-down      # 인프라 중지
 8. `cleanup_old_articles` 매일 03:00 (90일 이상 기사 삭제)
 
 ## NER MLOps Pipeline
+
+> **⚠️ 현재 비활성화 상태 (2026-04-13~)**
+> 주기적 MLOps 루프(GPT 샘플 평가, 학습 데이터 수집, drift 감지, 자동 fine-tuning)는 중단됨.
+> **BERT NER 추론은 그대로 동작** — `fetch_trending_news`가 기존 active 모델로 키워드 추출 지속.
+> 코드는 삭제하지 않고 주석 처리로 보존되어 있어 언제든 재활성화 가능.
+>
+> **비활성화된 것**:
+> - `beat_schedule.py`의 `collect_ner_training_data`, `check_training_readiness`, `reextract_keywords_batch` 3개 스케줄 (주석 처리)
+> - `tasks.py` `fetch_trending_news` 내부 "5.5. 샘플링 품질 평가" 블록 (주석 처리)
+> - `docker-compose.prod.yml`의 `finetune` 서비스 정의 (주석 처리)
+> - `newsorigin-finetune` 컨테이너 제거됨
+>
+> **유지된 것**: `ner_training_samples`/`ner_model_versions` 테이블, `/admin/mlops` 대시보드, `scripts/finetune_bert_ner.py`, `keyword_extractor.py`/`model_manager.py`/active 심볼릭 링크, 태스크 함수들(`collect_ner_training_data`/`trigger_bert_finetune` 등 — 수동 호출 가능)
+>
+> **재활성화 방법**:
+> 1. `backend/app/workers/beat_schedule.py`의 NER MLOps 스케줄 3개 주석 해제
+> 2. `backend/app/workers/tasks.py`의 "5.5. 샘플링 품질 평가" 블록 주석 해제
+> 3. `docker-compose.prod.yml`의 `finetune` 서비스 블록 주석 해제
+> 4. `./scripts/deploy.sh backend`로 backend/celery-worker/celery-beat 재배포
+> 5. (선택) 수동 fine-tune: `docker compose -f docker-compose.prod.yml --profile finetune run finetune`
+
 - **목적**: GPT-5 평가 데이터로 BERT NER 모델을 점진적으로 개선하는 폐쇄 루프
 - **데이터 수집**: 크롤링 배치마다 5건 샘플 평가 + 6시간 주기 30건 추가 수집
 - **학습 제외 언론사**: `ner_excluded_publishers` 설정으로 AI 학습 금지 명시 언론사(한겨레 등) 기사를 학습 데이터 수집 및 평가 샘플에서 자동 제외
@@ -112,7 +142,9 @@ make docker-down      # 인프라 중지
 - **NER 상태 모니터링**: `check_worker_memory`에서 Redis `celery:worker:ner_status`에 BERT/kiwipiepy 로딩 상태 저장 (600s TTL)
 - **GPT 평가 에이전트**: `ner_evaluation_agent.py` — Azure OpenAI function calling으로 구조화된 NER 교정
 - **학습 데이터**: `ner_training_samples` 테이블에 BIO 태그 형식으로 축적
-- **Fine-tuning** (`finetune_bert_ner.py` v0.4.0): 학습 데이터 임계치(`ner_training_min_samples`) 도달 시 `check_training_readiness`에서 자동 트리거
+- **Fine-tuning** (`finetune_bert_ner.py` v0.4.0): 이벤트 기반 drift detection으로 `check_training_readiness`에서 자동 트리거
+  - **3조건 AND 트리거**: ① 미사용 데이터 >= `ner_training_min_samples`(500) ② 마지막 fine-tuning 이후 >= `ner_min_retrain_interval_days`(7일) ③ GPT 교정률 >= `ner_drift_correction_rate_threshold`(20%)
+  - 교정률 = 최근 7일 `original_entities` vs `gpt_corrected_entities` 불일치 비율
   - `trigger_bert_finetune` 태스크가 Docker SDK로 `newsorigin-finetune` 컨테이너를 detach 모드로 시작 → 워커 블로킹 없음
   - 수동 실행도 가능: `docker compose --profile finetune run finetune` (별도 컨테이너, CPU, ~2시간)
   - celery-worker/backend에 Docker 소켓 마운트 필요 (`/var/run/docker.sock`, `DOCKER_GID` 환경변수)
@@ -127,7 +159,7 @@ make docker-down      # 인프라 중지
 - **모델 경로 우선순위**: `active 심볼릭 링크 > BERT_NER_MODEL_PATH > bert_model_name`
 - **키워드 재추출**: 모델 교체 후 `reextract_keywords_batch` 태스크로 최근 7일 기사 재처리
 - **DB 테이블**: `ner_training_samples`, `ner_model_versions` (Alembic 006), `deployment_insight` 컬럼 (Alembic 007), `original_entities` 컬럼 (Alembic 008), `metric_type` 컬럼 (Alembic 012)
-- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, 자동 fine-tuning 포함)
+- **Celery 스케줄**: `collect_ner_training_data` (6시간), `check_training_readiness` (매일 11:00 KST, drift 기반 자동 fine-tuning)
 - **배포 인사이트**: 모델 승격 시 `mlops_insight.py`가 GPT-5로 품질 분석 인사이트 자동 생성 → `NerModelVersion.deployment_insight`에 저장
 - **Fine-tuning 리포트**: 품질 게이트 판정 후 `report_generator.py`의 `generate_finetune_report()`가 MLOps 리포트 자동 생성 + 이메일 발송 (승격/거부 모두)
 - **관리자 대시보드 (`/admin/mlops`)**: 파이프라인 7단계 시각화 (수집→평가→준비→Fine-tuning→배포→재추출→재클러스터링), finetune 컨테이너 실시간 상태/로그 모니터링, 인라인 평가 활동 (키워드 비교 확장행 + fallback 사유 + GPT reasoning), KST 예상 시간, 예측 대시보드, 품질 분석 차트 4종 + 배포 인사이트 카드, 섹션별 InfoBadge 툴팁
@@ -284,3 +316,14 @@ make docker-down      # 인프라 중지
 - [docs/implementation-plan.md](docs/implementation-plan.md) — 구현 계획 (v1.0.0)
 - [docs/infrastructure-p0-implementation.md](docs/infrastructure-p0-implementation.md) — 인프라 P0
 - [docs/todo-enhancement.md](docs/todo-enhancement.md) — 개선 로드맵
+
+### 상세 문서
+
+- [Context DB 사용법](docs/claude/context-db.md)
+- [Context Monitor (HUD)](docs/claude/context-monitor.md)
+- [코딩 컨벤션](docs/claude/conventions.md)
+- [셋업 가이드](docs/claude/setup.md)
+
+---
+
+*최종 업데이트: 2026-03-10*

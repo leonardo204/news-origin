@@ -185,41 +185,43 @@ services:
     cpus: 1.0
     restart: always
 
-  finetune:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prod
-    container_name: newsorigin-finetune
-    command: python3 -m scripts.finetune_bert_ner
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
-      - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
-      - NER_MODEL_BASE_DIR=/app/models/bert-ner
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
-      - AZURE_OPENAI_MODEL_NAME=${AZURE_OPENAI_MODEL_NAME:-gpt-5}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-01-01-preview}
-      - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
-      - WEBHOOK_URL=${WEBHOOK_URL:-}
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - SMTP_HOST=${SMTP_HOST:-}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER:-}
-      - SMTP_PASS=${SMTP_PASS:-}
-      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
-      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
-      - CORS_ORIGINS=${CORS_ORIGINS:-}
-    volumes:
-      - bert_models:/app/models/bert-ner
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    mem_limit: 2048m
-    profiles:
-      - finetune
+  # finetune 서비스 (비활성화: 2026-04-13)
+  # 재활성화 방법: 아래 블록 주석 해제 + `docker compose -f docker-compose.prod.yml --profile finetune run finetune`
+  # finetune:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile.prod
+  #   container_name: newsorigin-finetune
+  #   command: python3 -m scripts.finetune_bert_ner
+  #   environment:
+  #     - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-newsorigin}:${POSTGRES_PASSWORD:-newsorigin}@postgres:5432/${POSTGRES_DB:-newsorigin}
+  #     - BERT_MODEL_NAME=${BERT_MODEL_NAME:-klue/bert-base}
+  #     - NER_MODEL_BASE_DIR=/app/models/bert-ner
+  #     - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+  #     - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+  #     - AZURE_OPENAI_MODEL_NAME=${AZURE_OPENAI_MODEL_NAME:-gpt-5}
+  #     - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-01-01-preview}
+  #     - APP_SECRET_KEY=${APP_SECRET_KEY:-ygbIk4rCrQgD3qhxiIPlKDfH0gTuBZ0UYW6eHdqjM_M}
+  #     - WEBHOOK_URL=${WEBHOOK_URL:-}
+  #     - CELERY_BROKER_URL=redis://redis:6379/1
+  #     - SMTP_HOST=${SMTP_HOST:-}
+  #     - SMTP_PORT=${SMTP_PORT:-587}
+  #     - SMTP_USER=${SMTP_USER:-}
+  #     - SMTP_PASS=${SMTP_PASS:-}
+  #     - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+  #     - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+  #     - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+  #     - CORS_ORIGINS=${CORS_ORIGINS:-}
+  #   volumes:
+  #     - bert_models:/app/models/bert-ner
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   mem_limit: 2048m
+  #   profiles:
+  #     - finetune
 
   celery-beat:
     build:

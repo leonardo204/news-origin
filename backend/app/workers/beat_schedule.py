@@ -56,19 +56,20 @@ beat_schedule = {
         "task": "app.workers.tasks.check_worker_memory",
         "schedule": crontab(minute="*/5"),
     },
-    # NER MLOps 스케줄
-    "collect-ner-training-data-every-6h": {
-        "task": "app.workers.tasks.collect_ner_training_data",
-        "schedule": crontab(hour="*/6", minute=15),  # 6시간마다 (정각 피해 15분)
-    },
-    "check-training-readiness-daily": {
-        "task": "app.workers.tasks.check_training_readiness",
-        "schedule": crontab(hour=11, minute=0),  # 매일 11:00 KST
-    },
-    "reextract-keywords-on-demand": {
-        "task": "app.workers.tasks.reextract_keywords_batch",
-        "schedule": crontab(day_of_month=1, hour=4, minute=0),  # 매월 1일 04:00 KST
-    },
+    # NER MLOps 스케줄 (비활성화: 2026-04-13)
+    # 재활성화 방법: 아래 3개 항목 주석 해제 + celery-beat 재시작
+    # "collect-ner-training-data-every-6h": {
+    #     "task": "app.workers.tasks.collect_ner_training_data",
+    #     "schedule": crontab(hour="*/6", minute=15),  # 6시간마다 (정각 피해 15분)
+    # },
+    # "check-training-readiness-daily": {
+    #     "task": "app.workers.tasks.check_training_readiness",
+    #     "schedule": crontab(hour=11, minute=0),  # 매일 11:00 KST
+    # },
+    # "reextract-keywords-on-demand": {
+    #     "task": "app.workers.tasks.reextract_keywords_batch",
+    #     "schedule": crontab(day_of_month=1, hour=4, minute=0),  # 매월 1일 04:00 KST
+    # },
     # Admin 리포트 스케줄 (모든 crontab 값은 KST 기준 — timezone="Asia/Seoul")
     "generate-weekly-report": {
         "task": "app.workers.tasks.generate_weekly_report",

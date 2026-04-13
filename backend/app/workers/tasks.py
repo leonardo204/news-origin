@@ -346,28 +346,29 @@ async def _run_fetch_trending():
                     logger.warning(f"Deleted {len(failed_articles)} articles with failed embeddings; pushed {len(failed_articles)} to retry queue")
                 logger.info(f"Embedded {embedded_count}/{len(articles_to_embed)} articles")
 
-            # 5.5. 샘플링 품질 평가 (비용 절감) + MLOps 학습 데이터 수집
-            try:
-                from app.services.evaluator import evaluate_batch_sample
-                eval_articles = [
-                    {"title": a.title, "publisher": a.publisher, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
-                    for a in articles_to_embed[:20]
-                ]
-                eval_results = evaluate_batch_sample(eval_articles, sample_size=5)
-                # 평가 결과를 DB에 저장 (MLOps 학습 데이터 수집)
-                if eval_results:
-                    try:
-                        from app.services.ner_training_pipeline import save_evaluation_results
-                        from app.services.model_manager import get_current_version
-                        await save_evaluation_results(
-                            eval_results,
-                            model_version=get_current_version(),
-                            session_factory=session_factory,
-                        )
-                    except Exception as save_err:
-                        logger.warning(f"Failed to save evaluation results: {save_err}")
-            except Exception as e:
-                logger.warning(f"Sampling evaluation skipped: {e}")
+            # 5.5. 샘플링 품질 평가 + MLOps 학습 데이터 수집 (비활성화: 2026-04-13)
+            # 재활성화 방법: 아래 블록 주석 해제 + backend/celery 재배포
+            # try:
+            #     from app.services.evaluator import evaluate_batch_sample
+            #     eval_articles = [
+            #         {"title": a.title, "publisher": a.publisher, "keywords_data": (a.metadata_ or {}).get("keywords_data", {})}
+            #         for a in articles_to_embed[:20]
+            #     ]
+            #     eval_results = evaluate_batch_sample(eval_articles, sample_size=5)
+            #     # 평가 결과를 DB에 저장 (MLOps 학습 데이터 수집)
+            #     if eval_results:
+            #         try:
+            #             from app.services.ner_training_pipeline import save_evaluation_results
+            #             from app.services.model_manager import get_current_version
+            #             await save_evaluation_results(
+            #                 eval_results,
+            #                 model_version=get_current_version(),
+            #                 session_factory=session_factory,
+            #             )
+            #         except Exception as save_err:
+            #             logger.warning(f"Failed to save evaluation results: {save_err}")
+            # except Exception as e:
+            #     logger.warning(f"Sampling evaluation skipped: {e}")
 
         # 6. 상태 초기화 + 캐시 무효화 + 트렌드 캐시 워밍 + SSE 이벤트 발행
         await set_crawl_status("idle")
@@ -1383,9 +1384,15 @@ def check_training_readiness(self):
 
 
 async def _run_check_readiness():
-    """학습 준비 상태 확인"""
+    """학습 준비 상태 확인 (이벤트 기반 drift detection)
+
+    3가지 조건 모두 충족해야 fine-tuning 트리거:
+    ① 미사용 데이터 >= ner_training_min_samples
+    ② GPT 교정률 >= ner_drift_correction_rate_threshold (최근 7일 기준)
+    ③ 마지막 fine-tuning으로부터 >= ner_min_retrain_interval_days 경과
+    """
     from sqlalchemy import select, func as sa_func
-    from app.models.ner_training import NerTrainingSample
+    from app.models.ner_training import NerTrainingSample, NerModelVersion
     from app.config import get_settings
 
     settings = get_settings()
@@ -1393,6 +1400,7 @@ async def _run_check_readiness():
 
     try:
         async with session_factory() as db:
+            # ① 미사용 데이터 건수
             result = await db.execute(
                 select(sa_func.count(NerTrainingSample.id)).where(
                     NerTrainingSample.is_used_for_training == False  # noqa: E712
@@ -1405,24 +1413,81 @@ async def _run_check_readiness():
             )
             total_count = total_result.scalar() or 0
 
-        ready = unused_count >= settings.ner_training_min_samples
-        status = "ready" if ready else "collecting"
+            # ③ 마지막 fine-tuning 간격
+            last_model_result = await db.execute(
+                select(NerModelVersion.created_at)
+                .order_by(NerModelVersion.created_at.desc())
+                .limit(1)
+            )
+            last_ft_time = last_model_result.scalar()
+
+            if last_ft_time is None:
+                days_since_last = None  # 첫 학습 — 조건 자동 통과
+            else:
+                # DB 시간이 timezone-aware가 아닐 경우 UTC로 보정
+                if last_ft_time.tzinfo is None:
+                    from datetime import timezone as _tz
+                    last_ft_time = last_ft_time.replace(tzinfo=_tz.utc)
+                days_since_last = (datetime.now(timezone.utc) - last_ft_time).days
+
+            # ② GPT 교정률 계산 (최근 7일, original_entities IS NOT NULL)
+            recent_result = await db.execute(
+                select(
+                    NerTrainingSample.original_entities,
+                    NerTrainingSample.gpt_corrected_entities,
+                ).where(
+                    NerTrainingSample.original_entities.isnot(None),
+                    NerTrainingSample.created_at >= datetime.now(timezone.utc) - timedelta(days=7),
+                )
+            )
+            rows = recent_result.all()
+
+            if not rows:
+                correction_rate = 0.0
+            else:
+                corrected_count = 0
+                for orig, corrected in rows:
+                    orig_set = {(e.get("text", ""), e.get("type", "")) for e in (orig or [])}
+                    corr_set = {(e.get("text", ""), e.get("type", "")) for e in (corrected or [])}
+                    if orig_set != corr_set:
+                        corrected_count += 1
+                correction_rate = corrected_count / len(rows)
+
+        # 조건 평가 — 순서대로 체크, 첫 번째 실패 조건에서 스킵
         auto_triggered = False
+        skip_reason = None
+
+        if unused_count < settings.ner_training_min_samples:
+            status = "collecting"
+            skip_reason = f"unused_count({unused_count}) < threshold({settings.ner_training_min_samples})"
+        elif days_since_last is not None and days_since_last < settings.ner_min_retrain_interval_days:
+            status = "cooldown"
+            skip_reason = (
+                f"days_since_last({days_since_last}) < min_retrain_interval({settings.ner_min_retrain_interval_days})"
+            )
+        elif correction_rate < settings.ner_drift_correction_rate_threshold:
+            status = "drift_low"
+            skip_reason = (
+                f"correction_rate({correction_rate:.1%}) < threshold({settings.ner_drift_correction_rate_threshold:.1%})"
+            )
+        else:
+            status = "ready"
 
         logger.info(
             f"NER training readiness: {unused_count} unused / {total_count} total "
-            f"(threshold: {settings.ner_training_min_samples}) — {status}"
+            f"(threshold: {settings.ner_training_min_samples}) — {status} "
+            f"[correction_rate={correction_rate:.1%}, days_since_last={days_since_last}, "
+            f"skip_reason={skip_reason}]"
         )
 
-        if ready:
-
+        if status == "ready":
             try:
                 from app.services.webhook import send_webhook
                 send_webhook(
-                    title="NER Fine-tuning 준비 완료",
+                    title="NER Fine-tuning 자동 트리거",
                     description=(
-                        f"미사용 학습 데이터 {unused_count}건 (임계치: {settings.ner_training_min_samples}건)\n"
-                        "자동 Fine-tuning 트리거됨"
+                        f"미사용 {unused_count}건 | 교정률 {correction_rate:.1%} | "
+                        f"{days_since_last}일 경과\n자동 Fine-tuning 시작"
                     ),
                     color=0x9B59B6,
                 )
@@ -1434,18 +1499,28 @@ async def _run_check_readiness():
                 trigger_bert_finetune.delay()
                 auto_triggered = True
                 logger.info(
-                    f"Auto-triggered BERT fine-tuning: {unused_count} unused samples "
-                    f"(threshold: {settings.ner_training_min_samples})"
+                    f"Auto-triggered BERT fine-tuning: {unused_count} unused samples, "
+                    f"correction_rate={correction_rate:.1%}, days_since_last={days_since_last}"
                 )
             except Exception as ft_err:
                 logger.warning(f"Auto fine-tuning trigger failed: {ft_err}")
+        else:
+            logger.info(
+                f"NER training skipped: {skip_reason} "
+                f"(unused={unused_count}, correction_rate={correction_rate:.1%}, days={days_since_last})"
+            )
 
         return {
             "status": status,
             "unused_samples": unused_count,
             "total_samples": total_count,
             "threshold": settings.ner_training_min_samples,
+            "correction_rate": correction_rate,
+            "correction_rate_threshold": settings.ner_drift_correction_rate_threshold,
+            "days_since_last_finetune": days_since_last,
+            "min_retrain_interval_days": settings.ner_min_retrain_interval_days,
             "auto_triggered": auto_triggered,
+            "skip_reason": skip_reason,
         }
 
     finally:
